@@ -1,2 +1,12 @@
 [
+  {
+    "build_number": 0,
+    "tag": "0.5.0",
+    "base_image": "scrubexif-base:24.04-0.5.0",
+    "git_revision": "361d064",
+    "created": "2025-06-29T19:33:09Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.5.0",
+    "digest": "sha256:f5c3a8a5e4432bd68fbc14a05130a5642cf39cb4923da127fef888eecaa4d69d",
+    "image_id": "sha256:2766fc6747055948d6a07fa95bdc36bd5d60ac4fd8674844710f5aea2c565d1a"
+  }
 ]
