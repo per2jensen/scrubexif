@@ -1,12 +1,2 @@
 [
-  {
-    "build_number": 0,
-    "tag": "0.5.0",
-    "base_image": "jpeg-scrubber-base:24.04-0.5.0",
-    "git_revision": "0659f1a",
-    "created": "2025-06-29T16:41:02Z",
-    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/jpeg-scrubber/tags/0.5.0",
-    "digest": "sha256:c9f24d85e6ead41e31e34dc227abc143bbf1fca3bf4593f05b55e58ceda739c3",
-    "image_id": "sha256:ecbb29f3d6cbfd1708495a12206fe427c557a50f1ee3bdcc1d1e6546b110bb63"
-  }
 ]

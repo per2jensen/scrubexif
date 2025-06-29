@@ -1,10 +1,10 @@
-# jpeg-scrubber
+# scrubexif
 
-🧼 `jpeg-scrubber` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
+🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 
 It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings, lens information, and author credits — ideal for privacy-conscious photographers who still want to share meaningful technical info.
 
-📦 **GitHub**: [per2jensen/jpeg-scrubber](https://github.com/per2jensen/jpeg-scrubber)
+📦 **GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
 
 ---
 
@@ -13,19 +13,19 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 ### Scrub specific files
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber "file1.jpg" "file2.jpeg"
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif "file1.jpg" "file2.jpeg"
 ```
 
 ### Scrub all JPEGs in current directory
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber *.jpg *.jpeg
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg *.jpeg
 ```
 
 ### Scrub an entire folder (non-recursive)
 
 ```bash
-docker run --rm -v "/path/to/folder:/photos" per2jensen/jpeg-scrubber
+docker run --rm -v "/path/to/folder:/photos" per2jensen/scrubexif
 ```
 
 ---
@@ -43,19 +43,19 @@ The container accepts:
 Scrub all `.jpg` files in subdirectories:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber -r
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif -r
 ```
 
 Dry-run (preview only):
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber *.jpg --dry-run
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg --dry-run
 ```
 
 Mix recursion and dry-run:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber -r --dry-run
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif -r --dry-run
 ```
 
 If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
@@ -64,6 +64,7 @@ If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
 
 ## ✅ Features
 
+- Case insensitive, works on .jpg, .JPG, .jpeg & .JPEG
 - Removes most EXIF, IPTC, and XMP metadata
 - **Preserves** useful photography tags:
   - `ExposureTime`, `FNumber`, `ISO`
@@ -94,20 +95,20 @@ It **preserves** key tags important for photographers and viewers.
 Pull the image:
 
 ```bash
-docker pull per2jensen/jpeg-scrubber
+docker pull per2jensen/scrubexif
 ```
 
 Use it:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber *.jpg *.jpeg
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg *.jpeg
 ```
 
 Inspect version and help:
 
 ```bash
-docker run --rm per2jensen/jpeg-scrubber --version
-docker run --rm per2jensen/jpeg-scrubber --help
+docker run --rm per2jensen/scrubexif --version
+docker run --rm per2jensen/scrubexif --help
 ```
 
 ---
@@ -123,7 +124,7 @@ exiftool "image.jpg"
 Inside the container (optional):
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber exiftool "image.jpg"
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif exiftool "image.jpg"
 ```
 
 ---
@@ -133,13 +134,13 @@ docker run --rm -v "$PWD:/photos" per2jensen/jpeg-scrubber exiftool "image.jpg"
 To view embedded labels and metadata:
 
 ```bash
-docker inspect per2jensen/jpeg-scrubber:latest | jq '.[0].Config.Labels'
+docker inspect per2jensen/scrubexif:latest | jq '.[0].Config.Labels'
 ```
 
 You can also check the digest and ID:
 
 ```bash
-docker image inspect per2jensen/jpeg-scrubber --format '{{.RepoDigests}}'
+docker image inspect per2jensen/scrubexif --format '{{.RepoDigests}}'
 ```
 
 ---
@@ -159,7 +160,7 @@ This image is ideal for:
 ## 🔧 Build Locally (Optional)
 
 ```bash
-docker build -t jpeg-scrubber .
+docker build -t scrubexif .
 ```
 
 ---
@@ -177,7 +178,7 @@ See the `LICENSE` file in this repository.
 📸 image-scrubber — Browser-based interactive metadata removal  
 📸 jpg-exif-scrubber — Python tool that strips all metadata (no preservation)
 
-`jpeg-scrubber` focuses on **automated, container-friendly workflows** with **safe defaults** for photographers.
+`scrubexif` focuses on **automated, container-friendly workflows** with **safe defaults** for photographers.
 
 ---
 
@@ -192,4 +193,4 @@ Maintained by **Per Jensen**
 
 Source code, issues, and Dockerfile available on GitHub:
 
-👉 [https://github.com/per2jensen/jpeg-scrubber](https://github.com/per2jensen/jpeg-scrubber)
+👉 [https://github.com/per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)

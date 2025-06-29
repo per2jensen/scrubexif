@@ -15,9 +15,9 @@ SHELL := /bin/bash
 DOCKER ?= docker
 UBUNTU_VERSION ?= 24.04
 
-BASE_IMAGE_NAME = jpeg-scrubber-base
-FINAL_IMAGE_NAME = jpeg-scrubber
-DOCKERHUB_REPO = per2jensen/jpeg-scrubber
+BASE_IMAGE_NAME = scrubexif-base
+FINAL_IMAGE_NAME = scrubexif
+DOCKERHUB_REPO = per2jensen/scrubexif
 BASE_LATEST_TAG = $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)
 
 BUILD_LOG_DIR ?= doc
@@ -61,10 +61,10 @@ final: check_version validate base
 	@echo "Building final image: $(FINAL_TAG)"
 	$(DOCKER) build -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
-		--label org.opencontainers.image.source=https://github.com/per2jensen/jpeg-scrubber \
+		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
 		--label org.opencontainers.image.created="$(DATE)" \
 		--label org.opencontainers.image.revision="$(GIT_REV)" \
-		--label org.opencontainers.image.title="jpeg-scrubber" \
+		--label org.opencontainers.image.title="scrubexif" \
 		--label org.opencontainers.image.version="$(FINAL_VERSION)" \
 		--label org.opencontainers.image.ref.name="$(DOCKERHUB_REPO):$(FINAL_VERSION)" \
 		--label org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using ExifTool" \
@@ -72,7 +72,7 @@ final: check_version validate base
 		--label org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>" \
 		--label org.opencontainers.image.base.name="ubuntu" \
 		--label org.opencontainers.image.base.version="$(UBUNTU_VERSION)" \
-		--label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/jpeg-scrubber" \
+		--label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
 		-t $(FINAL_TAG) \
 		-t $(DOCKERHUB_TAG) .
 
@@ -128,7 +128,7 @@ clean:
 	-$(DOCKER) rmi -f $(FINAL_IMAGE_NAME):$(FINAL_VERSION) || true
 
 clean-all:
-	-docker images -q 'jpeg-scrubber*' | xargs -r docker rmi -f
+	-docker images -q 'scrubexif*' | xargs -r docker rmi -f
 
 # ================================
 # Dev workflow
@@ -139,13 +139,13 @@ BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 dev: FINAL_VERSION=dev
 dev: validate base
-	@echo "Building development image: jpeg-scrubber:dev ..."
+	@echo "Building development image: scrubexif:dev ..."
 	$(DOCKER) build -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
 		--label org.opencontainers.image.created="$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		--label org.opencontainers.image.source=https://github.com/per2jensen/jpeg-scrubber \
+		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
 		--label org.opencontainers.image.revision="$(shell git rev-parse --short HEAD)" \
-		--label org.opencontainers.image.title="jpeg-scrubber" \
+		--label org.opencontainers.image.title="scrubexif" \
 		--label org.opencontainers.image.version="$(FINAL_VERSION)" \
 		--label org.opencontainers.image.ref.name="$(DOCKERHUB_REPO):$(FINAL_VERSION)" \
 		--label org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using ExifTool" \
@@ -153,13 +153,13 @@ dev: validate base
 		--label org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>" \
 		--label org.opencontainers.image.base.name="ubuntu" \
 		--label org.opencontainers.image.base.version="$(UBUNTU_VERSION)" \
-        --label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/jpeg-scrubber" \
+        --label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
 		-t $(FINAL_IMAGE_NAME):$(FINAL_VERSION) .
 
 
 dev-clean:
 	@echo "Removing dev image..."
-	-$(DOCKER) rmi -f jpeg-scrubber:dev || true
+	-$(DOCKER) rmi -f scrubexif:dev || true
 
 show-labels:
 	@if [ -z "$(FINAL_VERSION)" ]; then \

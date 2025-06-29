@@ -2,10 +2,10 @@
 
 FROM ubuntu:24.04
 
-LABEL org.opencontainers.image.title="jpeg-scrubber" \
-      org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using ExifTool" \
+LABEL org.opencontainers.image.title="scrubexif" \
+      org.opencontainers.image.description="Container for sanitizing EXIF data from JPEGs using ExifTool" \
       org.opencontainers.image.licenses="GPL-3.0-or-later" \
-      org.opencontainers.image.source="https://github.com/per2jensen/jpeg-scrubber" \
+      org.opencontainers.image.source="https://github.com/per2jensen/scrubexif" \
       org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>"
 
 ARG VERSION=dev

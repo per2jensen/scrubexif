@@ -19,7 +19,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USER_NAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: per2jensen/jpeg-scrubber
+          repository: per2jensen/scrubexif
           short-description: >
             Lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos.
           readme-filepath: ./README.md

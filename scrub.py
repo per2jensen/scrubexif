@@ -6,10 +6,12 @@ Scrub EXIF metadata from JPEG files while retaining selected tags.
 🐾 Designed for photographers who want to preserve camera details
     (exposure, lens, ISO, etc.) but remove private or irrelevant data.
 
+The script is case insensitive to file extensions and supports both.
+
 Usage examples:
-    docker run -v "$PWD:/photos" jpeg-scrubber:dev
-    docker run -v "$PWD:/photos" jpeg-scrubber:dev image1.jpg image2.jpeg
-    docker run -v "$PWD:/photos" jpeg-scrubber:dev --dry-run --recursive
+    docker run -v "$PWD:/photos" scrubexif:dev
+    docker run -v "$PWD:/photos" scrubexif:dev image1.jpg image2.jpeg
+    docker run -v "$PWD:/photos" scrubexif:dev --dry-run --recursive
 """
 
 import sys
