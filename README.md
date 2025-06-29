@@ -98,10 +98,10 @@ Pull the image:
 docker pull per2jensen/scrubexif
 ```
 
-Use it:
+Use it to clean all .jpg and .jpeg in `$PWD`:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg *.jpeg
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif 
 ```
 
 Inspect version and help:
