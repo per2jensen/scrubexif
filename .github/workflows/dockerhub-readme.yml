@@ -1,0 +1,25 @@
+name: README -> DockerHub
+
+on:
+  push:
+    branches: [main]
+    paths: ["README.md"]
+
+  workflow_dispatch:  # enables manual trigger
+
+jobs:
+  sync-readme:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Sync Docker Hub README
+        uses: peter-evans/dockerhub-description@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER_NAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: per2jensen/jpeg-scrubber
+          short-description: >
+            Lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos.
+          readme-filepath: ./README.md
