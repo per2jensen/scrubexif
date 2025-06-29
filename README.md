@@ -19,7 +19,7 @@ docker run --rm -v "$PWD:/photos" per2jensen/scrubexif "file1.jpg" "file2.jpeg"
 ### Scrub all JPEGs in current directory
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg *.jpeg
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif 
 ```
 
 ### Scrub an entire folder (non-recursive)
@@ -49,7 +49,7 @@ docker run --rm -v "$PWD:/photos" per2jensen/scrubexif -r
 Dry-run (preview only):
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif *.jpg --dry-run
+docker run --rm -v "$PWD:/photos" per2jensen/scrubexif --dry-run
 ```
 
 Mix recursion and dry-run:
