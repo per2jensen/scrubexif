@@ -1,0 +1,36 @@
+# Byte-compiled / temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker / build output
+*.tar
+*.log
+*.bak
+
+
+# Docker-related files (optional)
+*.container
+*.pid
+*.sock
+
+# Editor and IDE config
+.vscode/
+.idea/
+*.swp
+*~
+
+# Python virtualenv (if used)
+venv/
+.env/
+.venv/
+
+# Test outputs (if any future test framework is added)
+coverage/
+htmlcov/
+.cache/
+.pytest_cache/
