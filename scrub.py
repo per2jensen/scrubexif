@@ -22,6 +22,7 @@ Usage examples:
 import sys
 import subprocess
 import argparse
+import shutil
 from pathlib import Path
 
 # === Fixed container paths ===
@@ -31,39 +32,29 @@ PROCESSED_DIR = Path("/photos/processed")
 
 VALID_EXTENSIONS = {".jpg", ".jpeg"}
 
-EXIFTOOL_CMD_BASE = [
-    "exiftool",
-    "-P",  # Preserve timestamps
-    "-overwrite_original",
-    "-all:all=",
-    "-tagsfromfile", "@",
-    "-ICC_Profile",
-    "-exif:ExposureTime",
-    "-exif:CreateDate",
-    "-exif:SubSecTimeDigitized",
-    "-exif:SubSecTime",
-    "-exif:SubSecTimeOriginal",
-    "-exif:FNumber",
-    "-exif:ImageSize",
-    "-LensModel",
-    "-Nikon:Lens",
-    "-Nikon:LensType",
-    "-Nikon:LensIdNumber",
-    "-exif:Rights",
-    "-exif:Title",
-    "-exif:FocalLength",
-    "-exif:Subject",
-    "-exif:ISO",
-    "-exif:Orientation",
-    "-Exif:Artist",
-    "-Exif:CopyRight",
-    "-Iptc:By-line",
-    "-Xmp-dc:all",
-    "-Xmp-iptcExt:Event",
-    "-Model",
-    "-Exif:Software",
+# === EXIF preservation ===
+EXIF_TAGS_TO_KEEP = [
+    "ExposureTime",
+    "CreateDate",
+    "FNumber",
+    "ImageSize",
+    "Rights",
+    "Title",
+    "FocalLength",
+    "Subject",
+    "ISO",
+    "Orientation",
+    "Artist",
+    "Copyright",
+    "By-line",         # IPTC
+    "Event",           # XMP-iptcExt
 ]
 
+EXIFTOOL_CMD_BASE = (
+    ["exiftool", "-P", "-overwrite_original", "-all:all=", "-tagsfromfile", "@"]
+    + [f"-exif:{tag}" for tag in EXIF_TAGS_TO_KEEP if tag not in {"By-line", "Event"}]
+    + ["-Iptc:By-line", "-Xmp-iptcExt:Event", "-ICC_Profile"]
+)
 
 
 def scrub_file(input_file: Path, output_file: Path, dry_run: bool) -> bool:
@@ -72,48 +63,27 @@ def scrub_file(input_file: Path, output_file: Path, dry_run: bool) -> bool:
     if dry_run:
         cmd = ["stdbuf", "-oL", "exiftool", "-listtags", str(input_file)]
     else:
+
+
         if input_file.resolve() == output_file.resolve():
-            # Manual mode: in-place scrub with overwrite
-            cmd = ["stdbuf", "-oL"] + EXIFTOOL_CMD_BASE + [str(input_file)]
+            # Manual mode: overwrite in place
+            cmd = (
+                ["stdbuf", "-oL", "exiftool", "-P", "-overwrite_original", "-all:all=", "-tagsfromfile", "@"]
+                + [f"-exif:{tag}" for tag in EXIF_TAGS_TO_KEEP if tag not in {"By-line", "Event"}]
+                + ["-Iptc:By-line", "-Xmp-iptcExt:Event", "-ICC_Profile"]
+                + [str(input_file)]
+            )
         else:
-            # Auto mode: output to a different file — no overwrite_original!
+            # Auto mode: write to separate output file
             if output_file.exists():
                 output_file.unlink()
+            cmd = (
+                ["stdbuf", "-oL", "exiftool", "-P", "-all:all=", "-tagsfromfile", "@"]
+                + [f"-exif:{tag}" for tag in EXIF_TAGS_TO_KEEP if tag not in {"By-line", "Event"}]
+                + ["-Iptc:By-line", "-Xmp-iptcExt:Event", "-ICC_Profile"]
+                + ["-o", str(output_file), str(input_file)]
+            )
 
-            cmd = [
-                "stdbuf", "-oL",
-                "exiftool",
-                "-P",
-                "-all:all=",
-                "-tagsfromfile", "@",
-                "-ICC_Profile",
-                "-exif:ExposureTime",
-                "-exif:CreateDate",
-                "-exif:SubSecTimeDigitized",
-                "-exif:SubSecTime",
-                "-exif:SubSecTimeOriginal",
-                "-exif:FNumber",
-                "-exif:ImageSize",
-                "-LensModel",
-                "-Nikon:Lens",
-                "-Nikon:LensType",
-                "-Nikon:LensIdNumber",
-                "-exif:Rights",
-                "-exif:Title",
-                "-exif:FocalLength",
-                "-exif:Subject",
-                "-exif:ISO",
-                "-exif:Orientation",
-                "-Exif:Artist",
-                "-Exif:CopyRight",
-                "-Iptc:By-line",
-                "-Xmp-dc:all",
-                "-Xmp-iptcExt:Event",
-                "-Model",
-                "-Exif:Software",
-                "-o", str(output_file),
-                str(input_file)
-            ]
 
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
 
@@ -122,7 +92,6 @@ def scrub_file(input_file: Path, output_file: Path, dry_run: bool) -> bool:
             print(line.strip())
 
     return process.wait() == 0
-
 
 
 def find_images(paths, recursive):
@@ -137,9 +106,6 @@ def find_images(paths, recursive):
                     yield p
 
 
-
-import shutil
-
 def auto_scrub(dry_run: bool, delete_original: bool):
     print("🚀 Auto mode: Scrubbing JPEGs in /photos/input")
     print(f"📤 Output saved to:         {OUTPUT_DIR}")
@@ -150,14 +116,12 @@ def auto_scrub(dry_run: bool, delete_original: bool):
 
     total = scrubbed = skipped = 0
 
-    # 🔒 Freeze input list before processing
     images = sorted(
         p for p in INPUT_DIR.glob("*")
         if p.suffix.lower() in VALID_EXTENSIONS and p.is_file()
     )
 
     for image in images:
-    # Check again before trying to move/delete after scrub
         if not dry_run and not image.exists():
             skipped += 1
             print(f"⚠️  Input file vanished during scrub: {image}")
@@ -170,7 +134,7 @@ def auto_scrub(dry_run: bool, delete_original: bool):
             if scrub_file(image, output_file, dry_run=dry_run):
                 scrubbed += 1
                 print(f"✅ Saved scrubbed file to {output_file}")
-                if not dry_run:
+                if not dry_run and image.exists():
                     if delete_original:
                         image.unlink()
                         print("🗑️ Deleted original from input")
@@ -178,9 +142,8 @@ def auto_scrub(dry_run: bool, delete_original: bool):
                         dest = PROCESSED_DIR / image.name
                         shutil.move(str(image), str(dest))
                         print(f"📦 Moved original to {dest}")
-            else:
-                skipped += 1
-                print(f"❌ Failed to scrub: {image}")
+                else:
+                    print(f"⚠️  Input file already removed: {image}")
         except Exception as e:
             skipped += 1
             print(f"❌ Error processing {image}: {e}")
@@ -189,7 +152,6 @@ def auto_scrub(dry_run: bool, delete_original: bool):
     print(f"  Total JPEGs found     : {total}")
     print(f"  Successfully scrubbed : {scrubbed}")
     print(f"  Skipped (errors)      : {skipped}")
-
 
 
 def main():
@@ -206,7 +168,6 @@ def main():
         return
 
     if not args.paths:
-        # Default to scanning /photos (restores original behavior)
         print("ℹ️ No files or folders provided — defaulting to scanning /photos")
         args.paths = ["/photos"]
 
