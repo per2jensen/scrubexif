@@ -10,27 +10,60 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 ## 🚀 Quick Start
 
-### Scrub specific files
+There are **two modes**:
+
+### ✅ Manual mode (default)
+
+Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
+
+#### Scrub specific files
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif "file1.jpg" "file2.jpeg"
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif "file1.jpg" "file2.jpeg"
 ```
 
-### Scrub all JPEGs in current directory
+#### Scrub all JPEGs in current directory
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif 
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif
 ```
 
-### Scrub an entire folder (non-recursive)
+#### Recursively scrub nested folders
 
 ```bash
-docker run --rm -v "/path/to/folder:/photos" per2jensen/scrubexif
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r
 ```
 
 ---
 
-## 🔧 Options
+### 🤖 Auto mode (`--from-input`)
+
+Scrubs everything in a predefined input directory and saves output to another — useful for batch processing.
+
+You **must** mount three volumes:
+
+- `/photos/input` — input directory (e.g. `$PWD/input`)
+- `/photos/output` — scrubbed files saved here
+- `/photos/processed` — originals are moved here (or deleted if `--delete-original` is used)
+
+#### Example:
+
+```bash
+docker run -it --rm \
+  -v "$PWD/input:/photos/input" \
+  -v "$PWD/output:/photos/output" \
+  -v "$PWD/processed:/photos/processed" \
+  per2jensen/scrubexif --from-input
+```
+
+Optional flags:
+
+- `--delete-original` — Delete originals instead of moving them
+- `--dry-run` — Show what would be scrubbed, but don’t write files
+
+---
+
+## 🔧 Options (Manual mode)
 
 The container accepts:
 
@@ -43,19 +76,19 @@ The container accepts:
 Scrub all `.jpg` files in subdirectories:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif -r
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r
 ```
 
 Dry-run (preview only):
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif --dry-run
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif --dry-run
 ```
 
 Mix recursion and dry-run:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif -r --dry-run
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r --dry-run
 ```
 
 If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
@@ -101,7 +134,7 @@ docker pull per2jensen/scrubexif
 Use it to clean all .jpg and .jpeg in `$PWD`:
 
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif 
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif
 ```
 
 Inspect version and help:
