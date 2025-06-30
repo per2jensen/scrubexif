@@ -35,6 +35,7 @@ check_version:
 		exit 1; \
 	fi
 
+
 validate:
 	@command -v jq >/dev/null || { echo "❌ jq not found"; exit 1; }
 	@command -v docker >/dev/null || { echo "❌ docker not found"; exit 1; }
@@ -76,8 +77,10 @@ final: check_version validate base
 		-t $(FINAL_TAG) \
 		-t $(DOCKERHUB_TAG) .
 
-release: check_version final log-build-json login push
+
+release: check_version final login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
+
 
 log-build-json: check_version
 	@mkdir -p $(BUILD_LOG_DIR)
@@ -107,9 +110,11 @@ log-build-json: check_version
 	    '. += [{"build_number": $$build_number, "tag": $$version, "base_image": $$base, "git_revision": $$rev, "created": $$created, "dockerhub_tag_url": $$url, "digest": $$digest, "image_id": $$image_id}]' \
 	    $(BUILD_LOG_PATH) > $(BUILD_LOG_PATH).tmp && mv $(BUILD_LOG_PATH).tmp $(BUILD_LOG_PATH)
 
+
 push: check_version
 	@echo "Pushing $(DOCKERHUB_REPO):$(FINAL_VERSION) to Docker Hub..."
 	$(DOCKER) push $(DOCKERHUB_REPO):$(FINAL_VERSION)
+
 
 login:
 	@echo "🔐 Logging in to Docker Hub..."
@@ -119,6 +124,7 @@ login:
 	fi
 	echo "$$DOCKER_TOKEN" | $(DOCKER) login -u "$$DOCKER_USER" --password-stdin
 
+
 clean:
 	@if [ -z "$(FINAL_VERSION)" ]; then \
 		echo "❌ FINAL_VERSION not set"; exit 1; \
@@ -126,6 +132,7 @@ clean:
 	-$(DOCKER) rmi -f $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION) || true
 	-$(DOCKER) rmi -f $(BASE_LATEST_TAG) || true
 	-$(DOCKER) rmi -f $(FINAL_IMAGE_NAME):$(FINAL_VERSION) || true
+
 
 clean-all:
 	-docker images -q 'scrubexif*' | xargs -r docker rmi -f
@@ -161,6 +168,7 @@ dev-clean:
 	@echo "Removing dev image..."
 	-$(DOCKER) rmi -f scrubexif:dev || true
 
+
 show-labels:
 	@if [ -z "$(FINAL_VERSION)" ]; then \
 		echo "❌ FINAL_VERSION is not set."; \
@@ -169,7 +177,8 @@ show-labels:
 		--format '{{ range $$k, $$v := .Config.Labels }}{{ printf "%-40s %s\n" $$k $$v }}{{ end }}'; \
 	fi
 
-tag:
+
+show-tags:
 	@if [ -z "$(FINAL_VERSION)" ]; then \
 		echo "❌ FINAL_VERSION is not set"; \
 	else \
@@ -178,6 +187,7 @@ tag:
 		echo "Final Image (local):     $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"; \
 		echo "Docker Hub Image:        $(DOCKERHUB_REPO):$(FINAL_VERSION)"; \
 	fi
+
 
 help:
 	@echo "Available targets:"
