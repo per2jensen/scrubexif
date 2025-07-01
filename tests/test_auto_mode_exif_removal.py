@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 # Add the top-level project dir (where scrub.py lives) to PYTHONPATH
-sys.path.append(str(Path(__file__).resolve().parents[1]))
+#sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
+from scrubexif.scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
 
 # === Configuration ===
 IMAGE_NAME = "scrubexif:dev"

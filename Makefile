@@ -169,6 +169,41 @@ dev-clean:
 	-$(DOCKER) rmi -f scrubexif:dev || true
 
 
+paranoia:
+	@echo "🧪 Manually running paranoia tests only"
+	PYTHONPATH=. pytest tests/test_paranoia_gps.py
+
+
+
+test:
+	PYTHONPATH=. pytest
+
+	@echo "🛡️  Running GPS Safety Check..."
+	@if compgen -G "output/*.jpg" > /dev/null; then \
+		if exiftool -gps:all -a -G0:1:2 output/*.jpg | grep -i 'GPS'; then \
+			echo "❌ GPS metadata found in output images"; \
+			exit 1; \
+		else \
+			echo "✅ No GPS metadata found (gps:all check passed)"; \
+		fi \
+	else \
+		echo "ℹ️ No output/*.jpg files found — skipping GPS Safety Check."; \
+	fi
+
+	@echo "🔍 Running Deep Paranoia Check..."
+	@if compgen -G "output/*.jpg" > /dev/null; then \
+		if exiftool -a -G0:1:2 output/*.jpg | grep -i gps; then \
+			echo "❌ 'gps' found somewhere in EXIF output"; \
+			exit 1; \
+		else \
+			echo "✅ Deep paranoia check passed — no 'gps' found."; \
+		fi \
+	else \
+		echo "ℹ️ No output/*.jpg files found — skipping Deep Paranoia Check."; \
+	fi
+
+
+
 show-labels:
 	@if [ -z "$(FINAL_VERSION)" ]; then \
 		echo "❌ FINAL_VERSION is not set."; \

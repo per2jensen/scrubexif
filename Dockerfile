@@ -25,10 +25,14 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-COPY scrub.py /usr/local/bin/scrub
-RUN chmod +x /usr/local/bin/scrub
 
-WORKDIR /photos
-VOLUME ["/photos"]
+# Copy the whole package into /app
+COPY . /app/
+WORKDIR /app
 
-ENTRYPOINT ["/usr/local/bin/scrub"]
+# Install as CLI tool
+RUN pip install .  --break-system-packages
+
+
+# Run the main CLI
+ENTRYPOINT ["scrub"]

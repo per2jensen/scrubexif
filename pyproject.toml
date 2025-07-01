@@ -1,0 +1,15 @@
+# scrubexif/pyproject.toml
+[project]
+name = "scrubexif"
+version = "0.5.2"
+description = "CLI tool to scrub JPEG EXIF metadata"
+authors = [{ name = "Per Jensen", email = "per2jensen@gmail.com" }]
+dependencies = []
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+scrub = "scrubexif.scrub:main"
+

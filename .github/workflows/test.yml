@@ -1,0 +1,61 @@
+name: Run Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y exiftool
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Run tests
+        run: PYTHONPATH=. pytest
+
+      - name: 🛡️ GPS Safety Check
+        if: success()
+        run: |
+          echo "Checking for GPS tags in scrubbed images..."
+          if compgen -G "output/*.jpg" > /dev/null; then
+            if exiftool -gps:all -a -G0:1:2 output/*.jpg | grep -i 'GPS'; then
+              echo "❌ GPS metadata found!"
+              exit 1
+            else
+              echo "✅ No GPS metadata found."
+            fi
+          else
+            echo "ℹ️ No output/*.jpg files found — skipping GPS safety check."
+          fi
+
+      - name: 🔍 Deep Paranoia Check
+        if: success()
+        run: |
+          echo "Scanning all EXIF fields for any 'gps' mention..."
+          if compgen -G "output/*.jpg" > /dev/null; then
+            if exiftool -a -G0:1:2 output/*.jpg | grep -i gps; then
+              echo "❌ Found 'gps' in EXIF output!"
+              exit 1
+            else
+              echo "✅ No 'gps' found anywhere in EXIF output."
+            fi
+          else
+            echo "ℹ️ No output/*.jpg files found — skipping paranoia check."
+          fi
