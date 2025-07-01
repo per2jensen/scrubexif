@@ -175,7 +175,7 @@ paranoia:
 
 
 
-test:
+test: dev
 	PYTHONPATH=. pytest
 
 	@echo "🛡️  Running GPS Safety Check..."
