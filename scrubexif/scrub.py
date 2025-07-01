@@ -49,12 +49,15 @@ EXIFTOOL_CMD_AUTO = EXIFTOOL_CMD_BASE_COMMON.copy()
 EXIFTOOL_CMD_MANUAL = ["-overwrite_original"] + EXIFTOOL_CMD_BASE_COMMON
 
 
-
 def build_preserve_args():
     args = []
+    seen = set()
     for tag in EXIF_TAGS_TO_KEEP:
         for group in TAG_GROUPS:
-            args.append(f"-{group}:{tag}" if group else f"-{tag}")
+            key = f"{group}:{tag}" if group else tag
+            if key not in seen:
+                args.append(f"-{key}")
+                seen.add(key)
     return args
 
 
@@ -63,10 +66,17 @@ def scrub_file(input_path: Path, output_path: Path, delete_original=False, dry_r
         print(f"🔍 Dry run: would scrub {input_path}")
         return True
 
+
     if input_path.resolve() == output_path.resolve():
+        # Manual mode (overwrite)
         cmd = EXIFTOOL_CMD_MANUAL + [str(input_path)]
     else:
-        cmd = EXIFTOOL_CMD_AUTO + ["-o", str(output_path), str(input_path)]
+        # Auto mode (copy with preserved tags)
+        cmd = (
+            ["exiftool", "-P", "-m", "-all=", "-tagsFromFile", "@"]
+            + build_preserve_args()
+            + ["-o", str(output_path), str(input_path)]
+        )
 
     result = subprocess.run(cmd, capture_output=True, text=True)
 

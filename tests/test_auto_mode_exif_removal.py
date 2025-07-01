@@ -3,13 +3,9 @@ import subprocess
 import shutil
 import tempfile
 import json
-import sys
 from pathlib import Path
 
 import pytest
-
-# Add the top-level project dir (where scrub.py lives) to PYTHONPATH
-#sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from scrubexif.scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
 
@@ -18,6 +14,17 @@ IMAGE_NAME = "scrubexif:dev"
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 SAMPLE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 EXIFTOOL = shutil.which("exiftool")
+
+
+def find_tag(tags, tag):
+    return (
+        tags.get(tag)
+        or tags.get(f"XMP:{tag}")
+        or tags.get(f"XMP-dc:{tag}")
+        or tags.get(f"EXIF:{tag}")
+        or tags.get(f"IPTC:{tag}")
+    )
+
 
 @pytest.mark.skipif(not EXIFTOOL, reason="exiftool not installed")
 def test_exif_sanitization_auto_mode():
@@ -30,8 +37,9 @@ def test_exif_sanitization_auto_mode():
         output_dir.mkdir()
         processed_dir.mkdir()
 
-        # Copy the EXIF-heavy photo into input dir
-        shutil.copyfile(SAMPLE_IMAGE, input_dir / SAMPLE_IMAGE.name)
+        # Copy EXIF-heavy image to input dir, keep filename
+        dst_image = input_dir / SAMPLE_IMAGE.name
+        shutil.copyfile(SAMPLE_IMAGE, dst_image)
 
         # Run the container
         result = subprocess.run([
@@ -55,11 +63,11 @@ def test_exif_sanitization_auto_mode():
         )
         tags = json.loads(exif_json)[0]
 
-        # Assert all required tags are present
+        # ✅ Required tags should be present (from any group)
         for tag in REQUIRED_TAGS:
-            assert tag in tags, f"Expected tag '{tag}' missing"
+            assert find_tag(tags, tag), f"❌ Required tag '{tag}' not found in any group"
 
-        # Assert sensitive tags are removed
+        # ❌ Forbidden tags should be fully gone
         lower_keys = [k.lower() for k in tags]
         assert not any("gps" in k for k in lower_keys), "GPS tag should be removed"
         assert not any("serialnumber" in k for k in lower_keys), "SerialNumber tag should be removed"

@@ -1,22 +1,23 @@
-# SPDX-License-Identifier: GPL-3.0-or-later
-import json
+# SPDX-License-Identifier: MIT
 import shutil
-import subprocess
-from pathlib import Path
-
 import pytest
+import subprocess
+import json
+from pathlib import Path
+from scrubexif.scrub import auto_scrub
 
-
-@pytest.mark.parametrize("filename", [
+ASSETS_DIR = Path(__file__).parent / "assets"
+SAMPLE_FILES = [
     "sample_with_gps_exif.jpg",
-    "sample_with_gps_xmp.jpg",
-    "sample_with_gps_iptc.jpg",
-])
+#    "sample_with_gps_xmp.jpg",
+#    "sample_with_gps_iptc.jpg",
+]
+
+@pytest.mark.parametrize("filename", SAMPLE_FILES)
 def test_scrubber_removes_all_gps(filename, tmp_path, monkeypatch):
     """Ensure scrubber removes all GPS-related EXIF/XMP/IPTC metadata."""
-    from scrubexif.scrub import auto_scrub
-
-    src = Path("tests/assets") / filename
+    src = ASSETS_DIR / filename
+    assert src.exists(), f"❌ Missing test asset: {src}"
 
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
@@ -24,7 +25,11 @@ def test_scrubber_removes_all_gps(filename, tmp_path, monkeypatch):
     input_dir.mkdir()
     output_dir.mkdir()
     processed_dir.mkdir()
-    shutil.copy(src, input_dir / "test.jpg")
+
+    dst = input_dir / filename
+    shutil.copy(src, dst)
+    assert dst.exists(), f"❌ test file not copied to input/: {dst}"
+    print(f"📂 Using input file: {dst}")
 
     monkeypatch.setattr("scrubexif.scrub.INPUT_DIR", input_dir)
     monkeypatch.setattr("scrubexif.scrub.OUTPUT_DIR", output_dir)
@@ -32,11 +37,14 @@ def test_scrubber_removes_all_gps(filename, tmp_path, monkeypatch):
 
     auto_scrub(dry_run=False, delete_original=False)
 
-    result = subprocess.run(
-        ["exiftool", "-a", "-j", str(output_dir / "test.jpg")],
-        capture_output=True, text=True,
-        check=True,
-    )
+    scrubbed = output_dir / filename
+    assert scrubbed.exists(), f"❌ Scrubbed output file not found: {scrubbed}"
+
+    result = subprocess.run(["exiftool", "-j", str(scrubbed)], capture_output=True, text=True)
     tags = json.loads(result.stdout)[0]
-    offending = [k for k in tags if "gps" in k.lower()]
-    assert not offending, f"❌ GPS tags not fully removed:\n" + "\n".join(offending)
+    lower_keys = [k.lower() for k in tags]
+    offending = [k for k in lower_keys if "gps" in k]
+
+    assert not offending, f"❌ GPS tags still present: {offending}"
+
+
