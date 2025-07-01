@@ -4,7 +4,9 @@
 
 It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings, lens information, and author credits — ideal for privacy-conscious photographers who still want to share meaningful technical info.
 
-📦 **GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
+👉 **GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
+
+📦 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
 ---
 
@@ -125,23 +127,46 @@ It **preserves** key tags important for photographers and viewers.
 
 ## 🐳 Docker Image
 
-Pull the image:
+For now I am not using `latest`, as the images are only development quality.
+
+I am currently going with:
+
+- `:0.5.x`  → Versioned releases
+- `:stable` → Latest tested and approved version, perhaps with an :rc before declaring :stable
+- `:dev`    → Bleeding edge development, may be broken, not put on Docker Hub
+
+The Release pipeline in the Makefile automatically updates the [build-history.json](https://github.com/per2jensen/scrubexif/blob/main/doc/build-history.json) that keeps various metadata on the uploaded images.
+
+📥 Pull Images
+
+Versioned image:
 
 ```bash
-docker pull per2jensen/scrubexif
+docker pull per2jensen/scrubexif:0.5.2
 ```
 
-Use it to clean all .jpg and .jpeg in `$PWD`:
+Pull the latest stable release (when available)
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif
+docker pull per2jensen/scrubexif:stable
 ```
 
-Inspect version and help:
+✔️ All `:0.5.x` and `:stable` images are verified via GitHub Actions CI.
+
+
+>`:dev` → Bleeding edge development, **only built >locally**, not pushed to Docker Hub
+
+🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
 ```bash
-docker run --rm per2jensen/scrubexif --version
-docker run --rm per2jensen/scrubexif --help
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.5.2
+```
+
+🛠️ Show version and help
+
+```bash
+docker run --rm per2jensen/scrubexif:0.5.2 --version
+docker run --rm per2jensen/scrubexif:0.5.2 --help
 ```
 
 ---
@@ -227,3 +252,5 @@ Maintained by **Per Jensen**
 Source code, issues, and Dockerfile available on GitHub:
 
 👉 [https://github.com/per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
+
+📦 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
