@@ -1,25 +1,34 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""
+Integration tests for pre-flight validation logic in the scrubexif container.
+
+Covers:
+- Input path is a file
+- Missing or unreadable directories
+- Non-writable output/processed dirs
+- Symlink resolution (xfail)
+- Sanity check: valid setup should pass
+"""
+
 import os
 import subprocess
-import pytest
 from pathlib import Path
-
+import pytest
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
 
-def run_scrub_with_volumes(mounts):
+def run_container(mounts: list[str]) -> subprocess.CompletedProcess:
+    """Run container with mounts and current UID (unless root)."""
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
     cmd = ["docker", "run", "--rm"] + user_flag + mounts + [IMAGE, "--from-input"]
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
-def run_container_with_mounts(mounts):
-    user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    return subprocess.run(
-        ["docker", "run", "--rm"] + user_flag + mounts + [IMAGE, "--from-input"],
-        capture_output=True, text=True
-    )
-
+def assert_failed_with_keywords(result: subprocess.CompletedProcess, keywords: list[str]):
+    combined = (result.stdout + result.stderr).lower()
+    assert result.returncode != 0, "Expected container to fail, but it exited with 0"
+    assert any(k in combined for k in keywords), f"Expected failure reason missing.\nOutput:\n{combined}"
 
 
 def test_input_is_file(tmp_path):
@@ -28,33 +37,33 @@ def test_input_is_file(tmp_path):
     (tmp_path / "output").mkdir()
     (tmp_path / "processed").mkdir()
 
-    result = run_scrub_with_volumes([
+    result = run_container([
         "-v", f"{bad_input}:/photos/input",
         "-v", f"{tmp_path / 'output'}:/photos/output",
         "-v", f"{tmp_path / 'processed'}:/photos/processed",
     ])
 
-    assert result.returncode != 0
-    assert "is not a directory" in result.stderr or "not a directory" in result.stdout
+    assert_failed_with_keywords(result, ["not a directory"])
+
 
 def test_processed_dir_not_writable(tmp_path):
-    (tmp_path / "input").mkdir()
-    (tmp_path / "output").mkdir()
-    processed = tmp_path / "processed"
-    processed.mkdir()
-    processed.chmod(0o500)  # not writable
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+    input_dir.mkdir()
+    output_dir.mkdir()
+    processed_dir.mkdir()
+    processed_dir.chmod(0o500)  # Remove write permissions
 
     try:
-        result = run_scrub_with_volumes([
-            "-v", f"{tmp_path / 'input'}:/photos/input",
-            "-v", f"{tmp_path / 'output'}:/photos/output",
-            "-v", f"{processed}:/photos/processed",
+        result = run_container([
+            "-v", f"{input_dir}:/photos/input",
+            "-v", f"{output_dir}:/photos/output",
+            "-v", f"{processed_dir}:/photos/processed",
         ])
-
-        assert result.returncode != 0
-        assert "not writable" in result.stderr or "not writable" in result.stdout
+        assert_failed_with_keywords(result, ["not writable"])
     finally:
-        processed.chmod(0o700)  # cleanup
+        processed_dir.chmod(0o700)  # Restore permissions
 
 
 def test_input_directory_does_not_exist(tmp_path):
@@ -64,19 +73,14 @@ def test_input_directory_does_not_exist(tmp_path):
     output.mkdir()
     processed.mkdir()
 
-    result = run_container_with_mounts([
+    result = run_container([
         "-v", f"{bogus_input}:/photos/input",
         "-v", f"{output}:/photos/output",
         "-v", f"{processed}:/photos/processed"
     ])
 
-    assert result.returncode != 0
-    assert (
-        "not writable" in result.stderr.lower()
-        or "not writable" in result.stdout.lower()
-        or "does not exist" in result.stderr.lower()
-        or "does not exist" in result.stdout.lower()
-    )
+    assert_failed_with_keywords(result, ["not writable", "does not exist"])
+
 
 @pytest.mark.xfail(reason="Docker resolves host symlinks; container sees real dir")
 def test_input_is_symlink(tmp_path):
@@ -89,21 +93,13 @@ def test_input_is_symlink(tmp_path):
     output.mkdir()
     processed.mkdir()
 
-    result = run_container_with_mounts([
+    result = run_container([
         "-v", f"{symlink_dir}:/photos/input",
         "-v", f"{output}:/photos/output",
         "-v", f"{processed}:/photos/processed"
     ])
 
-    assert result.returncode != 0
-    assert (
-        "not writable" in result.stderr.lower()
-        or "not writable" in result.stdout.lower()
-        or "symlink" in result.stderr.lower()
-        or "symlink" in result.stdout.lower()
-    )
-
-
+    assert_failed_with_keywords(result, ["symlink", "not writable"])
 
 
 def test_unwritable_output_directory(tmp_path):
@@ -113,19 +109,16 @@ def test_unwritable_output_directory(tmp_path):
     input_dir.mkdir()
     output_dir.mkdir()
     processed_dir.mkdir()
-
-    # Make output unwritable (only if running non-root)
-    output_dir.chmod(0o555)
+    output_dir.chmod(0o555)  # read-only
 
     try:
-        if os.getuid() != 0:
-            result = run_container_with_mounts([
+        if os.getuid() != 0:  # Only fails as non-root
+            result = run_container([
                 "-v", f"{input_dir}:/photos/input",
                 "-v", f"{output_dir}:/photos/output",
                 "-v", f"{processed_dir}:/photos/processed"
             ])
-            assert result.returncode != 0
-            assert "not writable" in result.stderr.lower() or "not writable" in result.stdout.lower()
+            assert_failed_with_keywords(result, ["not writable"])
     finally:
         output_dir.chmod(0o755)
 
@@ -138,12 +131,11 @@ def test_all_directories_valid(tmp_path):
     output_dir.mkdir()
     processed_dir.mkdir()
 
-    result = run_container_with_mounts([
+    result = run_container([
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",
         "-v", f"{processed_dir}:/photos/processed"
     ])
 
-    # Should exit with 0 because no JPEGs are found, but dirs are valid
     assert result.returncode == 0
-    assert "no jpegs found" in result.stdout.lower()
+    assert "no jpegs found" in (result.stdout + result.stderr).lower()
