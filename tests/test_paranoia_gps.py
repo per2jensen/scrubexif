@@ -53,6 +53,8 @@ def load_exif_json(image: Path) -> dict:
     return {k.lower(): v for k, v in json.loads(raw)[0].items()}
 
 
+
+@pytest.mark.smoke
 @pytest.mark.parametrize("filename", SAMPLE_FILES)
 def test_scrubber_removes_all_gps(filename, tmp_path):
     """Ensure GPS-related metadata is removed from image in containerized scrub."""
