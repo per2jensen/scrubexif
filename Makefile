@@ -34,6 +34,10 @@ check_version:
 		echo "   Example: make FINAL_VERSION=1.0.0 final"; \
 		exit 1; \
 	fi
+	@if ! echo "$(FINAL_VERSION)" | grep -Eq '^(dev|[0-9]+\.[0-9]+\.[0-9]+)$$'; then \
+		echo "❌ FINAL_VERSION must be 'dev' or semantic, like 0.5.3"; \
+		exit 1; \
+	fi
 
 
 validate:
@@ -78,7 +82,41 @@ final: check_version validate base
 		-t $(DOCKERHUB_TAG) .
 
 
-release: check_version final login push log-build-json
+verify-labels:
+	@echo "🔍 Verifying OCI image labels on $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"
+	@$(eval LABELS := org.opencontainers.image.authors \
+	                  org.opencontainers.image.base.name \
+	                  org.opencontainers.image.base.version \
+	                  org.opencontainers.image.created \
+	                  org.opencontainers.image.description \
+	                  org.opencontainers.image.licenses \
+	                  org.opencontainers.image.ref.name \
+	                  org.opencontainers.image.revision \
+	                  org.opencontainers.image.source \
+	                  org.opencontainers.image.title \
+	                  org.opencontainers.image.url \
+	                  org.opencontainers.image.version)
+
+	@for label in $(LABELS); do \
+	  value=$$(docker inspect -f "$$${label}={{ index .Config.Labels \"$$label\" }}" $(FINAL_IMAGE_NAME):$(FINAL_VERSION) 2>/dev/null | cut -d= -f2-); \
+	  if [ -z "$$value" ]; then \
+	    echo "❌ Missing or empty label: $$label"; \
+	    exit 1; \
+	  else \
+	    echo "✅ $$label: $$value"; \
+	  fi; \
+	done
+
+	@echo "🎉 All required OCI labels are present."
+
+
+
+test-release: check_version
+	@echo "🧪 Running test suite against image: $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"
+	SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
+
+
+release: check_version final verify-labels test-release login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
 
 
@@ -88,11 +126,16 @@ log-build-json: check_version
 
 	$(eval DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
 	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
-	$(eval DIGEST := $(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo ""))
-	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION)))
 
+	$(eval DIGEST := $(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo ""))
 	@if [ -z "$(DIGEST)" ]; then \
 		echo "❌ Digest not found. Make sure the image has been pushed."; \
+		exit 1; \
+	fi
+
+	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION)))
+	@if [ -z "$(IMAGE_ID)" ]; then \
+		echo "❌ Image ID not found. Did you build the final image?"; \
 		exit 1; \
 	fi
 
@@ -173,35 +216,8 @@ paranoia:
 	@echo "🧪 Manually running paranoia tests only"
 	PYTHONPATH=. pytest tests/test_paranoia_gps.py
 
-
-
 test: dev
 	PYTHONPATH=. pytest
-
-	@echo "🛡️  Running GPS Safety Check..."
-	@if compgen -G "output/*.jpg" > /dev/null; then \
-		if exiftool -gps:all -a -G0:1:2 output/*.jpg | grep -i 'GPS'; then \
-			echo "❌ GPS metadata found in output images"; \
-			exit 1; \
-		else \
-			echo "✅ No GPS metadata found (gps:all check passed)"; \
-		fi \
-	else \
-		echo "ℹ️ No output/*.jpg files found — skipping GPS Safety Check."; \
-	fi
-
-	@echo "🔍 Running Deep Paranoia Check..."
-	@if compgen -G "output/*.jpg" > /dev/null; then \
-		if exiftool -a -G0:1:2 output/*.jpg | grep -i gps; then \
-			echo "❌ 'gps' found somewhere in EXIF output"; \
-			exit 1; \
-		else \
-			echo "✅ Deep paranoia check passed — no 'gps' found."; \
-		fi \
-	else \
-		echo "ℹ️ No output/*.jpg files found — skipping Deep Paranoia Check."; \
-	fi
-
 
 
 show-labels:

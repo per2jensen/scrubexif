@@ -223,6 +223,22 @@ docker build -t scrubexif .
 
 ---
 
+🧪 Test Image
+
+To verify that a specific scrubexif Docker image functions correctly, the test suite supports containerized testing using any image tag. By default, it uses the local `scrubexif:dev` image. You can override this with the `SCRUBEXIF_IMAGE` environment variable.
+
+🔧 Default behavior
+
+When running pytest, the following fallback is used if no override is set:
+
+IMAGE_TAG = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+
+This means that the tests will attempt to run:
+
+docker run ... scrubexif:dev ...
+
+If no such local image exists, the test will fail.
+
 ## ✍️ License
 
 Licensed under the GNU General Public License v3.0 or later  

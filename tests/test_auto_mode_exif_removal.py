@@ -3,6 +3,7 @@ import subprocess
 import shutil
 import tempfile
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ import pytest
 from scrubexif.scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
 
 # === Configuration ===
-IMAGE_NAME = "scrubexif:dev"
+IMAGE_NAME = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 SAMPLE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 EXIFTOOL = shutil.which("exiftool")

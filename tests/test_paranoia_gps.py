@@ -33,7 +33,7 @@ SAMPLE_FILES = [
     # "sample_with_gps_iptc.jpg",
 ]
 
-IMAGE_NAME = os.getenv("SCRUBEXIF_IMAGE_TAG", "scrubexif:dev")
+IMAGE_NAME = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
 
 @pytest.mark.parametrize("filename", SAMPLE_FILES)
