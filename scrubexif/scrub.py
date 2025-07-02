@@ -8,10 +8,33 @@ Scrub EXIF metadata from JPEG files while retaining selected tags.
 """
 
 import argparse
+import os
 import subprocess
 import shutil
 import sys
 from pathlib import Path
+
+
+def check_dir_safety(path: Path, label: str):
+    if not path.exists():
+        print(f"❌ {label} directory does not exist: {path}")
+        sys.exit(1)
+    if not path.is_dir():
+        print(f"❌ {label} path is not a directory: {path}")
+        sys.exit(1)
+    if path.is_symlink():
+        print(f"❌ {label} is a symbolic link (not allowed): {path}")
+        sys.exit(1)
+    try:
+        test_file = path / ".scrubexif_write_test"
+        with open(test_file, "w") as f:
+            f.write("test")
+        test_file.unlink()
+    except Exception:
+        print(f"❌ {label} directory is not writable: {path}")
+        sys.exit(1)
+
+
 
 # === Fixed container paths ===
 INPUT_DIR = Path("/photos/input")
@@ -98,7 +121,14 @@ def scrub_file(input_path: Path, output_path: Path, delete_original=False, dry_r
 
 def auto_scrub(dry_run=False, delete_original=False):
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
+
+    # Safety checks
+    check_dir_safety(INPUT_DIR, "Input")
+    check_dir_safety(OUTPUT_DIR, "Output")
+    check_dir_safety(PROCESSED_DIR, "Processed")
+
     input_files = list(INPUT_DIR.glob("*.jpg")) + list(INPUT_DIR.glob("*.jpeg"))
+ 
     if not input_files:
         print("⚠️ No JPEGs found — nothing to do.")
         return

@@ -125,6 +125,18 @@ It **preserves** key tags important for photographers and viewers.
 
 ---
 
+## Known limitations
+
+🚧 **Symlinked input paths are not detected inside the container**
+
+If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Docker resolves the symlink before passing it to the container. This means:
+
+- The container sees `/photos/input` as a normal directory.
+- `scrubexif` cannot detect it was originally a symlink.
+- For safety, avoid mounting symbolic links to any of the required directories.
+
+---
+
 ## 🐳 Docker Image
 
 For now I am not using `latest`, as the images are only development quality.
@@ -168,6 +180,44 @@ docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.5.2
 docker run --rm per2jensen/scrubexif:0.5.2 --version
 docker run --rm per2jensen/scrubexif:0.5.2 --help
 ```
+
+---
+
+## 📌 Recommendations
+
+To ensure smooth and safe operation when using `scrubexif`, follow these guidelines:
+
+### ✅ Use Real Directories for Mounts
+
+Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
+Instead:
+
+docker run -v "$PWD/input:/photos/input" \
+           -v "$PWD/output:/photos/output" \
+           -v "$PWD/processed:/photos/processed" \
+           scrubexif:dev --from-input
+
+### ✅ Run as a Non-Root User
+
+SCRUBEXIF checks directory writability. If you mount a directory as root-only, and the container runs as a non-root user (recommended), it will detect and exit cleanly.
+
+Tip: Use --user 1000 or ensure mounted dirs are writable by UID 1000.
+
+### ✅ Always Pre-Check Mount Paths
+
+Ensure the input, output, and processed directories:
+
+    Exist on the host
+
+    Are not files or symlinks
+
+    Are writable by the container’s user
+
+Otherwise, scrubexif will fail fast with a clear error message.
+
+### ✅ Keep Metadata You Intend to Preserve Explicit
+
+Configure your `scrub.py` to define which EXIF tags to preserve, rather than relying on defaults if privacy is critical.
 
 ---
 
