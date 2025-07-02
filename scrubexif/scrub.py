@@ -158,8 +158,6 @@ def auto_scrub(dry_run=False, delete_original=False):
     print(f"  Skipped (errors)      : {len(input_files) - success}")
 
 
-
-
 def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_original=False):
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
@@ -185,7 +183,17 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
 
         scrub_file(f, f.parent, delete_original=delete_original)
 
+
+
+def require_force_for_root():
+    if os.geteuid() == 0 and os.environ.get("ALLOW_ROOT") != "1":
+        print("❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.", file=sys.stderr)
+        sys.exit(1)
+
+
+
 def main():
+    require_force_for_root()
     parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
@@ -199,5 +207,8 @@ def main():
     else:
         manual_scrub(args.files, recursive=args.recursive, dry_run=args.dry_run, delete_original=args.delete_original)
 
+
+
 if __name__ == "__main__":
     main()
+

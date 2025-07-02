@@ -36,3 +36,6 @@ RUN pip install .  --break-system-packages
 
 # Run the main CLI
 ENTRYPOINT ["scrub"]
+
+# Default to UID 1000 unless overridden with --user
+USER 1000

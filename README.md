@@ -183,6 +183,51 @@ docker run --rm per2jensen/scrubexif:0.5.2 --help
 
 ---
 
+## 🔐 User Privileges and Running as Root
+
+By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
+
+🧑 Default Behavior
+
+```bash
+docker run --rm scrubexif:dev
+```
+
+Runs the container as UID 1000 by default
+
+Ensures safer file operations on mounted volumes
+
+Compatible with most host setups
+
+👤 Running as a Custom User
+
+You can specify a different UID (e.g., match your local user) using the --user flag:
+
+```bash
+docker run --rm --user $(id -u) scrubexif:dev
+```
+
+This ensures created or modified files match your current user permissions.
+
+🚫 Root is Blocked by Default
+
+Running the container as root (UID 0) is explicitly disallowed to prevent unsafe behavior:
+
+```bash
+docker run --rm --user 0 scrubexif:dev
+# ❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.
+```
+
+To override this safeguard, set the following environment variable:
+
+```bash
+docker run --rm --user 0 -e ALLOW_ROOT=1 scrubexif:dev
+```
+
+  ⚠️ Use this option only if you know what you're doing. Writing files as root can cause permission issues on the host system.
+
+---
+
 ## 📌 Recommendations
 
 To ensure smooth and safe operation when using `scrubexif`, follow these guidelines:
