@@ -15,6 +15,13 @@ import sys
 from pathlib import Path
 
 
+__version__ = "0.5.6"
+
+__license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
+THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See section 15 and section 16 in the supplied "LICENSE" file.'''
+
+
 
 # === Fixed container paths ===
 INPUT_DIR = Path("/photos/input")
@@ -40,6 +47,14 @@ EXIF_TAGS_TO_KEEP = [
 
 # Groups to check for tags
 TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC"]
+
+
+
+def show_version():
+    script_name = os.path.basename(sys.argv[0])
+    print(f"{script_name} {__version__}")
+    print(f"{script_name} source code is here: https://github.com/per2jensen/scrubexif")
+    print(__license__)
 
 
 
@@ -192,9 +207,13 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
     for file in files:
         if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
             targets.append(file)
-        elif file.is_dir() and recursive:
-            targets.extend(f for f in file.rglob("*.jpg"))
-            targets.extend(f for f in file.rglob("*.jpeg"))
+        elif file.is_dir():
+            if recursive:
+                targets.extend(f for f in file.rglob("*.jpg"))
+                targets.extend(f for f in file.rglob("*.jpeg"))
+            else:
+                targets.extend(f for f in file.glob("*.jpg"))
+                targets.extend(f for f in file.glob("*.jpeg"))
 
     if not targets:
         print("⚠️ No JPEGs matched.")
@@ -226,9 +245,14 @@ def main():
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
-    parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub")
+    parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub (work in auto mode)")
+    parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
     args = parser.parse_args()
 
+
+    if args.version:
+        show_version()
+        sys.exit(0) 
 
     if args.from_input:
         auto_scrub(dry_run=args.dry_run, delete_original=args.delete_original)
@@ -243,7 +267,7 @@ def main():
             resolved_files = [Path("/photos")]
 
         manual_scrub(resolved_files, recursive=args.recursive,
-                     dry_run=args.dry_run, delete_original=args.delete_original)
+                     dry_run=args.dry_run, delete_original=False)
 
 
 if __name__ == "__main__":

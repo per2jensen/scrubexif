@@ -116,7 +116,7 @@ test-release: check_version
 	SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
 
 
-release: check_version final verify-labels test-release login push log-build-json
+release: check_version final verify-labels test-release update-readme-version login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
 
 
@@ -153,6 +153,21 @@ log-build-json: check_version
 	    '. += [{"build_number": $$build_number, "tag": $$version, "base_image": $$base, "git_revision": $$rev, "created": $$created, "dockerhub_tag_url": $$url, "digest": $$digest, "image_id": $$image_id}]' \
 	    $(BUILD_LOG_PATH) > $(BUILD_LOG_PATH).tmp && mv $(BUILD_LOG_PATH).tmp $(BUILD_LOG_PATH)
 
+
+update-readme-version:
+	@echo "🔄 Updating version examples in README.md to VERSION=$(FINAL_VERSION)"
+	@if sed -i -E "s/VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?;/VERSION=$(FINAL_VERSION);/" README.md; then \
+	  if ! git diff --quiet README.md; then \
+	    git add README.md; \
+	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
+	    echo "✅ README.md updated and committed"; \
+	  else \
+	    echo "ℹ️ No changes to commit — README.md already up to date"; \
+	  fi; \
+	else \
+	  echo "❌ sed command failed — README.md not updated"; \
+	  exit 1; \
+	fi
 
 push: check_version
 	@echo "Pushing $(DOCKERHUB_REPO):$(FINAL_VERSION) to Docker Hub..."

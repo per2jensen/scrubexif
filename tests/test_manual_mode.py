@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import pytest
 
+from conftest import SAMPLE_BYTES  # Explicit import
+
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 ASSETS_DIR = Path(__file__).parent / "assets"
 SAMPLE_IMG = ASSETS_DIR / "sample_with_exif.jpg"
@@ -89,3 +91,21 @@ def test_manual_mode_recursive_no_args(tmp_path):
 
     assert result.returncode == 0
     assert "✅ Saved scrubbed file to deep/img.jpg" in result.stdout
+
+@pytest.mark.regression
+def test_manual_mode_default_dir(tmp_path):
+    # Create multiple JPEGs in root and subdir
+    (tmp_path / "one.jpg").write_bytes(SAMPLE_BYTES)
+    subdir = tmp_path / "nested"
+    subdir.mkdir()
+    (subdir / "two.jpg").write_bytes(SAMPLE_BYTES)
+
+    # Test without -r (should only scrub top-level image)
+    result = run_container_manual([], mounts=["-v", f"{tmp_path}:/photos"])
+    assert "one.jpg" in result.stdout
+    assert "two.jpg" not in result.stdout
+
+    # Test with -r (should scrub both)
+    result = run_container_manual(["-r"], mounts=["-v", f"{tmp_path}:/photos"])
+    assert "one.jpg" in result.stdout
+    assert "two.jpg" in result.stdout
