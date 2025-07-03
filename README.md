@@ -21,19 +21,19 @@ Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
 #### Scrub specific files
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif "file1.jpg" "file2.jpeg"
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION "file1.jpg" "file2.jpeg"
 ```
 
 #### Scrub all JPEGs in current directory
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION
 ```
 
 #### Recursively scrub nested folders
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --recursive
 ```
 
 ---
@@ -48,14 +48,14 @@ You **must** mount three volumes:
 - `/photos/output` — scrubbed files saved here
 - `/photos/processed` — originals are moved here (or deleted if `--delete-original` is used)
 
-#### Example:
+#### Example
 
 ```bash
-docker run -it --rm \
+VERSION=0.5.4; docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif --from-input
+  per2jensen/scrubexif:$VERSION --from-input
 ```
 
 Optional flags:
@@ -78,19 +78,19 @@ The container accepts:
 Scrub all `.jpg` files in subdirectories:
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --recursive
 ```
 
 Dry-run (preview only):
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif --dry-run
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --dry-run
 ```
 
 Mix recursion and dry-run:
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif -r --dry-run
+VERSION=0.5.4; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
 
 If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
@@ -154,7 +154,7 @@ The Release pipeline in the Makefile automatically updates the [build-history.js
 Versioned image:
 
 ```bash
-docker pull per2jensen/scrubexif:0.5.2
+docker pull per2jensen/scrubexif:0.5.4
 ```
 
 Pull the latest stable release (when available)
@@ -171,7 +171,7 @@ docker pull per2jensen/scrubexif:stable
 🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.5.2
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.5.4
 ```
 
 🛠️ Show version and help
@@ -276,8 +276,10 @@ exiftool "image.jpg"
 
 Inside the container (optional):
 
+Observe the "/photos" in the filename, that is because the container has your $PWD mounted on /photos.
+
 ```bash
-docker run --rm -v "$PWD:/photos" per2jensen/scrubexif exiftool "image.jpg"
+VERSION=0.5.4; docker run --rm -v "$PWD:/photos" --entrypoint exiftool  per2jensen/scrubexif:$VERSION  "/photos/image.jpg"
 ```
 
 ---
@@ -287,13 +289,13 @@ docker run --rm -v "$PWD:/photos" per2jensen/scrubexif exiftool "image.jpg"
 To view embedded labels and metadata:
 
 ```bash
-docker inspect per2jensen/scrubexif:latest | jq '.[0].Config.Labels'
+VERSION=0.5.4; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
 ```
 
 You can also check the digest and ID:
 
 ```bash
-docker image inspect per2jensen/scrubexif --format '{{.RepoDigests}}'
+VERSION=0.5.4; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
 
 ---
