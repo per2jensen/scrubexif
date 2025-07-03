@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 
-__version__ = "0.5.6"
+__version__ = "0.5.7"
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -157,6 +157,16 @@ def scrub_file(input_path: Path, output_path: Path | None = None,
     return True
 
 
+def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
+    if not dir_path.is_dir():
+        return []
+    search_func = dir_path.rglob if recursive else dir_path.glob
+    return [
+        f for f in search_func("*")
+        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg")
+    ]
+
+
 
 def auto_scrub(dry_run=False, delete_original=False):
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
@@ -166,7 +176,7 @@ def auto_scrub(dry_run=False, delete_original=False):
     check_dir_safety(OUTPUT_DIR, "Output")
     check_dir_safety(PROCESSED_DIR, "Processed")
 
-    input_files = list(INPUT_DIR.glob("*.jpg")) + list(INPUT_DIR.glob("*.jpeg"))
+    input_files = find_jpegs_in_dir(INPUT_DIR, recursive=False)
  
     if not input_files:
         print("⚠️ No JPEGs found — nothing to do.")
@@ -208,12 +218,13 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
         if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
             targets.append(file)
         elif file.is_dir():
-            if recursive:
-                targets.extend(f for f in file.rglob("*.jpg"))
-                targets.extend(f for f in file.rglob("*.jpeg"))
-            else:
-                targets.extend(f for f in file.glob("*.jpg"))
-                targets.extend(f for f in file.glob("*.jpeg"))
+            targets.extend(find_jpegs_in_dir(file, recursive))
+
+            search_func = file.rglob if recursive else file.glob
+            targets.extend(
+                f for f in search_func("*")
+                if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg")
+            )
 
     if not targets:
         print("⚠️ No JPEGs matched.")
