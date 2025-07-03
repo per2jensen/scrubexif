@@ -154,7 +154,7 @@ The Release pipeline in the Makefile automatically updates the [build-history.js
 Versioned image:
 
 ```bash
-docker pull per2jensen/scrubexif:0.5.4
+VERSION=0.5.5; docker pull per2jensen/scrubexif:$VERSION
 ```
 
 Pull the latest stable release (when available)
@@ -171,14 +171,14 @@ docker pull per2jensen/scrubexif:stable
 🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.5.4
+VERSION=0.5.5; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION
 ```
 
 🛠️ Show version and help
 
 ```bash
-docker run --rm per2jensen/scrubexif:0.5.2 --version
-docker run --rm per2jensen/scrubexif:0.5.2 --help
+VERSION=0.5.5; docker run --rm per2jensen/scrubexif:$VERSION --version
+VERSION=0.5.5; docker run --rm per2jensen/scrubexif:$VERSION --help
 ```
 
 ---
