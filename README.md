@@ -1,5 +1,8 @@
 # scrubexif
 
+![CI](https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg)
+![Docker Pulls](https://img.shields.io/docker/pulls/per2jensen/scrubexif)
+
 🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 
 It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings, lens information, and author credits — ideal for privacy-conscious photographers who still want to share meaningful technical info.
