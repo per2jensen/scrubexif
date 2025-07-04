@@ -8,6 +8,7 @@ Scrub EXIF metadata from JPEG files while retaining selected tags.
 """
 
 import argparse
+import logging
 import os
 import subprocess
 import shutil
@@ -31,7 +32,6 @@ PROCESSED_DIR = Path("/photos/processed")
 # === Whitelisted tags ===
 EXIF_TAGS_TO_KEEP = [
     "ExposureTime",
-    "CreateDate",
     "FNumber",
     "ImageSize",
     "Rights",
@@ -45,8 +45,44 @@ EXIF_TAGS_TO_KEEP = [
 ]
 
 
+# Exiftool "bundles" that affect a set of tags
+EXIFTOOL_META_TAGS = ["ColorSpaceTags"]  # https://exiftool.org/forum/index.php?topic=13451.0
+
 # Groups to check for tags
-TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC"]
+TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC", "Makernotes", "Comment", "PhotoShop"]
+
+
+def setup_logger(level: str = "info"):
+    """
+    Configure the global logger with console output and uppercase level names.
+
+    Args:
+        level (str): One of 'debug', 'info', 'warn', 'error', 'crit'
+    """
+    level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warn": logging.WARNING,
+        "error": logging.ERROR,
+        "crit": logging.CRITICAL,
+    }
+
+    logger = logging.getLogger("scrubexif")
+    logger.setLevel(level_map.get(level.lower(), logging.INFO))
+
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("🔎 [%(levelname)s] %(message)s")
+    handler.setFormatter(formatter)
+
+    logger.handlers.clear()  # Avoid duplicate handlers
+    logger.addHandler(handler)
+    logger.propagate = False
+
+    return logger
+
+# Will be initialized in main()
+log = logging.getLogger("scrubexif")
+
 
 
 
@@ -78,65 +114,125 @@ def check_dir_safety(path: Path, label: str):
         sys.exit(1)
 
 
+def build_preserve_args(paranoia: bool = False) -> list[str]:
+    """
+    Build a list of -tag arguments for ExifTool to preserve selected metadata.
 
-def build_preserve_args():
+    This function expands each tag from EXIF_TAGS_TO_KEEP across multiple 
+    metadata groups (like EXIF, XMP, IPTC) and returns a deduplicated list 
+    of arguments in the format expected by ExifTool.
+
+    Returns:
+        List[str]: A list of arguments like ['-ISO', '-EXIF:ISO', '-XMP:ISO', ...]
+
+    Example:
+        Given:
+            EXIF_TAGS_TO_KEEP = ["ISO", "CreateDate"]
+            TAG_GROUPS = ["", "EXIF", "XMP"]
+        
+        The output will be:
+            [
+                "-ISO",
+                "-EXIF:ISO",
+                "-XMP:ISO",
+                "-CreateDate",
+                "-EXIF:CreateDate",
+                "-XMP:CreateDate"
+            ]
+
+        These arguments can be used like so:
+            exiftool -tagsFromFile @ -ISO -EXIF:ISO -XMP:ISO -CreateDate ...
+
+    This allows ExifTool to preserve whitelisted tags across different metadata
+    namespaces when removing all other EXIF data.
+    """
     args = []
     seen = set()
-    for tag in EXIF_TAGS_TO_KEEP:
+    tags = EXIF_TAGS_TO_KEEP.copy()
+    if not paranoia:
+        tags += EXIFTOOL_META_TAGS    
+    for tag in tags:
         for group in TAG_GROUPS:
             key = f"{group}:{tag}" if group else tag
             if key not in seen:
                 args.append(f"-{key}")
                 seen.add(key)
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Preserving tags: %s", " ".join(args))
     return args
 
 
 
+
 # EXIFTOOL_CMD_BASE_COMMON = (
-#     ["exiftool", "-P", "-all:all=", "-gps:all=", "-tagsfromfile", "@"]
+#     ["-P", "-all:all=", "-gps:all=", "-tagsfromfile", "@"]
 #     + [f"-exif:{tag}" for tag in EXIF_TAGS_TO_KEEP if tag not in {"By-line", "Event"}]
-#     + ["-Iptc:By-line", "-Xmp-iptcExt:Event", "-ICC_Profile"]
+#     + ["-Iptc:By-line", "-Xmp-iptcExt:Event"]
 # )
 
-# EXIFTOOL_CMD_AUTO = EXIFTOOL_CMD_BASE_COMMON.copy()
-# EXIFTOOL_CMD_MANUAL = ["-overwrite_original"] + EXIFTOOL_CMD_BASE_COMMON
 
 
-EXIFTOOL_CMD_BASE_COMMON = (
-    ["-P", "-all:all=", "-gps:all=", "-tagsfromfile", "@"]
-    + [f"-exif:{tag}" for tag in EXIF_TAGS_TO_KEEP if tag not in {"By-line", "Event"}]
-    + ["-Iptc:By-line", "-Xmp-iptcExt:Event", "-ICC_Profile"]
-)
+def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
+                       overwrite: bool = False, paranoia: bool = False) -> list[str]:
+    """
+    Construct a full ExifTool command for metadata scrubbing.
+    """
+    cmd = ["exiftool"]
+    if overwrite:
+        cmd.append("-overwrite_original")
+    cmd += [
+        "-P",
+        "-all=",
+        "-gps:all=",
+        "-tagsFromFile", "@"
+    ]
+    if paranoia:
+        cmd += ["-ICC_Profile:all="]
+    else:
+        cmd += ["-ICC_Profile:ProfileID="]  # harmless; will be ignored, but retained for intent
+    cmd += build_preserve_args(paranoia=paranoia)
+    if output_path:
+        cmd += ["-o", str(output_path)]
+    cmd.append(str(input_path))
+    return cmd
 
-EXIFTOOL_CMD_AUTO = ["exiftool"] + EXIFTOOL_CMD_BASE_COMMON
 
-#EXIFTOOL_CMD_MANUAL = ["exiftool", "-overwrite_original"] + EXIFTOOL_CMD_BASE_COMMON
-
-EXIFTOOL_CMD_MANUAL = (
-    ["exiftool", "-overwrite_original", "-P", "-all=", "-gps:all="] + build_preserve_args()
-)
+def print_tags(file: Path, label: str = ""):
+    try:
+        result = subprocess.run(
+            ["exiftool", "-a", "-G1", "-s", str(file)],
+            capture_output=True, text=True
+        )
+        print(f"\n📸 Tags {label} {file.name}:")
+        print(result.stdout.strip())
+    except Exception as e:
+        print(f"❌ Failed to read tags: {e}")
 
 
 
 def scrub_file(input_path: Path, output_path: Path | None = None,
-               delete_original=False, dry_run=False) -> bool:
+               delete_original=False, dry_run=False,
+               show_tags_mode: str | None = None) -> bool:
     if dry_run:
         print(f"🔍 Dry run: would scrub {input_path}")
         return True
 
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
-    cmd = (
-        EXIFTOOL_CMD_MANUAL + [str(input_path)]
-        if in_place else
-        ["exiftool", "-P", "-m", "-all=", "-tagsFromFile", "@"]
-        + build_preserve_args()
-        + ["-o", str(output_path), str(input_path)]
-    )
+    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_path, overwrite=in_place)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Running ExifTool command: %s", " ".join(cmd))
+
+    if show_tags_mode in {"before", "both"}:
+        print_tags(input_path, label="before")
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"❌ Failed to scrub {input_path}: {result.stderr.strip()}")
         return False
+
+    if show_tags_mode in {"after", "both"}:
+        print_tags(output_path or input_path, label="after")
 
 
     def display_path(path: Path) -> str:
@@ -145,12 +241,8 @@ def scrub_file(input_path: Path, output_path: Path | None = None,
         except ValueError:
             return str(path)
 
-    # And in scrub_file:
     print(f"✅ Saved scrubbed file to {display_path(output_path or input_path)}")
 
-
-
-    #print(f"✅ Saved scrubbed file to {output_path or input_path}")
     if delete_original and not in_place and input_path.exists():
         input_path.unlink()
         print(f"❌ Deleted original: {input_path}")
@@ -168,7 +260,7 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
 
 
 
-def auto_scrub(dry_run=False, delete_original=False):
+def auto_scrub(dry_run=False, delete_original=False,  show_tags_mode: str | None = None, paranoia: bool = True):
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
 
     # Safety checks
@@ -190,8 +282,8 @@ def auto_scrub(dry_run=False, delete_original=False):
         if dry_run:
             print(f"🔍 Would scrub: {file.name}")
             continue
-
-        ok = scrub_file(file, OUTPUT_DIR, delete_original=False)
+        ok = scrub_file(file, OUTPUT_DIR, delete_original=False,
+                show_tags_mode=show_tags_mode)
         if ok:
             dst_processed = PROCESSED_DIR / file.name
             if file.resolve() != dst_processed.resolve():
@@ -207,7 +299,7 @@ def auto_scrub(dry_run=False, delete_original=False):
     print(f"  Skipped (errors)      : {len(input_files) - success}")
 
 
-def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_original=False):
+def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_original=False,  show_tags_mode: str | None = None, paranoia: bool = True):
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return
@@ -236,7 +328,8 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
             print(f"🔍 Would scrub: {f}")
             continue
 
-        ok = scrub_file(f, None, delete_original=delete_original)
+        ok = scrub_file(f, None, delete_original=delete_original,
+                show_tags_mode=show_tags_mode)
         if ok:
             success += 1
     print(f"📊 Scrubbed {success} JPEG(s) out of {len(targets)}")
@@ -249,24 +342,35 @@ def require_force_for_root():
 
 
 
+
 def main():
     require_force_for_root()
     parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
+    parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata tags before, after, or both for each image")
+    parser.add_argument("--paranoia", action="store_true",
+       help="Maximum metadata scrubbing — removes ICC profile including it's fingerprinting vector")
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
     parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub (work in auto mode)")
+    parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info", help="Set log verbosity (default: info)")
+
     parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
     args = parser.parse_args()
 
+    global log
+    log = setup_logger(args.log_level)
 
     if args.version:
         show_version()
         sys.exit(0) 
 
     if args.from_input:
-        auto_scrub(dry_run=args.dry_run, delete_original=args.delete_original)
+        auto_scrub(dry_run=args.dry_run,
+                delete_original=args.delete_original,
+           show_tags_mode=args.show_tags,
+           paranoia=args.paranoia)
     else:
         if args.files:
             resolved_files = [
@@ -277,8 +381,12 @@ def main():
             # Implicit default when using --recursive
             resolved_files = [Path("/photos")]
 
-        manual_scrub(resolved_files, recursive=args.recursive,
-                     dry_run=args.dry_run, delete_original=False)
+        manual_scrub(resolved_files,
+                    recursive=args.recursive,
+                    dry_run=args.dry_run,
+                    delete_original=False,
+             show_tags_mode=args.show_tags,
+             paranoia=args.paranoia)
 
 
 if __name__ == "__main__":
