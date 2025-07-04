@@ -5,7 +5,7 @@
 
 🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 
-It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings, lens information, and author credits — ideal for privacy-conscious photographers who still want to share meaningful technical info.
+It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings — ideal for privacy-conscious photographers who still want to share some technical info.
 
 👉 **GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
 
@@ -105,9 +105,10 @@ If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
 - Case insensitive, works on .jpg, .JPG, .jpeg & .JPEG
 - Removes most EXIF, IPTC, and XMP metadata
 - **Preserves** useful photography tags:
+  - `Title`
   - `ExposureTime`, `FNumber`, `ISO`
-  - `LensModel`, `FocalLength`
-  - `Artist`, `Copyright`
+  - `ImageSize`, `Orientation`
+  - `FocalLength`
 - Show tags before & after (see below)
 - Preserves Color profile, with a compromise in scrubbing (see below)
 - A --paranoia option to scrub color profile tags (see below)

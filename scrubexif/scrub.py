@@ -14,6 +14,7 @@ import subprocess
 import shutil
 import sys
 from pathlib import Path
+sys.stdout.reconfigure(line_buffering=True)
 
 
 __version__ = "0.5.8"
@@ -35,12 +36,10 @@ EXIF_TAGS_TO_KEEP = [
     "FNumber",
     "ImageSize",
     "Title",
-    "Subject",
     "FocalLength",
     "ISO",
     "Orientation",
 ]
-
 
 # Exiftool "bundles" that affect a set of tags
 EXIFTOOL_META_TAGS = ["ColorSpaceTags"]  # https://exiftool.org/forum/index.php?topic=13451.0
