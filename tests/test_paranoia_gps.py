@@ -40,7 +40,7 @@ def run_scrubexif(input_dir: Path, output_dir: Path, processed_dir: Path):
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",
         "-v", f"{processed_dir}:/photos/processed",
-        IMAGE_TAG, "--from-input"
+        IMAGE_TAG, "--from-input", "--log-level", "debug"
     ], capture_output=True, text=True)
     print(result.stdout)
     print(result.stderr)

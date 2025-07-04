@@ -40,7 +40,7 @@ def run_scrubexif_container(input_dir, output_dir, processed_dir):
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",
         "-v", f"{processed_dir}:/photos/processed",
-        IMAGE_NAME, "--from-input"
+        IMAGE_NAME, "--from-input",  "--log-level", "debug"
     ], capture_output=True, text=True)
 
 

@@ -108,8 +108,98 @@ If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
   - `ExposureTime`, `FNumber`, `ISO`
   - `LensModel`, `FocalLength`
   - `Artist`, `Copyright`
-- Based on [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
+- Show tags before & after (see below)
+- Preserves Color profile, with a compromise in scrubbing (see below)
+- A --paranoia option to scrub color profile tags (see below)
+- A --preview option to check tag before/after scrub (see below)
+- Based on the most excellent [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
 - Docker-friendly for pipelines and automation
+
+### 🎯 Metadata Preservation Strategy
+
+By default, `scrubexif` preserves important non-private metadata such as **exposure**, **lens**, **ISO**, and **color profile** information. This ensures that images look correct in color-managed environments (e.g. Apple Photos, Lightroom, web browsers with ICC support).
+
+For users who require maximum privacy, an optional `--paranoia` mode is available.
+
+### 🛡️ `--paranoia` Mode
+
+When enabled, `--paranoia` disables color profile preservation and removes fingerprintable metadata like ICC profile hashes (`ProfileID`). This may degrade color rendering on some devices, but ensures all embedded fingerprint vectors are scrubbed.
+
+| Mode         | ICC Profile | Color Fidelity | Privacy Level |
+|--------------|-------------|----------------|---------------|
+| *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate      |
+| `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum       |
+
+### 📸 Example
+
+```bash
+# Safe color-preserving scrub (default)
+docker run -v "$PWD:/photos" scrubexif:dev image.jpg
+
+# Maximum scrub, removes the ICC profile
+docker run -v "$PWD:/photos" scrubexif:dev image.jpg --paranoia
+```
+
+Note: The ICC profile includes values like ProfileDescription, ColorSpace, and ProfileID. The latter is a hash that may vary by device or editing software.
+
+### 🔍 Inspecting Metadata with `--show-tags`
+
+The `--show-tags` option lets you inspect metadata **before**, **after**, or **both before and after** scrubbing. This is useful for:
+
+- Auditing what data is present in your photos
+- Verifying that scrubbed output removes private metadata
+- Confirming what remains (e.g. lens info, exposure, etc.)
+
+---
+
+### ⚠️ Note on `--dry-run`
+
+If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run`.
+
+Without `--dry-run`, scrubbing is performed as usual.
+
+---
+
+### 📌 Usage Examples
+
+```bash
+# 🔎 See tags BEFORE scrub (scrub still happens)
+docker run -v "$PWD:/photos" scrubexif:dev image.jpg --show-tags before
+
+# 🔎 See both BEFORE and AFTER (scrub still happens)
+docker run -v "$PWD:/photos" scrubexif:dev image.jpg --show-tags both
+
+# ✅ Just show metadata, DO NOT scrub
+docker run -v "$PWD:/photos" scrubexif:dev image.jpg --show-tags before --dry-run
+```
+
+Works in both modes
+
+  Manual mode: for individual files or folders
+
+  Auto mode (--from-input): applies to all JPEGs in `input`directory.
+
+🛡 Tip: Combine `--dry-run --paranoia --show-tags before` to verify level of metadata removal before commiting.
+
+### 🔍 Preview Mode (`--preview`)
+
+The `--preview` option lets you **safely simulate** the scrubbing process on a **single** JPEG **without modifying the original file**.
+
+This mode:
+
+- Copies the original image to a temporary file
+- Scrubs the copy in memory
+- Shows metadata **before and/or after** scrubbing
+- Deletes the temp files automatically
+- Never alters the original image
+
+### ✅ Typical Use
+
+```bash
+docker run -v "$PWD:/photos" scrubexif:dev test.jpg --preview
+```
+
+🛡 Tip: Combine `--preview --paranoia` to veriy the color profile tags including the ProfileId tag has been scrubbed. 
 
 ---
 
