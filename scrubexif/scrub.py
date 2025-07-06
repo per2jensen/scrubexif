@@ -365,83 +365,6 @@ def scrub_file(
 
 
 
-
-def scrub_file_old(input_path: Path, output_path: Path | None = None,
-               delete_original=False, dry_run=False,
-               show_tags_mode: str | None = None,
-               paranoia: bool = True,
-               on_duplicate: str = "delete") -> bool:
-
-
-    print(f"scrub_file: input={input_path}, output={output_path}")
-    output_file = output_path / input_path.name if output_path else input_path
-    print("Output file will be:", output_file)
-
-
-    # duplicate handling
-    if output_file.exists() and input_path.resolve() != output_file.resolve():
-        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
-#    if output_path and output_path.exists():
-        if dry_run:
-            print(f"🚫 [dry-run] Would detect duplicate: {output_path.name}")
-            return False
-
-        if on_duplicate == "delete":
-            print(f"🗑️  Duplicate detected — deleting {input_path.name}")
-            input_path.unlink(missing_ok=True)
-            return False
-
-        elif on_duplicate == "move":
-            target = ERRORS_DIR / input_path.name
-            count = 1
-            while target.exists():
-                target = ERRORS_DIR / f"{input_path.stem}_{count}{input_path.suffix}"
-                count += 1
-            shutil.move(input_path, target)
-            print(f"📦 Moved duplicate to: {target}")
-            return False
-
-    if dry_run:
-        if show_tags_mode in {"before", "both"}:
-            print_tags(input_path, label="before")
-        if show_tags_mode in {"after", "both"}:
-            print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-        print(f"🔍 Dry run: would scrub {input_path}")
-        return True
-
-    in_place = output_path is None or input_path.resolve() == output_path.resolve()
-    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_path,
-                             overwrite=in_place, paranoia=paranoia)
-
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("Running ExifTool command: %s", " ".join(cmd))
-
-    if show_tags_mode in {"before", "both"}:
-        print_tags(input_path, label="before")
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"❌ Failed to scrub {input_path}: {result.stderr.strip()}")
-        return False
-
-    if show_tags_mode in {"after", "both"}:
-        print_tags(output_path or input_path, label="after")
-
-    def display_path(path: Path) -> str:
-        try:
-            return str(path.relative_to("/photos"))
-        except ValueError:
-            return str(path)
-
-    print(f"✅ Saved scrubbed file to {display_path(output_path or input_path)}")
-
-    if delete_original and not in_place and input_path.exists():
-        input_path.unlink()
-        print(f"❌ Deleted original: {input_path}")
-    return True
-
-
-
 def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
     if not dir_path.is_dir():
         return []
@@ -507,12 +430,11 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
 
 def manual_scrub(files: list[Path],
                 summary: ScrubSummary, 
-                recursive: bool, dry_run=False, delete_original=False,
+                recursive: bool, dry_run=False,
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
-                 preview: bool = False,
-                 on_duplicate: str = "delete")  -> ScrubSummary:
+                 preview: bool = False) -> ScrubSummary:
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return
@@ -585,7 +507,7 @@ def manual_scrub(files: list[Path],
                         dry_run=False,  # must be False to allow scrub
                         show_tags_mode=show_tags_mode,
                         paranoia=paranoia,
-                        on_duplicate=on_duplicate)
+                        on_duplicate=None)
 
         summary.update(result)
 
@@ -671,7 +593,6 @@ def main():
                     summary=summary,
                     recursive=args.recursive,
                     dry_run=args.dry_run,
-                    delete_original=args.delete_original,
                     show_tags_mode=args.show_tags,
                     paranoia=args.paranoia,
                     max_files=args.max_files,
