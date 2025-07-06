@@ -1,5 +1,6 @@
 # scrubexif
 
+![Tag](https://img.shields.io/github/v/tag/per2jensen/scrubexif)
 ![CI](https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg)
 ![Docker Pulls](https://img.shields.io/docker/pulls/per2jensen/scrubexif)
 
