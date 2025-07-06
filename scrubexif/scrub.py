@@ -14,6 +14,9 @@ import subprocess
 import shutil
 import sys
 from pathlib import Path
+from pathlib import Path
+from typing import Optional
+
 sys.stdout.reconfigure(line_buffering=True)
 
 
@@ -22,6 +25,70 @@ __version__ = "0.5.8"
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See section 15 and section 16 in the supplied "LICENSE" file.'''
+
+
+class ScrubResult:
+    __slots__ = ("input_path", "output_path", "status", "error_message", "duplicate_path")
+
+    def __init__(
+        self,
+        input_path: Path,
+        output_path: Optional[Path] = None,
+        status: str = "scrubbed",
+        error_message: Optional[str] = None,
+        duplicate_path: Optional[Path] = None,
+    ):
+        self.input_path = input_path
+        self.output_path = output_path
+        self.status = status  # "scrubbed", "skipped", "duplicate", "error"
+        self.error_message = error_message
+        self.duplicate_path = duplicate_path
+
+    def __repr__(self):
+        return (
+            f"ScrubResult(status={self.status!r}, "
+            f"input={self.input_path.name}, "
+            f"output={self.output_path.name if self.output_path else 'n/a'}, "
+            f"error={bool(self.error_message)})"
+        )
+
+
+
+class ScrubSummary:
+    def __init__(self):
+        self.total = 0
+        self.scrubbed = 0
+        self.skipped = 0
+        self.duplicates_deleted = 0
+        self.duplicates_moved = 0
+        self.errors = 0
+
+    def update(self, result: ScrubResult):
+        self.total += 1
+        match result.status:
+            case "scrubbed":
+                self.scrubbed += 1
+            case "skipped":
+                self.skipped += 1
+            case "duplicate":
+                if result.duplicate_path:
+                    self.duplicates_moved += 1
+                else:
+                    self.duplicates_deleted += 1
+            case "error":
+                self.errors += 1
+
+    def print(self):
+        print("📊 Summary:")
+        print(f"  Total JPEGs found     : {self.total}")
+        print(f"  Successfully scrubbed : {self.scrubbed}")
+        print(f"  Skipped (errors)      : {self.errors}")
+        if self.duplicates_deleted:
+            print(f"  Duplicates deleted    : {self.duplicates_deleted}")
+        if self.duplicates_moved:
+            print(f"  Duplicates moved      : {self.duplicates_moved}")
+
+
 
 
 # === Fixed container paths ===
@@ -212,7 +279,94 @@ def print_tags(file: Path, label: str = ""):
         print(f"❌ Failed to read tags: {e}")
 
 
-def scrub_file(input_path: Path, output_path: Path | None = None,
+def scrub_file(
+    input_path: Path,
+    output_path: Path | None = None,
+    delete_original=False,
+    dry_run=False,
+    show_tags_mode: str | None = None,
+    paranoia: bool = True,
+    on_duplicate: str = "delete",
+) -> ScrubResult:
+    print(f"scrub_file: input={input_path}, output={output_path}")
+    output_file = output_path / input_path.name if output_path else input_path
+    print("Output file will be:", output_file)
+
+    # === Handle duplicates ===
+    if output_file.exists() and input_path.resolve() != output_file.resolve():
+        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
+
+        if dry_run:
+            print(f"🚫 [dry-run] Would detect duplicate: {output_path.name}")
+            return ScrubResult(input_path, output_path, status="duplicate")
+
+        if on_duplicate == "delete":
+            print(f"🗑️  Duplicate detected — deleting {input_path.name}")
+            input_path.unlink(missing_ok=True)
+            return ScrubResult(input_path, output_path, status="duplicate")
+
+        elif on_duplicate == "move":
+            target = ERRORS_DIR / input_path.name
+            count = 1
+            while target.exists():
+                target = ERRORS_DIR / f"{input_path.stem}_{count}{input_path.suffix}"
+                count += 1
+            shutil.move(input_path, target)
+            print(f"📦 Moved duplicate to: {target}")
+            return ScrubResult(input_path, output_path, status="duplicate", duplicate_path=target)
+
+    # === Dry-run handling ===
+    if dry_run:
+        if show_tags_mode in {"before", "both"}:
+            print_tags(input_path, label="before")
+        if show_tags_mode in {"after", "both"}:
+            print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
+        print(f"🔍 Dry run: would scrub {input_path}")
+        return ScrubResult(input_path, output_path, status="scrubbed")
+
+    # === Build ExifTool command ===
+    in_place = output_path is None or input_path.resolve() == output_path.resolve()
+    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_path,
+                             overwrite=in_place, paranoia=paranoia)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Running ExifTool command: %s", " ".join(cmd))
+
+    if show_tags_mode in {"before", "both"}:
+        print_tags(input_path, label="before")
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Unknown error"
+        print(f"❌ Failed to scrub {input_path.name}: {err_msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=err_msg
+        )
+
+    if show_tags_mode in {"after", "both"}:
+        print_tags(output_path or input_path, label="after")
+
+    def display_path(path: Path) -> str:
+        try:
+            return str(path.relative_to("/photos"))
+        except ValueError:
+            return str(path)
+
+    print(f"✅ Saved scrubbed file to {display_path(output_path or input_path)}")
+
+    if delete_original and not in_place and input_path.exists():
+        input_path.unlink()
+        print(f"❌ Deleted original: {input_path}")
+
+    return ScrubResult(input_path, output_path, status="scrubbed")
+
+
+
+
+def scrub_file_old(input_path: Path, output_path: Path | None = None,
                delete_original=False, dry_run=False,
                show_tags_mode: str | None = None,
                paranoia: bool = True,
@@ -299,11 +453,11 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
 
 
 
-def auto_scrub(dry_run=False, delete_original=False,
+def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                show_tags_mode: str | None = None,
                paranoia: bool = True,
                max_files: int | None = None,
-               on_duplicate: str = "delete"):
+               on_duplicate: str = "delete")  -> ScrubSummary:
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
 
     # Safety checks
@@ -333,12 +487,14 @@ def auto_scrub(dry_run=False, delete_original=False,
             print(f"🔍 Would scrub: {file.name}")
             continue
 
-        ok = scrub_file(file, OUTPUT_DIR,
+        result = scrub_file(file, OUTPUT_DIR,
                         delete_original=delete_original,
                         show_tags_mode=show_tags_mode,
                         paranoia=paranoia,
                         on_duplicate=on_duplicate)
-        if ok:
+        
+        summary.update(result)
+        if result.status == "scrubbed":
             dst_processed = PROCESSED_DIR / file.name
             if file.resolve() != dst_processed.resolve():
                 shutil.move(file, dst_processed)
@@ -347,19 +503,16 @@ def auto_scrub(dry_run=False, delete_original=False,
             print(f"📦 Moved original to {PROCESSED_DIR / file.name}")
             success += 1
 
-    print("📊 Summary:")
-    print(f"  Total JPEGs found     : {len(input_files)}")
-    print(f"  Successfully scrubbed : {success}")
-    print(f"  Skipped (errors)      : {len(input_files) - success}")
+    return summary
 
-
-
-def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_original=False,
+def manual_scrub(files: list[Path],
+                summary: ScrubSummary, 
+                recursive: bool, dry_run=False, delete_original=False,
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
                  preview: bool = False,
-                 on_duplicate: str = "delete"):
+                 on_duplicate: str = "delete")  -> ScrubSummary:
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return
@@ -370,8 +523,6 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
         if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
             targets.append(file)
         elif file.is_dir():
-            targets.extend(find_jpegs_in_dir(file, recursive))
-
             search_func = file.rglob if recursive else file.glob
             targets.extend(
                 f for f in search_func("*")
@@ -428,7 +579,7 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
         # Preview mode uses a temp scrub target
         preview_output = None
 
-        ok = scrub_file(f,
+        result = scrub_file(f,
                         output_path=None,
                         delete_original=False,
                         dry_run=False,  # must be False to allow scrub
@@ -436,10 +587,9 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
                         paranoia=paranoia,
                         on_duplicate=on_duplicate)
 
-        if ok:
-            success += 1
+        summary.update(result)
 
-    print(f"📊 Scrubbed {success} JPEG(s) out of {len(targets)}")
+    return summary
 
 
 
@@ -479,6 +629,9 @@ def main():
         show_version()
         sys.exit(0)
 
+    # results keepper and summarizer
+    summary = ScrubSummary()
+
     if args.on_duplicate == "move":
         try:
             ERRORS_DIR.mkdir(parents=True, exist_ok=True)
@@ -497,7 +650,8 @@ def main():
     if args.from_input:
 
 
-        auto_scrub(dry_run=args.dry_run,
+        auto_scrub(summary=summary,
+                dry_run=args.dry_run,
                 delete_original=args.delete_original,
                 show_tags_mode=args.show_tags,
                 paranoia=args.paranoia,
@@ -514,6 +668,7 @@ def main():
             resolved_files = [Path("/photos")]
 
         manual_scrub(resolved_files,
+                    summary=summary,
                     recursive=args.recursive,
                     dry_run=args.dry_run,
                     delete_original=args.delete_original,
@@ -522,6 +677,8 @@ def main():
                     max_files=args.max_files,
                     preview=args.preview)
 
+
+    summary.print()
 
 if __name__ == "__main__":
     main()
