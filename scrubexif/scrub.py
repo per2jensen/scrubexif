@@ -20,7 +20,7 @@ from typing import Optional
 sys.stdout.reconfigure(line_buffering=True)
 
 
-__version__ = "0.5.8"
+__version__ = "0.5.9.1"
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
