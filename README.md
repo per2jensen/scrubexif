@@ -64,7 +64,30 @@ VERSION=0.5.8; docker run -it --rm \
 Optional flags:
 
 - `--delete-original` — Delete originals instead of moving them
+- `--on-duplicate {delete|move}` - delete or move a duplicate
 - `--dry-run` — Show what would be scrubbed, but don’t write files
+
+#### Duplicate Handling (auto mode)
+
+By default, if a file with the same name already exists in the output folder, it is treated as a **duplicate**:
+
+- `--on-duplicate delete` (default): Skips scrubbing and deletes the original from input.
+- `--on-duplicate move`: Moves the duplicate file to `/photos/errors` for inspection.
+
+This ensures output is not overwritten and prevents silently skipping files.
+
+The reason to delete a duplicate by default is that the files are probably not that important, mostly used to give viewers a quick glance. Also it conserves disk.
+
+```bash
+# Move duplicates to /photos/errors instead of deleting
+docker run -v "$PWD/input:/photos/input" \
+           -v "$PWD/output:/photos/output" \
+           -v "$PWD/processed:/photos/processed" \
+           -v "$PWD/errors:/photos/errors" \
+           scrubexif:dev --from-input --on-duplicate move
+```
+
+📌 **Observe**  the -v "$PWD/errors:/photos/errors" volume specification needed for the --on-duplicate move option.
 
 ---
 
@@ -96,7 +119,7 @@ Mix recursion and dry-run:
 VERSION=0.5.8; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
 
-If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
+📌 **Observe**  In manual mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
 
 ---
 
@@ -113,6 +136,7 @@ If no arguments are provided, it defaults to scanning `/photos` for JPEGs.
 - Preserves Color profile, with a compromise in scrubbing (see below)
 - A --paranoia option to scrub color profile tags (see below)
 - A --preview option to check tag before/after scrub (see below)
+- An --on-duplicate option controlling what to do if a file in /output is already there
 - Based on the most excellent [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
 - Docker-friendly for pipelines and automation
 
