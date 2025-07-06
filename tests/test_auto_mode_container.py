@@ -11,12 +11,14 @@ import shutil
 import subprocess
 import json
 import pytest
+import uuid
 from pathlib import Path
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 SAMPLE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 SCRUBBED_NAME = SAMPLE_IMAGE.name
 IMAGE_TAG = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+
 
 
 @pytest.fixture
@@ -29,9 +31,13 @@ def setup_test_env(tmp_path):
     processed_dir.mkdir()
 
     assert SAMPLE_IMAGE.exists(), f"Missing test image: {SAMPLE_IMAGE}"
-    shutil.copyfile(SAMPLE_IMAGE, input_dir / SCRUBBED_NAME)
 
-    return input_dir, output_dir, processed_dir, input_dir / SCRUBBED_NAME
+    # Unique filename avoids triggering duplicate logic
+    unique_name = f"sample_{uuid.uuid4().hex[:8]}.jpg"
+    dst = input_dir / unique_name
+    shutil.copyfile(SAMPLE_IMAGE, dst)
+
+    return input_dir, output_dir, processed_dir, dst
 
 
 def run_scrubexif_container(input_dir, output_dir, processed_dir):
@@ -43,6 +49,8 @@ def run_scrubexif_container(input_dir, output_dir, processed_dir):
         "-v", f"{processed_dir}:/photos/processed",
         IMAGE_TAG, "--from-input",  "--log-level", "debug",
     ], capture_output=True, text=True)
+    print(result.stdout)
+    print(result.stderr)
     assert result.returncode == 0, f"Docker failed:\n{result.stderr}\n{result.stdout}"
 
 
@@ -58,6 +66,8 @@ def inspect_exif_container(file: Path) -> list[str]:
         "-v", f"{file.parent}:/photos",
         IMAGE_TAG, "exiftool", f"/photos/{file.name}"
     ], capture_output=True, text=True)
+    print(result.stdout)
+    print(result.stderr)
     return result.stdout.lower().splitlines()
 
 
@@ -78,29 +88,29 @@ def test_sample_image_contains_gps_data():
 
 
 def test_gps_removed_and_exposure_retained(setup_test_env):
-    input_dir, output_dir, processed_dir, _ = setup_test_env
+    input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    scrubbed = output_dir / SCRUBBED_NAME
+    scrubbed = output_dir / original.name
     lines = inspect_exif_host(scrubbed)
     assert_no_gps_tags(lines)
     assert any("exposure time" in line for line in lines), "❌ Missing ExposureTime in scrubbed file"
 
 
 def test_output_file_has_no_gps_tag(setup_test_env):
-    input_dir, output_dir, processed_dir, _ = setup_test_env
+    input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    scrubbed = output_dir / SCRUBBED_NAME
+    scrubbed = output_dir / original.name
     output = subprocess.run(["exiftool", str(scrubbed)], capture_output=True, text=True)
     assert "GPS Position" not in output.stdout, "❌ 'GPS Position' still present in scrubbed output"
 
 
 def test_scrubbed_output_exists_and_is_jpeg(setup_test_env):
-    input_dir, output_dir, processed_dir, _ = setup_test_env
+    input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    scrubbed = output_dir / SCRUBBED_NAME
+    scrubbed = output_dir / original.name
     assert scrubbed.exists()
     with open(scrubbed, "rb") as f:
         assert f.read(2) == b'\xff\xd8', "❌ Output is not a valid JPEG (missing SOI marker)"
@@ -110,22 +120,24 @@ def test_original_file_moved_to_processed(setup_test_env):
     input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    assert not original.exists(), f"❌ Original file still in input/: {original}"
-    assert (processed_dir / SCRUBBED_NAME).exists(), "❌ Processed original not found"
+    input_file = input_dir / original.name
+
+    assert not input_file.exists(), f"❌ Original file still in input/: {original}"
+    assert (processed_dir / original.name).exists(), "❌ Processed original not found"
 
 
 def test_no_gps_keys_remain(setup_test_env):
-    input_dir, output_dir, processed_dir, _ = setup_test_env
+    input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    scrubbed = output_dir / SCRUBBED_NAME
+    scrubbed = output_dir / original.name
     result = subprocess.run([
         "docker", "run", "--rm",
         "--entrypoint", "exiftool",
         "--user", str(os.getuid()),
         "-v", f"{output_dir}:/photos/output",
         IMAGE_TAG,
-        "-j", f"/photos/output/{SCRUBBED_NAME}"
+        "-j", f"/photos/output/{original.name}"
     ], capture_output=True, text=True)
     tags = json.loads(result.stdout)[0]
     assert all(not k.lower().startswith("gps") for k in tags), \
@@ -133,10 +145,10 @@ def test_no_gps_keys_remain(setup_test_env):
 
 
 def test_paranoia_no_gps_anywhere(setup_test_env):
-    input_dir, output_dir, processed_dir, _ = setup_test_env
+    input_dir, output_dir, processed_dir, original = setup_test_env
     run_scrubexif_container(input_dir, output_dir, processed_dir)
 
-    scrubbed = output_dir / SCRUBBED_NAME
+    scrubbed = output_dir / original.name
     lines = inspect_exif_container(scrubbed)
     offending = [line for line in lines if "gps" in line and not line.startswith("directory")]
     assert not offending, "❌ Paranoia check failed: 'gps' still present in EXIF output"

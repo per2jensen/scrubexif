@@ -24,11 +24,11 @@ THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW,
 See section 15 and section 16 in the supplied "LICENSE" file.'''
 
 
-
 # === Fixed container paths ===
 INPUT_DIR = Path("/photos/input")
 OUTPUT_DIR = Path("/photos/output")
 PROCESSED_DIR = Path("/photos/processed")
+ERRORS_DIR = Path("/photos/errors")
 
 # === Whitelisted tags ===
 EXIF_TAGS_TO_KEEP = [
@@ -214,7 +214,39 @@ def print_tags(file: Path, label: str = ""):
 
 def scrub_file(input_path: Path, output_path: Path | None = None,
                delete_original=False, dry_run=False,
-               show_tags_mode: str | None = None, paranoia: bool = True) -> bool:
+               show_tags_mode: str | None = None,
+               paranoia: bool = True,
+               on_duplicate: str = "delete") -> bool:
+
+
+    print(f"scrub_file: input={input_path}, output={output_path}")
+    output_file = output_path / input_path.name if output_path else input_path
+    print("Output file will be:", output_file)
+
+
+    # duplicate handling
+    if output_file.exists() and input_path.resolve() != output_file.resolve():
+        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
+#    if output_path and output_path.exists():
+        if dry_run:
+            print(f"🚫 [dry-run] Would detect duplicate: {output_path.name}")
+            return False
+
+        if on_duplicate == "delete":
+            print(f"🗑️  Duplicate detected — deleting {input_path.name}")
+            input_path.unlink(missing_ok=True)
+            return False
+
+        elif on_duplicate == "move":
+            target = ERRORS_DIR / input_path.name
+            count = 1
+            while target.exists():
+                target = ERRORS_DIR / f"{input_path.stem}_{count}{input_path.suffix}"
+                count += 1
+            shutil.move(input_path, target)
+            print(f"📦 Moved duplicate to: {target}")
+            return False
+
     if dry_run:
         if show_tags_mode in {"before", "both"}:
             print_tags(input_path, label="before")
@@ -270,7 +302,8 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
 def auto_scrub(dry_run=False, delete_original=False,
                show_tags_mode: str | None = None,
                paranoia: bool = True,
-               max_files: int | None = None):
+               max_files: int | None = None,
+               on_duplicate: str = "delete"):
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
 
     # Safety checks
@@ -292,7 +325,6 @@ def auto_scrub(dry_run=False, delete_original=False,
 
     success = 0
     for file in input_files:
-
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(file, label="before")
@@ -304,7 +336,8 @@ def auto_scrub(dry_run=False, delete_original=False,
         ok = scrub_file(file, OUTPUT_DIR,
                         delete_original=delete_original,
                         show_tags_mode=show_tags_mode,
-                        paranoia=paranoia)
+                        paranoia=paranoia,
+                        on_duplicate=on_duplicate)
         if ok:
             dst_processed = PROCESSED_DIR / file.name
             if file.resolve() != dst_processed.resolve():
@@ -325,7 +358,8 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
-                 preview: bool = False):
+                 preview: bool = False,
+                 on_duplicate: str = "delete"):
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return
@@ -399,7 +433,8 @@ def manual_scrub(files: list[Path], recursive: bool, dry_run=False, delete_origi
                         delete_original=False,
                         dry_run=False,  # must be False to allow scrub
                         show_tags_mode=show_tags_mode,
-                        paranoia=paranoia)
+                        paranoia=paranoia,
+                        on_duplicate=on_duplicate)
 
         if ok:
             success += 1
@@ -412,7 +447,6 @@ def require_force_for_root():
     if os.geteuid() == 0 and os.environ.get("ALLOW_ROOT") != "1":
         print("❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.", file=sys.stderr)
         sys.exit(1)
-
 
 
 def main():
@@ -429,7 +463,10 @@ def main():
     parser.add_argument("--max-files", type=int, metavar="N",
        help="Limit number of files to scrub (for testing or safe inspection)")
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
-    parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub (work in auto mode)")
+    parser.add_argument("--on-duplicate", choices=["delete", "move"], default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"), help="What to do with duplicate files in auto mode."
+        "'delete' (default) will remove them. "
+        "'move' will move them to /photos/errors/")
+    parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub (works in auto mode)")
     parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info", help="Set log verbosity (default: info)")
 
     parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
@@ -441,6 +478,16 @@ def main():
     if args.version:
         show_version()
         sys.exit(0)
+
+    if args.on_duplicate == "move":
+        try:
+            ERRORS_DIR.mkdir(parents=True, exist_ok=True)
+            check_dir_safety(ERRORS_DIR, "Errors")
+
+        except Exception as e:
+            print(f"❌ Failed to create errors directory: {ERRORS_DIR}\n{e}", file=sys.stderr)
+            sys.exit(1)
+
 
     if args.preview:
         args.dry_run = True
@@ -454,7 +501,8 @@ def main():
                 delete_original=args.delete_original,
                 show_tags_mode=args.show_tags,
                 paranoia=args.paranoia,
-                max_files=args.max_files)
+                max_files=args.max_files,
+                on_duplicate=args.on_duplicate)
     else:
         if args.files:
             resolved_files = [
