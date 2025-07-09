@@ -10,6 +10,9 @@ dependencies = []
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+packages = ["scrubexif"]
+
 [project.scripts]
 scrub = "scrubexif.scrub:main"
 
