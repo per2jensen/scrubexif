@@ -111,9 +111,22 @@ verify-labels:
 
 
 
+verify-cli-version:
+	@echo "🔎 Verifying scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"
+	@actual_version="$$(docker run --rm $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | tr -d '\r')"; \
+	if [ "$$actual_version" = "$(FINAL_VERSION)" ]; then \
+		echo "✅ scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"; \
+	else \
+		echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(FINAL_VERSION)'"; \
+		exit 1; \
+	fi
+
+
+
 test-release: check_version
 	@echo "🧪 Running test suite against image: $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"
 	SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
+
 
 
 dry-run-release:
@@ -133,11 +146,13 @@ dry-run-release:
 
 _dryrun-release-internal: check_version
 	@echo "🔧 Building image scrubexif:$(FINAL_VERSION) (dry-run, no push to Docker Hub)"
-	@DRY_RUN=1 make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-readme-version log-build-json --no-print-directory
+	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-readme-version log-build-json
+	@make FINAL_VERSION=$(FINAL_VERSION) verify-cli-version --no-print-directory
 
 
-release: check_version update-scrub-version final verify-labels test-release update-readme-version login push log-build-json
+release: check_version update-scrub-version final  verify-cli-version verify-labels test-release update-readme-version login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
+
 
 
 log-build-json: check_version
