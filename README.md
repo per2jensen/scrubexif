@@ -3,6 +3,8 @@
 ![Tag](https://img.shields.io/github/v/tag/per2jensen/scrubexif)
 ![CI](https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg)
 ![Docker Pulls](https://img.shields.io/docker/pulls/per2jensen/scrubexif)
+[![# clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/badge_clones.json)](https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png)
+[![Milestone](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/milestone_badge.json)](https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png)
 
 🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 

@@ -1,0 +1,66 @@
+name: Update GitHub Clone Metrics
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: clone-metrics
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '23 2 * * *'  # Run daily at 02:17 UTC
+  workflow_dispatch:
+
+jobs:
+  update-clones:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run fetch_clones.py
+        env:
+          TOKEN: ${{ secrets.CLONEPULSE_METRICS }}
+        run: |
+          PYTHONPATH=src python src/clonepulse/fetch_clones.py \
+            --user per2jensen \
+            --repo scrubexif
+
+      - name: Show Git status (debug)
+        run: |
+          echo "::group::Git Status"
+          git status
+          echo "::endgroup::"
+          echo "::group::Git Diff"
+          git diff
+          echo "::endgroup::"
+          echo "::group::Untracked Files"
+          git ls-files --others --exclude-standard
+          echo "::endgroup::"
+
+      - name: Commit changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+
+          # Check for changes before committing
+          if ! git diff --quiet || [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "Changes detected, committing..."
+            git add $(find clonepulse -type f \( -name '*.json' -o -name '*.txt' \)) || true
+            git commit -m "CI update: 'fetched clones' data on $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            # Push changes — if it fails, likely due to race; next run will retry
+            git push || echo "⚠️ Push failed (likely a fast-forward conflict). Will retry next time."
+          else
+            echo "No changes to commit."
+          fi

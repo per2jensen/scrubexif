@@ -1,0 +1,54 @@
+name: Generate Clone Dashboard
+
+permissions:
+  contents: write
+  pull-requests: write
+ 
+concurrency:
+  group: clone-metrics
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: '21 3 * * 1'  # Every Monday at 03:19 UTC
+  workflow_dispatch:
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install "pandas>=2.3,<3" "matplotlib>=3.10,<4"
+
+      - name: Generate dashboard image
+        run: PYTHONPATH=src python src/clonepulse/generate_clone_dashboard.py
+
+      - name: Check dashboard image exists
+        run: |
+          if [ ! -f clonepulse/weekly_clones.png ]; then
+            echo "❌ Dashboard image not found"
+            exit 1
+          fi
+
+      - name: Commit dashboard update
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add -A "clonepulse/weekly_clones.png"
+          if ! git diff --cached --quiet; then
+            echo "📦 Changes detected, committing dashboard..."
+            git commit -m "CI update:  'weekly clones dashboard'"
+            git push
+          else
+            echo "🟢 No changes in dashboard — nothing to commit."
+          fi
