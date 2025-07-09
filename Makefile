@@ -125,7 +125,7 @@ dry-run-release:
 	@git worktree add -f .dryrun HEAD
 	@cd .dryrun && \
 		echo "🚧 Running release steps in .dryrun..." && \
-		make FINAL_VERSION=$(FINAL_VERSION) _dryrun-release-internal
+		DRY_RUN=1 make FINAL_VERSION=$(FINAL_VERSION) _dryrun-release-internal
 	@git worktree remove .dryrun
 	@echo "✅ Dry-run complete — no changes made to working directory"
 
@@ -133,8 +133,7 @@ dry-run-release:
 
 _dryrun-release-internal: check_version
 	@echo "🔧 Building image scrubexif:$(FINAL_VERSION) (dry-run, no push to Docker Hub)"
-	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-readme-version log-build-json --no-print-directory
-
+	@DRY_RUN=1 make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-readme-version log-build-json --no-print-directory
 
 
 release: check_version update-scrub-version final verify-labels test-release update-readme-version login push log-build-json
@@ -150,8 +149,13 @@ log-build-json: check_version
 
 	$(eval DIGEST := $(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo ""))
 	@if [ -z "$(DIGEST)" ]; then \
-		echo "❌ Digest not found. Make sure the image has been pushed."; \
-		exit 1; \
+		if [ "$(DRY_RUN)" = "1" ]; then \
+			echo "⚠️  Skipping digest check in dry-run mode"; \
+			exit 0; \
+		else \
+			echo "❌ Digest not found. Make sure the image has been pushed."; \
+			exit 1; \
+		fi; \
 	fi
 
 	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION)))
