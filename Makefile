@@ -110,15 +110,14 @@ verify-labels:
 	@echo "🎉 All required OCI labels are present."
 
 
-
 verify-cli-version:
 	@echo "🔎 Verifying scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"
-	@actual_version="$$(docker run --rm $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | tr -d '\r')"; \
-	if [ "$$actual_version" = "$(FINAL_VERSION)" ]; then \
-		echo "✅ scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"; \
+	@actual_version="$$(docker run --rm --entrypoint scrub $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | head -n1 | awk '{print $$2}')" && \
+	if [ "$$actual_version" != "$(FINAL_VERSION)" ]; then \
+	  echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(FINAL_VERSION)'"; \
+	  exit 1; \
 	else \
-		echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(FINAL_VERSION)'"; \
-		exit 1; \
+	  echo "✅ scrub --version is correct: $(FINAL_VERSION)"; \
 	fi
 
 
