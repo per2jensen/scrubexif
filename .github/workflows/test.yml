@@ -35,4 +35,4 @@ jobs:
         run: make FINAL_VERSION=dev show-labels
 
       - name: Run tests
-        run: PYTHONPATH=. pytest
+        run: pytest
