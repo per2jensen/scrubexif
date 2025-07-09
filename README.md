@@ -1,10 +1,27 @@
 # scrubexif
 
-![Tag](https://img.shields.io/github/v/tag/per2jensen/scrubexif)
-![CI](https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg)
-![Docker Pulls](https://img.shields.io/docker/pulls/per2jensen/scrubexif)
-[![# clones](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/badge_clones.json)](https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png)
-[![Milestone](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/milestone_badge.json)](https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png)
+<div align="center">
+
+<!-- 📦 Project Metadata -->
+<a href="https://github.com/per2jensen/scrubexif/releases"><img alt="Tag" src="https://img.shields.io/github/v/tag/per2jensen/scrubexif"/></a>
+<a href="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg"/></a>
+<img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"/>
+
+<!-- 🐳 Docker Hub Stats -->
+<img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/per2jensen/scrubexif"/>
+<img alt="Base OS" src="https://img.shields.io/badge/base%20image-ubuntu%2024.04-brightgreen"/>
+
+<!-- 📊 GitHub ClonePulse Analytics -->
+<a href="https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png">
+  <img alt="# clones" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/badge_clones.json"/>
+</a>
+<a href="https://github.com/per2jensen/scrubexif/blob/main/clonepulse/weekly_clones.png">
+  <img alt="Milestone" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/milestone_badge.json"/>
+</a>
+
+<sub>🎯 Stats powered by <a href="https://github.com/per2jensen/clonepulse">ClonePulse</a></sub>
+
+</div>
 
 🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 
