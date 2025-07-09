@@ -13,6 +13,8 @@
 SHELL := /bin/bash
 
 DOCKER ?= docker
+DOCKER_RUN := $(DOCKER) run --rm $(if $(CI),,-it)
+
 UBUNTU_VERSION ?= 24.04
 
 BASE_IMAGE_NAME = scrubexif-base
@@ -322,7 +324,8 @@ dev: validate base
         --label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
 		-t $(FINAL_IMAGE_NAME):$(FINAL_VERSION) .
 	@echo "Check import of scrubexif.scrub in dev image"
-	$(DOCKER) run --rm -it --entrypoint  python3   scrubexif:dev -c "import scrubexif.scrub; print('✅ scrubexif is importable')"
+	# Safe TTY for local, non-TTY for CI
+	$(DOCKER_RUN) --entrypoint  python3   scrubexif:dev -c "import scrubexif.scrub; print('✅ scrubexif is importable')"
 
 
 dev-clean:
