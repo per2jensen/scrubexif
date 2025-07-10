@@ -36,14 +36,14 @@ def run_container_manual(args: list[str], mounts: list[str] = None):
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
     mounts = mounts or []
     return subprocess.run(
-        ["docker", "run", "--rm"] + user_flag + mounts + [IMAGE] + args,
+        ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE] + args,
         capture_output=True, text=True
     )
 
 
 def test_manual_mode_two_files(sample_files):
     f1, f2 = sample_files
-    result = run_container_manual([
+    result = run_container_manual(["--log-level", "debug", 
         f"/photos/{f1.name}", f"/photos/{f2.name}"
     ], mounts=["-v", f"{f1.parent}:/photos"])
 
@@ -52,7 +52,7 @@ def test_manual_mode_two_files(sample_files):
 
 
 def test_manual_mode_no_files(tmp_path):
-    result = run_container_manual([], mounts=["-v", f"{tmp_path}:/photos"])
+    result = run_container_manual(["--log-level", "debug"], mounts=["-v", f"{tmp_path}:/photos"])
     assert result.returncode == 0
     assert "⚠️ No files provided" in result.stdout or "⚠️ No JPEGs matched" in result.stdout
 
@@ -62,7 +62,7 @@ def test_manual_mode_recursive_short_flag(tmp_path):
     sub.mkdir()
     shutil.copy(SAMPLE_IMG, sub / "img.jpg")
 
-    result = run_container_manual(["-r", "/photos"], mounts=["-v", f"{tmp_path}:/photos"])
+    result = run_container_manual(["--log-level", "debug",  "-r", "/photos"], mounts=["-v", f"{tmp_path}:/photos"])
     assert result.returncode == 0
     assert "✅ Saved scrubbed file" in result.stdout
 
@@ -72,7 +72,7 @@ def test_manual_mode_recursive_long_flag(tmp_path):
     sub.mkdir()
     shutil.copy(SAMPLE_IMG, sub / "img.jpg")
 
-    result = run_container_manual(["--recursive", "/photos"], mounts=["-v", f"{tmp_path}:/photos"])
+    result = run_container_manual(["--log-level", "debug", "--recursive", "/photos"], mounts=["-v", f"{tmp_path}:/photos"])
     assert result.returncode == 0
     assert "✅ Saved scrubbed file" in result.stdout
 
@@ -85,7 +85,7 @@ def test_manual_mode_recursive_no_args(tmp_path):
     shutil.copy(SAMPLE_IMG, target)
 
     result = run_container_manual(
-        ["--recursive"],
+        ["--log-level", "debug", "--recursive"],
         mounts=["-v", f"{tmp_path}:/photos"]
     )
 
@@ -101,11 +101,11 @@ def test_manual_mode_default_dir(tmp_path):
     (subdir / "two.jpg").write_bytes(SAMPLE_BYTES)
 
     # Test without -r (should only scrub top-level image)
-    result = run_container_manual([], mounts=["-v", f"{tmp_path}:/photos"])
+    result = run_container_manual(["--log-level", "debug"], mounts=["-v", f"{tmp_path}:/photos"])
     assert "one.jpg" in result.stdout
     assert "two.jpg" not in result.stdout
 
     # Test with -r (should scrub both)
-    result = run_container_manual(["-r"], mounts=["-v", f"{tmp_path}:/photos"])
+    result = run_container_manual(["--log-level", "debug", "-r"], mounts=["-v", f"{tmp_path}:/photos"])
     assert "one.jpg" in result.stdout
     assert "two.jpg" in result.stdout

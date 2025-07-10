@@ -18,7 +18,7 @@ IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
 def run_container(mounts: list[str], args: list[str] = None) -> subprocess.CompletedProcess:
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    cmd = ["docker", "run", "--rm"] + user_flag + mounts + [IMAGE]
+    cmd = ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE]
     if args:
         cmd += args
     result = subprocess.run(cmd, capture_output=True, text=True)

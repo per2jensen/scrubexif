@@ -21,7 +21,7 @@ IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 def run_container(mounts: list[str]) -> subprocess.CompletedProcess:
     """Run container with mounts and current UID (unless root)."""
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    cmd = ["docker", "run", "--rm"] + user_flag + mounts + [IMAGE, "--from-input"]
+    cmd = ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE, "--from-input"]
     return subprocess.run(cmd, capture_output=True, text=True)
 
 

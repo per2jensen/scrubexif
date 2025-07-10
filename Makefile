@@ -13,7 +13,7 @@
 SHELL := /bin/bash
 
 DOCKER ?= docker
-DOCKER_RUN := $(DOCKER) run --rm $(if $(CI),,-it)
+DOCKER_RUN := $(DOCKER) run  --read-only --security-opt no-new-privileges --rm $(if $(CI),,-it)
 
 UBUNTU_VERSION ?= 24.04
 
@@ -114,7 +114,7 @@ verify-labels:
 
 verify-cli-version:
 	@echo "🔎 Verifying scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"
-	@actual_version="$$(docker run --rm --entrypoint scrub $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | head -n1 | awk '{print $$2}')" && \
+	@actual_version="$$(docker run  --read-only --security-opt no-new-privileges --rm --entrypoint scrub $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | head -n1 | awk '{print $$2}')" && \
 	if [ "$$actual_version" != "$(FINAL_VERSION)" ]; then \
 	  echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(FINAL_VERSION)'"; \
 	  exit 1; \

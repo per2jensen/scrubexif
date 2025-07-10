@@ -33,6 +33,38 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 ---
 
+## 📚 Table of Contents
+
+- [🚀 Quick Start](#-quick-start)
+  - [Manual Mode](#-manual-mode-default)
+  - [Auto Mode (`--from-input`)](#-auto-mode---from-input)
+- [Options (Manual mode)](#-options-manual-mode)
+- [Features](#-features)
+  - [Metadata Preservation Strategy](#-metadata-preservation-strategy)
+  - [🛡️ `--paranoia` Mode](#️---paranoia-mode)
+  - [Inspecting Metadata with `--show-tags`](#-inspecting-metadata-with---show-tags)
+  - [Preview Mode (`--preview`)](#-preview-mode---preview)
+- [What It Cleans](#-what-it-cleans)
+- [Known Limitations](#known-limitations)
+- [Docker Image](#-docker-image)
+- [User Privileges and Running as Root](#-user-privileges-and-running-as-root)
+- [Recommendations](#-recommendations)
+  - [🛡️ Hardening](#️-hardening)
+  - [Use Real Directories for Mounts](#-use-real-directories-for-mounts)
+  - [Run as a Non-Root User](#-run-as-a-non-root-user)
+  - [Always Pre-Check Mount Paths](#-always-pre-check-mount-paths)
+  - [Keep Metadata You Intend to Preserve Explicit](#-keep-metadata-you-intend-to-preserve-explicit)
+- [Viewing Metadata](#-viewing-metadata)
+- [Inspecting the Image Itself](#-inspecting-the-image-itself)
+- [Example Integration](#-example-integration)
+- [Build Locally (Optional)](#-build-locally-optional)
+- [Test Image](#-test-image)
+- [License](#️-license)
+- [Related Tools](#-related-tools)
+- [Feedback](#-feedback)
+
+---
+
 ## 🚀 Quick Start
 
 There are **two modes**:
@@ -96,7 +128,7 @@ By default, if a file with the same name already exists in the output folder, it
 
 This ensures output is not overwritten and prevents silently skipping files.
 
-The reason to delete a duplicate by default is that the files are probably not that important, mostly used to give viewers a quick glance. Also it conserves disk.
+The reason to delete a duplicate by default is that the files are probably not that important, mostly used to give viewers a quick glance. It also conserves disk space.
 
 ```bash
 # Move duplicates to /photos/errors instead of deleting
@@ -172,8 +204,8 @@ When enabled, `--paranoia` disables color profile preservation and removes finge
 
 | Mode         | ICC Profile | Color Fidelity | Privacy Level |
 |--------------|-------------|----------------|---------------|
-| *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate      |
-| `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum       |
+| *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate |
+| `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum  |
 
 ### 📸 Example
 
@@ -244,7 +276,7 @@ This mode:
 docker run -v "$PWD:/photos" scrubexif:dev test.jpg --preview
 ```
 
-🛡 Tip: Combine `--preview --paranoia` to veriy the color profile tags including the ProfileId tag has been scrubbed. 
+🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed. 
 
 ---
 
@@ -265,7 +297,7 @@ It **preserves** key tags important for photographers and viewers.
 
 ## Known limitations
 
-🚧 **Symlinked input paths are not detected inside the container**
+> 🚧 Symlinked input paths are not detected inside the container
 
 If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Docker resolves the symlink before passing it to the container. This means:
 
@@ -275,19 +307,21 @@ If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Dock
 
 ---
 
-## 🐳 Docker Image
+## 🐳 Docker Images
 
 For now I am not using `latest`, as the images are only development quality.
 
 I am currently going with:
 
-- `:0.5.x`  → Versioned releases
-- `:stable` → Latest tested and approved version, perhaps with an :rc before declaring :stable
-- `:dev`    → Bleeding edge development, may be broken, not put on Docker Hub
+| Tag        | Description                                      | Docker Hub | Example Usage  |
+|------------|--------------------------------------------------|------------|----------------|
+| `:0.x.y`   | Versioned releases following semantic versioning | ✅ Yes     | `docker pull per2jensen/scrubexif:0.5.11`   |
+| `:stable`  | Latest "good" and trusted version; perhaps `:rc` | ✅ Yes     | `docker pull per2jensen/scrubexif:stable` |
+| `:dev`     | Development version; may be broken or incomplete | ❌ No      | `docker run scrubexif:dev` |
 
-The Release pipeline in the Makefile automatically updates the [build-history.json](https://github.com/per2jensen/scrubexif/blob/main/doc/build-history.json) that keeps various metadata on the uploaded images.
+🔄 The release pipeline automatically updates build-history.json, which contains metadata for each uploaded image.
 
-📥 Pull Images
+> 📥 Pull Images
 
 Versioned image:
 
@@ -295,14 +329,13 @@ Versioned image:
 VERSION=0.5.11; docker pull per2jensen/scrubexif:$VERSION
 ```
 
-Pull the latest stable release (when available)
+Pull the latest `stable` release (when available)
 
 ```bash
 docker pull per2jensen/scrubexif:stable
 ```
 
-✔️ All `:0.5.x` and `:stable` images are verified via GitHub Actions CI.
-
+✔️ All `:0.5.x` and `:stable` images run the test suite successfully as part of the release pipeline.
 
 >`:dev` → Bleeding edge development, **only built >locally**, not pushed to Docker Hub
 
@@ -370,19 +403,37 @@ docker run --rm --user 0 -e ALLOW_ROOT=1 scrubexif:dev
 
 To ensure smooth and safe operation when using `scrubexif`, follow these guidelines:
 
+### 🛡️ Hardening
+
+Use these options when starting a container:
+
+- [--read-only](https://docs.docker.com/reference/cli/docker/container/run/#read-only)
+- [--security-opt no-new-privileges](https://docs.docker.com/reference/cli/docker/container/run/#security-opt)  
+
+```bash
+docker run  --read-only --security-opt no-new-privileges \
+          -v "$PWD/input:/photos/input" \
+          -v "$PWD/output:/photos/output" \
+          -v "$PWD/processed:/photos/processed" \
+          scrubexif:dev --from-input
+```
+
 ### ✅ Use Real Directories for Mounts
 
 Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
+
 Instead:
 
+```bash
 docker run -v "$PWD/input:/photos/input" \
            -v "$PWD/output:/photos/output" \
            -v "$PWD/processed:/photos/processed" \
            scrubexif:dev --from-input
+```
 
 ### ✅ Run as a Non-Root User
 
-SCRUBEXIF checks directory writability. If you mount a directory as root-only, and the container runs as a non-root user (recommended), it will detect and exit cleanly.
+`scrubexif` checks directory writability. If you mount a directory as root-only, and the container runs as a non-root user (recommended), it will detect and exit cleanly.
 
 Tip: Use --user 1000 or ensure mounted dirs are writable by UID 1000.
 
@@ -390,11 +441,11 @@ Tip: Use --user 1000 or ensure mounted dirs are writable by UID 1000.
 
 Ensure the input, output, and processed directories:
 
-    Exist on the host
+  Exist on the host
 
-    Are not files or symlinks
+  Are not files or symlinks
 
-    Are writable by the container’s user
+  Are writable by the container’s user
 
 Otherwise, scrubexif will fail fast with a clear error message.
 
@@ -458,9 +509,9 @@ docker build -t scrubexif .
 
 ---
 
-🧪 Test Image
+## 🧪 Test Image
 
-To verify that a specific scrubexif Docker image functions correctly, the test suite supports containerized testing using any image tag. By default, it uses the local `scrubexif:dev` image. You can override this with the `SCRUBEXIF_IMAGE` environment variable.
+To verify that a specific scrubexif Docker image functions correctly, the test suite supports containerized testing using any image tag. By default, it uses the local tag  `scrubexif:dev` for testing. You can override this with the `SCRUBEXIF_IMAGE` environment variable.
 
 🔧 Default behavior
 

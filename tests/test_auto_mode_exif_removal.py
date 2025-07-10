@@ -35,7 +35,7 @@ def find_tag(tags: dict, tag: str) -> str | None:
 def run_scrubexif_container(input_dir, output_dir, processed_dir):
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
     return subprocess.run([
-        "docker", "run", "--rm",
+        "docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm",
         *user_flag,
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",

@@ -35,7 +35,7 @@ IMAGE_TAG = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 def run_scrubexif(input_dir: Path, output_dir: Path, processed_dir: Path):
     """Run the container with given mounted directories."""
     result = subprocess.run([
-        "docker", "run", "--rm",
+        "docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm",
         "--user", str(os.getuid()),
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",
