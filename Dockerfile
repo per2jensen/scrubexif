@@ -13,18 +13,28 @@ ARG VERSION=dev
 ENV DEBIAN_FRONTEND=noninteractive \
     CONTAINER_VERSION=${VERSION}
 
+
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-        libimage-exiftool-perl \
+        util-linux \
         python3 \
         python3-pip \
         bash \
         ca-certificates \
         coreutils \
-        jq && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
+        jq \
+        libimage-exiftool-perl && \
+    # Remove man pages, docs, locales, and unused share files
+    rm -rf /usr/share/man/* \
+           /usr/share/doc/* \
+           /usr/share/doc-base/* \
+           /usr/share/locale/* \
+           /usr/share/info/* \
+           /var/lib/apt/lists/* \
+           /tmp/* \
+           /var/tmp/* && \
+    apt-get clean
 
 # Copy the whole package into /app
 COPY . /app/
