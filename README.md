@@ -35,33 +35,46 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 ## 📚 Table of Contents
 
-- [🚀 Quick Start](#-quick-start)
-  - [Manual Mode](#-manual-mode-default)
-  - [Auto Mode (`--from-input`)](#-auto-mode---from-input)
-- [Options (Manual mode)](#-options-manual-mode)
-- [Features](#-features)
-  - [Metadata Preservation Strategy](#-metadata-preservation-strategy)
-  - [🛡️ `--paranoia` Mode](#️---paranoia-mode)
-  - [Inspecting Metadata with `--show-tags`](#-inspecting-metadata-with---show-tags)
-  - [Preview Mode (`--preview`)](#-preview-mode---preview)
-- [What It Cleans](#-what-it-cleans)
-- [Known Limitations](#known-limitations)
-- [Docker Image](#-docker-image)
-- [User Privileges and Running as Root](#-user-privileges-and-running-as-root)
-- [Recommendations](#-recommendations)
-  - [🛡️ Hardening](#️-hardening)
-  - [Use Real Directories for Mounts](#-use-real-directories-for-mounts)
-  - [Run as a Non-Root User](#-run-as-a-non-root-user)
-  - [Always Pre-Check Mount Paths](#-always-pre-check-mount-paths)
-  - [Keep Metadata You Intend to Preserve Explicit](#-keep-metadata-you-intend-to-preserve-explicit)
-- [Viewing Metadata](#-viewing-metadata)
-- [Inspecting the Image Itself](#-inspecting-the-image-itself)
-- [Example Integration](#-example-integration)
-- [Build Locally (Optional)](#-build-locally-optional)
-- [Test Image](#-test-image)
-- [License](#️-license)
-- [Related Tools](#-related-tools)
-- [Feedback](#-feedback)
+- [scrubexif](#scrubexif)
+  - [📚 Table of Contents](#-table-of-contents)
+  - [🚀 Quick Start](#-quick-start)
+    - [✅ Manual mode (default)](#-manual-mode-default)
+      - [Scrub specific files](#scrub-specific-files)
+      - [Scrub all JPEGs in current directory](#scrub-all-jpegs-in-current-directory)
+      - [Recursively scrub nested folders](#recursively-scrub-nested-folders)
+    - [🤖 Auto mode (`--from-input`)](#-auto-mode---from-input)
+      - [Example](#example)
+      - [Duplicate Handling (auto mode)](#duplicate-handling-auto-mode)
+  - [Options](#options)
+    - [Examples](#examples)
+  - [✅ Features](#-features)
+    - [🎯 Metadata Preservation Strategy](#-metadata-preservation-strategy)
+    - [🛡️ `--paranoia` Mode](#️---paranoia-mode)
+    - [📸 Example](#-example)
+    - [🔍 Inspecting Metadata with `--show-tags`](#-inspecting-metadata-with---show-tags)
+    - [⚠️ Note on `--dry-run`](#️-note-on---dry-run)
+    - [📌 Usage Examples](#-usage-examples)
+    - [🔍 Preview Mode (`--preview`)](#-preview-mode---preview)
+    - [✅ Typical Use](#-typical-use)
+  - [🧼 What It Cleans](#-what-it-cleans)
+  - [Known limitations](#known-limitations)
+  - [🐳 Docker Images](#-docker-images)
+  - [🔐 User Privileges and Running as Root](#-user-privileges-and-running-as-root)
+  - [📌 Recommendations](#-recommendations)
+    - [🛡️ Hardening](#️-hardening)
+    - [✅ Use Real Directories for Mounts](#-use-real-directories-for-mounts)
+    - [✅ Run as a Non-Root User](#-run-as-a-non-root-user)
+    - [✅ Always Pre-Check Mount Paths](#-always-pre-check-mount-paths)
+    - [✅ Keep Metadata You Intend to Preserve Explicit](#-keep-metadata-you-intend-to-preserve-explicit)
+  - [🔍 Viewing Metadata](#-viewing-metadata)
+  - [📦 Inspecting the Image Itself](#-inspecting-the-image-itself)
+  - [📁 Example Integration](#-example-integration)
+  - [🔧 Build Locally (Optional)](#-build-locally-optional)
+  - [🧪 Test Image](#-test-image)
+  - [✍️ License](#️-license)
+  - [🙌 Related Tools](#-related-tools)
+  - [💬 Feedback](#-feedback)
+  - [🔗 Project Homepage](#-project-homepage)
 
 ---
 
@@ -113,11 +126,7 @@ VERSION=0.5.12; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --from-input
 ```
 
-Optional flags:
-
-- `--delete-original` — Delete originals instead of moving them
-- `--on-duplicate {delete|move}` - delete or move a duplicate
-- `--dry-run` — Show what would be scrubbed, but don’t write files
+---
 
 #### Duplicate Handling (auto mode)
 
@@ -143,15 +152,20 @@ docker run -v "$PWD/input:/photos/input" \
 
 ---
 
-## 🔧 Options (Manual mode)
+## Options
 
-The container accepts:
+- `--delete-original` — delete originals instead of moving them
+- `--on-duplicate {delete|move}` - delete or move a duplicate
+- `--dry-run` - show what would be scrubbed, but don’t write files
+- `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
+- `--max-files` - limit number of files to scrub (for testing or safe inspection
+- `--paranoia` - maximum metadata scrubbing, removes ICC profile including it's (potential) fingerprinting vector
+- `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
+- `-r`, `--recursive` - Recurse into directories
+- `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
+- `-v`, `--version` - show version and license
 
-- **Filenames**: one or more `.jpg` or `.jpeg` file names
-- `-r`, `--recursive`: Recursively scrub `/photos` and all subfolders
-- `--dry-run`: Show what would be scrubbed, without modifying files
-
-**Examples:**
+### Examples
 
 Scrub all `.jpg` files in subdirectories:
 
