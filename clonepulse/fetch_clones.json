@@ -550,8 +550,8 @@
     },
     {
       "timestamp": "2025-10-16T00:00:00Z",
-      "count": 5,
-      "uniques": 4
+      "count": 3,
+      "uniques": 2
     },
     {
       "timestamp": "2025-10-17T00:00:00Z",
@@ -612,6 +612,11 @@
       "timestamp": "2025-10-28T00:00:00Z",
       "count": 7,
       "uniques": 5
+    },
+    {
+      "timestamp": "2025-10-29T00:00:00Z",
+      "count": 2,
+      "uniques": 2
     }
   ]
 }
