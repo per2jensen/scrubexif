@@ -3,6 +3,8 @@
 from pathlib import Path
 from PIL import Image
 
+import os
+os.environ.setdefault("SCRUBEXIF_STABLE_SECONDS", "0")
 
 SAMPLE_BYTES = b"\xff\xd8\xff\xe0" + b"\x00" * 100  # Minimal fake JPEG header
 

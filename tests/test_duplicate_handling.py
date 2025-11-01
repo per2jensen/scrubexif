@@ -1,106 +1,128 @@
+# tests/test_duplicate_handling.py
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Integration tests for scrubexif's handling of duplicate JPEGs in /input,
-testing both --move-to-error-dir and default deletion.
+Duplicate-handling integration tests for scrubexif in auto mode.
+
+Covers:
+  - Unique files are scrubbed and originals moved to /processed
+  - Re-uploaded duplicate moved to /errors with --on-duplicate move
+  - Re-uploaded duplicate deleted with default (delete)
 """
 
+from __future__ import annotations
+
 import os
-import subprocess
 from pathlib import Path
-import shutil
-import tempfile
+
 import pytest
-from conftest import create_fake_jpeg
+
+from tests._docker import mk_mounts, run_container
+from .conftest import create_fake_jpeg  # helper provided by the suite
 
 
-IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+def prepare_common_dirs(tmp_path: Path) -> tuple[Path, Path, Path, Path]:
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+    errors_dir = tmp_path / "errors"
+    input_dir.mkdir()
+    output_dir.mkdir()
+    processed_dir.mkdir()
+    errors_dir.mkdir()
+    return input_dir, output_dir, processed_dir, errors_dir
 
 
-def run_container(mounts: list[str], args: list[str] = None) -> subprocess.CompletedProcess:
-    user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    cmd = ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE]
-    if args:
-        cmd += args
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    print(result.stdout)
-    print(result.stderr)
-    return result
+def mounts_with_errors(input_dir: Path, output_dir: Path, processed_dir: Path, errors_dir: Path) -> list[str]:
+    mounts = mk_mounts(input_dir, output_dir, processed_dir)
+    mounts += ["-v", f"{errors_dir}:/photos/errors"]
+    return mounts
 
 
-def prepare_common_dirs(base: Path):
-    for d in ("input", "output", "processed", "errors"):
-        (base / d).mkdir()
-    return base / "input", base / "output", base / "processed", base / "errors"
-
-
-def test_scrub_unique_files(tmp_path):
+def test_scrub_unique_files(tmp_path: Path):
     input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
     create_fake_jpeg(input_dir / "photo1.jpg", "red")
     create_fake_jpeg(input_dir / "photo2.jpg", "yellow")
 
-    result = run_container([
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        "-v", f"{errors_dir}:/photos/errors",
-    ], args=["--from-input"])
+    cp = run_container(
+        mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(cp.stdout)
+    print(cp.stderr)
+    assert cp.returncode == 0
+    assert "Successfully scrubbed" in cp.stdout
 
-    assert result.returncode == 0
-    assert "Successfully scrubbed" in result.stdout
+    # Originals should be moved to processed/
     assert (processed_dir / "photo1.jpg").exists()
     assert (processed_dir / "photo2.jpg").exists()
-    assert not (errors_dir / "photo1.jpg").exists()
+    # Scrubbed outputs should exist
+    assert (output_dir / "photo1.jpg").exists()
+    assert (output_dir / "photo2.jpg").exists()
 
 
-def test_scrub_and_move_duplicate(tmp_path):
+def test_scrub_and_move_duplicate(tmp_path: Path):
     input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
-    # First pass: upload one image
+
+    # First pass processes the file
     create_fake_jpeg(input_dir / "photo.jpg", "red")
-    run_container([
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        "-v", f"{errors_dir}:/photos/errors",
-    ], args=["--from-input"])
+    first = run_container(
+        mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(first.stdout)
+    print(first.stderr)
+    assert first.returncode == 0
+    assert (output_dir / "photo.jpg").exists()
+    assert (processed_dir / "photo.jpg").exists()
 
-    # Second pass: re-upload same file
+    # Second pass re-uploads the same name — should be treated as duplicate
     create_fake_jpeg(input_dir / "photo.jpg", "red")
+    second = run_container(
+        mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
+        args=["--from-input", "--on-duplicate", "move", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(second.stdout)
+    print(second.stderr)
+    assert second.returncode == 0
+    assert "Moved duplicate to" in second.stdout or "📦 Moved duplicate to" in second.stdout
 
-    result = run_container([
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        "-v", f"{errors_dir}:/photos/errors",
-    ], args=["--from-input", "--on-duplicate", "move"])
-
-    assert result.returncode == 0
-    assert "📦 Moved duplicate to" in result.stdout
-    matching = list(errors_dir.glob("photo*.jpg"))
-    assert len(matching) >= 1  # Could be photo.jpg or photo-1.jpg
+    # Duplicate should be moved to errors/
+    # Allow for collision suffixes (_1, _2, ...) created by the implementation
+    moved_candidates = list(errors_dir.glob("photo*.jpg"))
+    assert moved_candidates, "Expected duplicate moved into /errors"
 
 
-def test_scrub_and_delete_duplicate(tmp_path):
+def test_scrub_and_delete_duplicate(tmp_path: Path):
     input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
+
+    # First pass processes the file
     create_fake_jpeg(input_dir / "photo.jpg", "black")
-    run_container([
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        "-v", f"{errors_dir}:/photos/errors",
-    ], args=["--from-input"])
+    first = run_container(
+        mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(first.stdout)
+    print(first.stderr)
+    assert first.returncode == 0
+    assert (output_dir / "photo.jpg").exists()
+    assert (processed_dir / "photo.jpg").exists()
 
-    # Re-upload same file, expect deletion
+    # Second pass re-uploads same name — default duplicate policy is 'delete'
     create_fake_jpeg(input_dir / "photo.jpg", "black")
-    result = run_container([
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        "-v", f"{errors_dir}:/photos/errors",
-    ], args=["--from-input"])
+    second = run_container(
+        mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(second.stdout)
+    print(second.stderr)
+    assert second.returncode == 0
 
-    assert result.returncode == 0
-    assert not (input_dir / "photo.jpg").exists()
-    assert not (errors_dir / "photo.jpg").exists()
-
-
-
+    # Input duplicate should have been deleted by the tool
+    assert not (input_dir / "photo.jpg").exists(), "Expected duplicate to be deleted from /input"
+    # And nothing new should appear in errors/
+    assert not list(errors_dir.glob("photo*.jpg")), "Did not expect a moved duplicate in /errors for delete policy"

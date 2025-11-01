@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 import pytest
 
-from conftest import SAMPLE_BYTES  # Explicit import
+from .conftest import SAMPLE_BYTES  # Explicit import
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 ASSETS_DIR = Path(__file__).parent / "assets"

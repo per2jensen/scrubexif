@@ -3,29 +3,34 @@
 """
 Scrub EXIF metadata from JPEG files while retaining selected tags.
 
-🐾 Designed for photographers who want to preserve camera details
-    (exposure, lens, ISO, etc.) but remove private or irrelevant data.
+Designed for photographers who want to preserve camera details
+(exposure, lens, ISO, etc.) but remove private or irrelevant data.
 """
 
 import argparse
+import json
 import logging
 import os
-import subprocess
 import shutil
+import subprocess
 import sys
-from pathlib import Path
+import tempfile
+import time
 from pathlib import Path
 from typing import Optional
 
 sys.stdout.reconfigure(line_buffering=True)
 
-
-__version__ = "0.5.12"
+__version__ = "0.7.0"
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 See section 15 and section 16 in the supplied "LICENSE" file.'''
 
+
+# ----------------------------
+# Results and summary structs
+# ----------------------------
 
 class ScrubResult:
     __slots__ = ("input_path", "output_path", "status", "error_message", "duplicate_path")
@@ -51,7 +56,6 @@ class ScrubResult:
             f"output={self.output_path.name if self.output_path else 'n/a'}, "
             f"error={bool(self.error_message)})"
         )
-
 
 
 class ScrubSummary:
@@ -80,48 +84,31 @@ class ScrubSummary:
 
     def print(self):
         print("📊 Summary:")
-        print(f"  Total JPEGs found     : {self.total}")
-        print(f"  Successfully scrubbed : {self.scrubbed}")
-        print(f"  Skipped (errors)      : {self.errors}")
+        print(f"  Total JPEGs found        : {self.total}")
+        print(f"  Successfully scrubbed    : {self.scrubbed}")
+        print(f"  Skipped (unstable/temp)  : {self.skipped}")
+        print(f"  Errors                   : {self.errors}")
         if self.duplicates_deleted:
-            print(f"  Duplicates deleted    : {self.duplicates_deleted}")
+            print(f"  Duplicates deleted       : {self.duplicates_deleted}")
         if self.duplicates_moved:
-            print(f"  Duplicates moved      : {self.duplicates_moved}")
+            print(f"  Duplicates moved         : {self.duplicates_moved}")
 
 
+# ----------------------------
+# Fixed container paths
+# ----------------------------
 
-
-# === Fixed container paths ===
 INPUT_DIR = Path("/photos/input")
 OUTPUT_DIR = Path("/photos/output")
 PROCESSED_DIR = Path("/photos/processed")
 ERRORS_DIR = Path("/photos/errors")
 
-# === Whitelisted tags ===
-EXIF_TAGS_TO_KEEP = [
-    "ExposureTime",
-    "FNumber",
-    "ImageSize",
-    "Title",
-    "FocalLength",
-    "ISO",
-    "Orientation",
-]
 
-# Exiftool "bundles" that affect a set of tags
-EXIFTOOL_META_TAGS = ["ColorSpaceTags"]  # https://exiftool.org/forum/index.php?topic=13451.0
-
-# Groups to check for tags
-TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC", "Makernotes", "Comment", "PhotoShop"]
-
+# ----------------------------
+# Logger
+# ----------------------------
 
 def setup_logger(level: str = "info"):
-    """
-    Configure the global logger with console output and uppercase level names.
-
-    Args:
-        level (str): One of 'debug', 'info', 'warn', 'error', 'crit'
-    """
     level_map = {
         "debug": logging.DEBUG,
         "info": logging.INFO,
@@ -129,24 +116,19 @@ def setup_logger(level: str = "info"):
         "error": logging.ERROR,
         "crit": logging.CRITICAL,
     }
-
     logger = logging.getLogger("scrubexif")
     logger.setLevel(level_map.get(level.lower(), logging.INFO))
-
     handler = logging.StreamHandler()
     formatter = logging.Formatter("🔎 [%(levelname)s] %(message)s")
     handler.setFormatter(formatter)
-
-    logger.handlers.clear()  # Avoid duplicate handlers
+    logger.handlers.clear()
     logger.addHandler(handler)
     logger.propagate = False
-
     return logger
 
-# Will be initialized in main()
+
+# Will be set in main()
 log = logging.getLogger("scrubexif")
-
-
 
 
 def show_version():
@@ -156,6 +138,9 @@ def show_version():
     print(__license__)
 
 
+# ----------------------------
+# Safety checks
+# ----------------------------
 
 def check_dir_safety(path: Path, label: str):
     if not path.exists():
@@ -177,38 +162,162 @@ def check_dir_safety(path: Path, label: str):
         sys.exit(1)
 
 
+# ----------------------------
+# Stability state management
+# ----------------------------
+
+def _resolve_state_path() -> Optional[Path]:
+    """
+    Priority:
+      1) SCRUBEXIF_STATE env
+      2) /photos/.scrubexif_state.json if writable
+      3) /tmp/.scrubexif_state.json if writable
+      4) None => state disabled, mtime-only
+    """
+    env = os.getenv("SCRUBEXIF_STATE")
+    candidates = []
+    if env:
+        candidates.append(Path(env))
+    candidates.append(Path("/photos/.scrubexif_state.json"))
+    candidates.append(Path("/tmp/.scrubexif_state.json"))
+
+    for p in candidates:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.NamedTemporaryFile(dir=p.parent, delete=True):
+                return p
+        except Exception:
+            continue
+    return None
+
+
+STATE_FILE: Optional[Path] = _resolve_state_path()
+_warned_state_disabled = False
+
+
+def load_state() -> dict:
+    if STATE_FILE is None:
+        return {}
+    try:
+        with open(STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log.warning("State load failed: %s", e)
+    return {}
+
+
+def save_state(state: dict):
+    global _warned_state_disabled, STATE_FILE
+    if STATE_FILE is None:
+        if not _warned_state_disabled:
+            log.info("State disabled: using mtime-only stability.")
+            _warned_state_disabled = True
+        return
+    tmp = STATE_FILE.with_suffix(".json.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(state, f, separators=(",", ":"), ensure_ascii=False)
+        os.replace(tmp, STATE_FILE)
+    except Exception as e:
+        if not _warned_state_disabled:
+            log.warning("State save failed at %s: %s. Falling back to mtime-only.", STATE_FILE, e)
+            _warned_state_disabled = True
+        try:
+            os.unlink(tmp)
+        except Exception:
+            pass
+        STATE_FILE = None  # stop future attempts
+
+
+def prune_state(state: dict):
+    remove = []
+    for key in list(state.keys()):
+        if not Path(key).exists():
+            remove.append(key)
+    for k in remove:
+        state.pop(k, None)
+
+
+def mark_seen(path: Path, state: dict):
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return
+    key = str(path.resolve())
+    state[key] = {"size": st.st_size, "mtime": st.st_mtime, "seen": time.time()}
+
+
+# ----------------------------
+# Temp/partial detection
+# ----------------------------
+
+TEMP_SUFFIXES = {
+    ".tmp", ".part", ".partial", ".crdownload", ".download", ".upload", ".cache",
+    ".swp", ".swx", ".lck"
+}
+TEMP_PREFIXES = {".", "~", "._"}
+
+
+def is_probably_temp(path: Path) -> bool:
+    name = path.name
+    if any(name.startswith(p) for p in TEMP_PREFIXES):
+        return True
+    low = name.lower()
+    if path.suffix.lower() in TEMP_SUFFIXES:
+        return True
+    for suf in TEMP_SUFFIXES:
+        if low.endswith(suf):
+            return True
+    return False
+
+
+def is_file_stable(path: Path, state: dict, stable_seconds: int) -> bool:
+    """
+    Stable if:
+      1) mtime age >= stable_seconds, and
+      2) if previously seen, size+mtime unchanged since last run.
+    """
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return False
+
+    now = time.time()
+    if stable_seconds > 0:
+        if now - st.st_mtime < stable_seconds:
+            return False
+
+    key = str(path.resolve())
+    prev = state.get(key)
+    if prev and (prev.get("size") != st.st_size or prev.get("mtime") != st.st_mtime):
+        return False
+
+    return True
+
+
+# ----------------------------
+# EXIF config
+# ----------------------------
+
+EXIF_TAGS_TO_KEEP = [
+    "ExposureTime",
+    "FNumber",
+    "ImageSize",
+    "Title",
+    "FocalLength",
+    "ISO",
+    "Orientation",
+]
+
+EXIFTOOL_META_TAGS = ["ColorSpaceTags"]  # bundle
+TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC", "Makernotes", "Comment", "PhotoShop"]
+
+
 def build_preserve_args(paranoia: bool = False) -> list[str]:
-    """
-    Build a list of -tag arguments for ExifTool to preserve selected metadata.
-
-    This function expands each tag from EXIF_TAGS_TO_KEEP across multiple
-    metadata groups (like EXIF, XMP, IPTC) and returns a deduplicated list
-    of arguments in the format expected by ExifTool.
-
-    Returns:
-        List[str]: A list of arguments like ['-ISO', '-EXIF:ISO', '-XMP:ISO', ...]
-
-    Example:
-        Given:
-            EXIF_TAGS_TO_KEEP = ["ISO", "CreateDate"]
-            TAG_GROUPS = ["", "EXIF", "XMP"]
-
-        The output will be:
-            [
-                "-ISO",
-                "-EXIF:ISO",
-                "-XMP:ISO",
-                "-CreateDate",
-                "-EXIF:CreateDate",
-                "-XMP:CreateDate"
-            ]
-
-        These arguments can be used like so:
-            exiftool -tagsFromFile @ -ISO -EXIF:ISO -XMP:ISO -CreateDate ...
-
-    This allows ExifTool to preserve whitelisted tags across different metadata
-    namespaces when removing all other EXIF data.
-    """
     args = []
     seen = set()
     tags = EXIF_TAGS_TO_KEEP.copy()
@@ -226,29 +335,16 @@ def build_preserve_args(paranoia: bool = False) -> list[str]:
 
 
 def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool) -> list[str]:
-    """
-    Build a safe ExifTool command to scrub input → output (temp file).
-    Never overwrites input.
-    """
     cmd = ["exiftool", "-P", "-m", "-all=", "-gps:all=", "-tagsFromFile", "@"]
-
-    # Use whitelist logic
     cmd += build_preserve_args(paranoia=paranoia)
-
-    # Apply paranoia: strip ICC if requested
     if paranoia:
         cmd += ["-ICC_Profile:all="]
-
-    # Output to temp file
     cmd += ["-o", str(output_path), str(input_path)]
     return cmd
 
 
 def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
                        overwrite: bool = False, paranoia: bool = False) -> list[str]:
-    """
-    Construct a full ExifTool command for metadata scrubbing.
-    """
     cmd = ["exiftool"]
     if overwrite:
         cmd.append("-overwrite_original")
@@ -279,6 +375,10 @@ def print_tags(file: Path, label: str = ""):
         print(f"❌ Failed to read tags: {e}")
 
 
+# ----------------------------
+# Scrub operations
+# ----------------------------
+
 def scrub_file(
     input_path: Path,
     output_path: Path | None = None,
@@ -292,7 +392,7 @@ def scrub_file(
     output_file = output_path / input_path.name if output_path else input_path
     print("Output file will be:", output_file)
 
-    # === Handle duplicates ===
+    # duplicates
     if output_file.exists() and input_path.resolve() != output_file.resolve():
         print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
 
@@ -315,7 +415,7 @@ def scrub_file(
             print(f"📦 Moved duplicate to: {target}")
             return ScrubResult(input_path, output_path, status="duplicate", duplicate_path=target)
 
-    # === Dry-run handling ===
+    # dry-run
     if dry_run:
         if show_tags_mode in {"before", "both"}:
             print_tags(input_path, label="before")
@@ -324,7 +424,7 @@ def scrub_file(
         print(f"🔍 Dry run: would scrub {input_path}")
         return ScrubResult(input_path, output_path, status="scrubbed")
 
-    # === Build ExifTool command ===
+    # exiftool command
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
     cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_path,
                              overwrite=in_place, paranoia=paranoia)
@@ -364,7 +464,6 @@ def scrub_file(
     return ScrubResult(input_path, output_path, status="scrubbed")
 
 
-
 def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
     if not dir_path.is_dir():
         return []
@@ -375,71 +474,104 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
     ]
 
 
-
 def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                show_tags_mode: str | None = None,
                paranoia: bool = True,
                max_files: int | None = None,
-               on_duplicate: str = "delete")  -> ScrubSummary:
+               on_duplicate: str = "delete",
+               stable_seconds: int = 120) -> ScrubSummary:
     print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
+    print(f"⏳ Stability threshold: {stable_seconds}s")
+    if STATE_FILE is None:
+        print("ℹ️ Stability state: mtime-only (no writable state file)")
 
-    # Safety checks
+    # Safety
     check_dir_safety(INPUT_DIR, "Input")
     check_dir_safety(OUTPUT_DIR, "Output")
     check_dir_safety(PROCESSED_DIR, "Processed")
 
+    state = load_state()
+    prune_state(state)
+
     input_files = find_jpegs_in_dir(INPUT_DIR, recursive=False)
 
-    if max_files is not None:
-        input_files = input_files[:max_files]
+    # Filter
+    filtered: list[Path] = []
+    skipped_temp = 0
+    skipped_unstable = 0
 
-    if not input_files:
-        print("⚠️ No JPEGs found — nothing to do.")
-        return
+    for f in input_files:
+        if is_probably_temp(f):
+            skipped_temp += 1
+            summary.skipped += 1
+            summary.total += 1
+            mark_seen(f, state)
+            continue
+        if not is_file_stable(f, state, stable_seconds):
+            skipped_unstable += 1
+            summary.skipped += 1
+            summary.total += 1
+            mark_seen(f, state)
+            continue
+        filtered.append(f)
+
+    if max_files is not None:
+        filtered = filtered[:max_files]
+
+    if not filtered:
+        if skipped_temp or skipped_unstable:
+            print(f"ℹ️ Nothing eligible yet. Skipped: temp={skipped_temp}, unstable={skipped_unstable}.")
+        else:
+            print("⚠️ No JPEGs found — nothing to do.")
+        save_state(state)
+        return summary
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-    success = 0
-    for file in input_files:
+    for file in filtered:
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(file, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
             print(f"🔍 Would scrub: {file.name}")
+            summary.total += 1
             continue
 
         result = scrub_file(file, OUTPUT_DIR,
-                        delete_original=delete_original,
-                        show_tags_mode=show_tags_mode,
-                        paranoia=paranoia,
-                        on_duplicate=on_duplicate)
-        
+                            delete_original=delete_original,
+                            show_tags_mode=show_tags_mode,
+                            paranoia=paranoia,
+                            on_duplicate=on_duplicate)
+
         summary.update(result)
         if result.status == "scrubbed":
             dst_processed = PROCESSED_DIR / file.name
             if file.resolve() != dst_processed.resolve():
                 shutil.move(file, dst_processed)
             else:
-                print(f"⚠️ Skipping move: source and destination are the same")
+                print("⚠️ Skipping move: source and destination are the same")
             print(f"📦 Moved original to {PROCESSED_DIR / file.name}")
-            success += 1
 
+        mark_seen(file, state)
+
+    save_state(state)
     return summary
 
+
 def manual_scrub(files: list[Path],
-                summary: ScrubSummary, 
-                recursive: bool, dry_run=False,
+                 summary: ScrubSummary,
+                 recursive: bool, dry_run=False,
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
                  preview: bool = False) -> ScrubSummary:
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
-        return
+        return summary
 
-    targets = []
+    targets: list[Path] = []
 
     for file in files:
         if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
@@ -453,16 +585,12 @@ def manual_scrub(files: list[Path],
 
     if not targets:
         print("⚠️ No JPEGs matched.")
-        return
+        return summary
 
     if max_files is not None:
         targets = targets[:max_files]
 
-    success = 0
-
-    if (preview or
-        (dry_run and show_tags_mode in {"after", "both"} and len(targets) == 1)):
-
+    if preview or (dry_run and show_tags_mode in {"after", "both"} and len(targets) == 1):
         f = targets[0]
         from tempfile import NamedTemporaryFile
         temp = NamedTemporaryFile(suffix=".jpg", delete=False)
@@ -471,7 +599,6 @@ def manual_scrub(files: list[Path],
         preview_output = preview_input.with_suffix(".scrubbed.jpg")
 
         cmd = build_preview_cmd(preview_input, preview_output, paranoia=paranoia)
-
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Preview mode: %s", " ".join(cmd))
 
@@ -487,7 +614,7 @@ def manual_scrub(files: list[Path],
         preview_output.unlink(missing_ok=True)
 
         print("📊 Preview complete — original file was not modified.")
-        return
+        return summary
 
     for f in targets:
         if dry_run:
@@ -496,24 +623,25 @@ def manual_scrub(files: list[Path],
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
             print(f"🔍 Would scrub: {f}")
+            summary.total += 1
             continue
 
-        # Preview mode uses a temp scrub target
-        preview_output = None
-
         result = scrub_file(f,
-                        output_path=None,
-                        delete_original=False,
-                        dry_run=False,  # must be False to allow scrub
-                        show_tags_mode=show_tags_mode,
-                        paranoia=paranoia,
-                        on_duplicate=None)
+                            output_path=None,
+                            delete_original=False,
+                            dry_run=False,
+                            show_tags_mode=show_tags_mode,
+                            paranoia=paranoia,
+                            on_duplicate=None)
 
         summary.update(result)
 
     return summary
 
 
+# ----------------------------
+# Root guard
+# ----------------------------
 
 def require_force_for_root():
     if os.geteuid() == 0 and os.environ.get("ALLOW_ROOT") != "1":
@@ -521,26 +649,33 @@ def require_force_for_root():
         sys.exit(1)
 
 
+# ----------------------------
+# CLI
+# ----------------------------
+
 def main():
     require_force_for_root()
     parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
-    parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata tags before, after, or both for each image")
+    parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
     parser.add_argument("--paranoia", action="store_true",
-       help="Maximum metadata scrubbing — removes ICC profile including it's fingerprinting vector")
+                        help="Maximum metadata scrubbing — removes ICC profile")
     parser.add_argument("--preview", action="store_true",
-       help="Preview scrub effect on one file without modifying it (shows before/after metadata)")
+                        help="Preview scrub effect on one file without modifying it")
     parser.add_argument("--max-files", type=int, metavar="N",
-       help="Limit number of files to scrub (for testing or safe inspection)")
+                        help="Limit number of files to scrub")
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
-    parser.add_argument("--on-duplicate", choices=["delete", "move"], default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"), help="What to do with duplicate files in auto mode."
-        "'delete' (default) will remove them. "
-        "'move' will move them to /photos/errors/")
-    parser.add_argument("--delete-original", action="store_true", help="Delete original files after scrub (works in auto mode)")
-    parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info", help="Set log verbosity (default: info)")
-
+    parser.add_argument("--on-duplicate", choices=["delete", "move"],
+                        default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
+                        help="Duplicate handling in auto mode. 'delete' or 'move' to /photos/errors/")
+    parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
+    parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info",
+                        help="Set log verbosity")
+    parser.add_argument("--stable-seconds", type=int,
+                        default=int(os.getenv("SCRUBEXIF_STABLE_SECONDS", "120")),
+                        help="Only process files whose mtime age ≥ this many seconds (default: 120)")
     parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
     args = parser.parse_args()
 
@@ -551,18 +686,21 @@ def main():
         show_version()
         sys.exit(0)
 
-    # results keepper and summarizer
+    # show resolved state path once
+    if STATE_FILE is None:
+        log.info("State path: disabled (read-only or not set)")
+    else:
+        log.info("State path: %s", STATE_FILE)
+
     summary = ScrubSummary()
 
     if args.on_duplicate == "move":
         try:
             ERRORS_DIR.mkdir(parents=True, exist_ok=True)
             check_dir_safety(ERRORS_DIR, "Errors")
-
         except Exception as e:
             print(f"❌ Failed to create errors directory: {ERRORS_DIR}\n{e}", file=sys.stderr)
             sys.exit(1)
-
 
     if args.preview:
         args.dry_run = True
@@ -570,15 +708,14 @@ def main():
         args.max_files = 1
 
     if args.from_input:
-
-
         auto_scrub(summary=summary,
-                dry_run=args.dry_run,
-                delete_original=args.delete_original,
-                show_tags_mode=args.show_tags,
-                paranoia=args.paranoia,
-                max_files=args.max_files,
-                on_duplicate=args.on_duplicate)
+                   dry_run=args.dry_run,
+                   delete_original=args.delete_original,
+                   show_tags_mode=args.show_tags,
+                   paranoia=args.paranoia,
+                   max_files=args.max_files,
+                   on_duplicate=args.on_duplicate,
+                   stable_seconds=args.stable_seconds)
     else:
         if args.files:
             resolved_files = [
@@ -586,21 +723,19 @@ def main():
                 for f in args.files
             ]
         else:
-            # Implicit default when using --recursive
             resolved_files = [Path("/photos")]
 
         manual_scrub(resolved_files,
-                    summary=summary,
-                    recursive=args.recursive,
-                    dry_run=args.dry_run,
-                    show_tags_mode=args.show_tags,
-                    paranoia=args.paranoia,
-                    max_files=args.max_files,
-                    preview=args.preview)
-
+                     summary=summary,
+                     recursive=args.recursive,
+                     dry_run=args.dry_run,
+                     show_tags_mode=args.show_tags,
+                     paranoia=args.paranoia,
+                     max_files=args.max_files,
+                     preview=args.preview)
 
     summary.print()
 
+
 if __name__ == "__main__":
     main()
-

@@ -23,66 +23,73 @@
 
 </div>
 
-🧼 `scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
+`scrubexif` is a lightweight, Dockerized EXIF cleaner designed for fast publishing of JPEG photos without leaking sensitive metadata.
 
 It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags like exposure settings — ideal for privacy-conscious photographers who still want to share some technical info.
 
-👉 **GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
+**GitHub**: [per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
 
-📦 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
+**Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
 ---
 
-## 📚 Table of Contents
+## Table of Contents
 
 - [scrubexif](#scrubexif)
-  - [📚 Table of Contents](#-table-of-contents)
-  - [🚀 Quick Start](#-quick-start)
-    - [✅ Manual mode (default)](#-manual-mode-default)
+  - [Table of Contents](#table-of-contents)
+  - [Quick Start](#quick-start)
+    - [Manual mode (default)](#manual-mode-default)
       - [Scrub specific files](#scrub-specific-files)
       - [Scrub all JPEGs in current directory](#scrub-all-jpegs-in-current-directory)
       - [Recursively scrub nested folders](#recursively-scrub-nested-folders)
-    - [🤖 Auto mode (`--from-input`)](#-auto-mode---from-input)
+    - [Auto mode (`--from-input`)](#auto-mode---from-input)
       - [Example](#example)
       - [Duplicate Handling (auto mode)](#duplicate-handling-auto-mode)
   - [Options](#options)
+  - [Environment variables](#environment-variables)
     - [Examples](#examples)
-  - [✅ Features](#-features)
-    - [🎯 Metadata Preservation Strategy](#-metadata-preservation-strategy)
-    - [🛡️ `--paranoia` Mode](#️---paranoia-mode)
-    - [📸 Example](#-example)
+  - [Features](#features)
+    - [Metadata Preservation Strategy](#metadata-preservation-strategy)
+    - [`--paranoia` Mode](#--paranoia-mode)
+    - [Example](#example-1)
     - [🔍 Inspecting Metadata with `--show-tags`](#-inspecting-metadata-with---show-tags)
-    - [⚠️ Note on `--dry-run`](#️-note-on---dry-run)
-    - [📌 Usage Examples](#-usage-examples)
-    - [🔍 Preview Mode (`--preview`)](#-preview-mode---preview)
-    - [✅ Typical Use](#-typical-use)
-  - [🧼 What It Cleans](#-what-it-cleans)
+    - [Note on `--dry-run`](#note-on---dry-run)
+    - [Usage Examples](#usage-examples)
+    - [Preview Mode (`--preview`)](#preview-mode---preview)
+    - [Typical Use](#typical-use)
+  - [What It Cleans](#what-it-cleans)
+  - [Work on stable files](#work-on-stable-files)
+    - [Stability gate](#stability-gate)
+    - [State tracking](#state-tracking)
+    - [Temp/partial file filter](#temppartial-file-filter)
+      - [Scope](#scope)
+    - [Configuration](#configuration)
   - [Known limitations](#known-limitations)
-  - [🐳 Docker Images](#-docker-images)
-  - [🔐 User Privileges and Running as Root](#-user-privileges-and-running-as-root)
-  - [📌 Recommendations](#-recommendations)
-    - [🛡️ Hardening](#️-hardening)
-    - [✅ Use Real Directories for Mounts](#-use-real-directories-for-mounts)
-    - [✅ Run as a Non-Root User](#-run-as-a-non-root-user)
-    - [✅ Always Pre-Check Mount Paths](#-always-pre-check-mount-paths)
-    - [✅ Keep Metadata You Intend to Preserve Explicit](#-keep-metadata-you-intend-to-preserve-explicit)
-  - [🔍 Viewing Metadata](#-viewing-metadata)
-  - [📦 Inspecting the Image Itself](#-inspecting-the-image-itself)
-  - [📁 Example Integration](#-example-integration)
-  - [🔧 Build Locally (Optional)](#-build-locally-optional)
-  - [🧪 Test Image](#-test-image)
-  - [✍️ License](#️-license)
-  - [🙌 Related Tools](#-related-tools)
-  - [💬 Feedback](#-feedback)
-  - [🔗 Project Homepage](#-project-homepage)
+  - [Docker Images](#docker-images)
+  - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
+  - [Recommendations](#recommendations)
+    - [Hardening](#hardening)
+    - [Use Real Directories for Mounts](#use-real-directories-for-mounts)
+    - [Run as a Non-Root User](#run-as-a-non-root-user)
+    - [Always Pre-Check Mount Paths](#always-pre-check-mount-paths)
+    - [Keep Metadata You Intend to Preserve Explicit](#keep-metadata-you-intend-to-preserve-explicit)
+  - [Viewing Metadata](#viewing-metadata)
+  - [Inspecting the Image Itself](#inspecting-the-image-itself)
+  - [Example Integration](#example-integration)
+  - [Build Locally](#build-locally)
+  - [Test Image](#test-image)
+  - [License](#license)
+  - [Related Tools](#related-tools)
+  - [Feedback](#feedback)
+  - [Project Homepage](#project-homepage)
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 There are **two modes**:
 
-### ✅ Manual mode (default)
+### Manual mode (default)
 
 Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
 
@@ -106,7 +113,7 @@ VERSION=0.5.12; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERS
 
 ---
 
-### 🤖 Auto mode (`--from-input`)
+### Auto mode (`--from-input`)
 
 Scrubs everything in a predefined input directory and saves output to another — useful for batch processing.
 
@@ -163,7 +170,12 @@ docker run -v "$PWD/input:/photos/input" \
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
 - `-r`, `--recursive` - Recurse into directories
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
+- `--stable-seconds` <secs> - Number of seconds a file must not change before being processed. Default is 120 secs
 - `-v`, `--version` - show version and license
+
+## Environment variables
+
+SCRUBEXIF_STABLE_SECONDS. Default 120.
 
 ### Examples
 
@@ -189,7 +201,7 @@ VERSION=0.5.12; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERS
 
 ---
 
-## ✅ Features
+## Features
 
 - Case insensitive, works on .jpg, .JPG, .jpeg & .JPEG
 - Removes most EXIF, IPTC, and XMP metadata
@@ -206,13 +218,13 @@ VERSION=0.5.12; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERS
 - Based on the most excellent [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
 - Docker-friendly for pipelines and automation
 
-### 🎯 Metadata Preservation Strategy
+### Metadata Preservation Strategy
 
 By default, `scrubexif` preserves important non-private metadata such as **exposure**, **lens**, **ISO**, and **color profile** information. This ensures that images look correct in color-managed environments (e.g. Apple Photos, Lightroom, web browsers with ICC support).
 
 For users who require maximum privacy, an optional `--paranoia` mode is available.
 
-### 🛡️ `--paranoia` Mode
+### `--paranoia` Mode
 
 When enabled, `--paranoia` disables color profile preservation and removes fingerprintable metadata like ICC profile hashes (`ProfileID`). This may degrade color rendering on some devices, but ensures all embedded fingerprint vectors are scrubbed.
 
@@ -221,7 +233,7 @@ When enabled, `--paranoia` disables color profile preservation and removes finge
 | *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate |
 | `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum  |
 
-### 📸 Example
+### Example
 
 ```bash
 # Safe color-preserving scrub (default)
@@ -243,7 +255,7 @@ The `--show-tags` option lets you inspect metadata **before**, **after**, or **b
 
 ---
 
-### ⚠️ Note on `--dry-run`
+### Note on `--dry-run`
 
 If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run`.
 
@@ -251,7 +263,7 @@ Without `--dry-run`, scrubbing is performed as usual.
 
 ---
 
-### 📌 Usage Examples
+### Usage Examples
 
 ```bash
 # 🔎 See tags BEFORE scrub (scrub still happens)
@@ -272,7 +284,7 @@ Works in both modes
 
 🛡 Tip: Combine `--dry-run --paranoia --show-tags before` to verify level of metadata removal before commiting.
 
-### 🔍 Preview Mode (`--preview`)
+### Preview Mode (`--preview`)
 
 The `--preview` option lets you **safely simulate** the scrubbing process on a **single** JPEG **without modifying the original file**.
 
@@ -284,7 +296,7 @@ This mode:
 - Deletes the temp files automatically
 - Never alters the original image
 
-### ✅ Typical Use
+### Typical Use
 
 ```bash
 docker run -v "$PWD:/photos" scrubexif:dev test.jpg --preview
@@ -294,7 +306,7 @@ docker run -v "$PWD:/photos" scrubexif:dev test.jpg --preview
 
 ---
 
-## 🧼 What It Cleans
+## What It Cleans
 
 The tool removes:
 
@@ -309,9 +321,47 @@ It **preserves** key tags important for photographers and viewers.
 
 ---
 
+## Work on stable files
+
+Scrubexif defers processing until a file is stable.
+
+### Stability gate
+
+A JPEG is eligible only if now - mtime >= stable_seconds (default 120).
+
+If the file was seen before, its size and mtime must be unchanged since the last run.
+
+First-seen files that are already older than the threshold pass on the next run unless they change again.
+
+### State tracking
+
+A JSON file /photos/.scrubexif_state.json stores {path: {size, mtime, seen}}.
+
+Each run updates entries for observed files and prunes paths that no longer exist.
+
+Delete this file to reset history.
+
+### Temp/partial file filter
+
+Filenames with common temp prefixes/suffixes are always skipped: prefixes ., ~, ._; suffixes .tmp, .part, .partial, .crdownload, .download, .upload, .cache, .swp, .swx, .lck, or names ending with any of those (e.g., photo.jpg.uploading).
+
+These are still recorded in state but never processed while they look temporary.
+
+#### Scope
+
+Applies to auto mode (--from-input) only. Manual mode stays unchanged.
+
+Summary now reports “Skipped (unstable)”. Duplicates/error logic unaffected.
+
+### Configuration
+
+CLI: --stable-seconds N.
+
+Env: SCRUBEXIF_STABLE_SECONDS if the flag is omitted. Default 120.
+
 ## Known limitations
 
-> 🚧 Symlinked input paths are not detected inside the container
+> Symlinked input paths are not detected inside the container
 
 If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Docker resolves the symlink before passing it to the container. This means:
 
@@ -321,7 +371,7 @@ If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Dock
 
 ---
 
-## 🐳 Docker Images
+## Docker Images
 
 For now I am not using `latest`, as the images are only development quality.
 
@@ -335,7 +385,7 @@ I am currently going with:
 
 🔄 The release pipeline automatically updates build-history.json, which contains metadata for each uploaded image.
 
-> 📥 Pull Images
+> Pull Images
 
 Versioned image:
 
@@ -368,7 +418,7 @@ VERSION=0.5.12; docker run --rm per2jensen/scrubexif:$VERSION --help
 
 ---
 
-## 🔐 User Privileges and Running as Root
+## User Privileges and Running as Root
 
 By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
 
@@ -413,11 +463,11 @@ docker run --rm --user 0 -e ALLOW_ROOT=1 scrubexif:dev
 
 ---
 
-## 📌 Recommendations
+## Recommendations
 
 To ensure smooth and safe operation when using `scrubexif`, follow these guidelines:
 
-### 🛡️ Hardening
+### Hardening
 
 Use these options when starting a container:
 
@@ -432,7 +482,7 @@ docker run  --read-only --security-opt no-new-privileges \
           scrubexif:dev --from-input
 ```
 
-### ✅ Use Real Directories for Mounts
+### Use Real Directories for Mounts
 
 Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
 
@@ -445,13 +495,13 @@ docker run -v "$PWD/input:/photos/input" \
            scrubexif:dev --from-input
 ```
 
-### ✅ Run as a Non-Root User
+### Run as a Non-Root User
 
 `scrubexif` checks directory writability. If you mount a directory as root-only, and the container runs as a non-root user (recommended), it will detect and exit cleanly.
 
 Tip: Use --user 1000 or ensure mounted dirs are writable by UID 1000.
 
-### ✅ Always Pre-Check Mount Paths
+### Always Pre-Check Mount Paths
 
 Ensure the input, output, and processed directories:
 
@@ -463,13 +513,13 @@ Ensure the input, output, and processed directories:
 
 Otherwise, scrubexif will fail fast with a clear error message.
 
-### ✅ Keep Metadata You Intend to Preserve Explicit
+### Keep Metadata You Intend to Preserve Explicit
 
 Configure your `scrub.py` to define which EXIF tags to preserve, rather than relying on defaults if privacy is critical.
 
 ---
 
-## 🔍 Viewing Metadata
+## Viewing Metadata
 
 To inspect the metadata of an image before/after scrubbing:
 
@@ -487,7 +537,7 @@ VERSION=0.5.12; docker run --rm -v "$PWD:/photos" --entrypoint exiftool  per2jen
 
 ---
 
-## 📦 Inspecting the Image Itself
+## Inspecting the Image Itself
 
 To view embedded labels and metadata:
 
@@ -503,7 +553,7 @@ VERSION=0.5.12; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.
 
 ---
 
-## 📁 Example Integration
+## Example Integration
 
 This image is ideal for:
 
@@ -515,7 +565,7 @@ This image is ideal for:
 
 ---
 
-## 🔧 Build Locally (Optional)
+## Build Locally
 
 ```bash
 docker build -t scrubexif .
@@ -523,7 +573,7 @@ docker build -t scrubexif .
 
 ---
 
-## 🧪 Test Image
+## Test Image
 
 To verify that a specific scrubexif Docker image functions correctly, the test suite supports containerized testing using any image tag. By default, it uses the local tag  `scrubexif:dev` for testing. You can override this with the `SCRUBEXIF_IMAGE` environment variable.
 
@@ -539,14 +589,14 @@ docker run ... scrubexif:dev ...
 
 If no such local image exists, the test will fail.
 
-## ✍️ License
+## License
 
 Licensed under the GNU General Public License v3.0 or later  
 See the `LICENSE` file in this repository.
 
 ---
 
-## 🙌 Related Tools
+## Related Tools
 
 📸 [file-manager-scripts](https://github.com/per2jensen/file-manager-scripts) — Nautilus context menu integrations  
 📸 image-scrubber — Browser-based interactive metadata removal  
@@ -556,14 +606,14 @@ See the `LICENSE` file in this repository.
 
 ---
 
-## 💬 Feedback
+## Feedback
 
 Suggestions, issues, or pull requests are always welcome.  
 Maintained by **Per Jensen**
 
 ---
 
-## 🔗 Project Homepage
+## Project Homepage
 
 Source code, issues, and Dockerfile available on GitHub:
 

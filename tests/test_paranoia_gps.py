@@ -1,3 +1,4 @@
+# tests/test_scrubber_removes_all_gps.py
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
 Integration test for `scrubexif` Docker container in auto mode.
@@ -16,13 +17,16 @@ Example:
     SCRUBEXIF_IMAGE=per2jensen/scrubexif:0.5.2 pytest tests/test_scrubber_removes_all_gps.py
 """
 
-import os
+from __future__ import annotations
+
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from tests._docker import mk_mounts, run_container  # centralized docker flags/envs
 
 ASSETS_DIR = Path(__file__).parent / "assets"
 SAMPLE_FILES = [
@@ -34,17 +38,17 @@ IMAGE_TAG = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
 def run_scrubexif(input_dir: Path, output_dir: Path, processed_dir: Path):
     """Run the container with given mounted directories."""
-    result = subprocess.run([
-        "docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm",
-        "--user", str(os.getuid()),
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        IMAGE_TAG, "--from-input", "--log-level", "debug"
-    ], capture_output=True, text=True)
-    print(result.stdout)
-    print(result.stderr)
-    assert result.returncode == 0, f"❌ Container failed: {result.stderr}"
+    mounts = mk_mounts(input_dir, output_dir, processed_dir)
+    cp = run_container(
+        image=IMAGE_TAG,
+        mounts=mounts,
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    # Always print for helpful CI logs
+    print(cp.stdout)
+    print(cp.stderr)
+    assert cp.returncode == 0, f"❌ Container failed:\nSTDERR:\n{cp.stderr}\nSTDOUT:\n{cp.stdout}"
 
 
 def load_exif_json(image: Path) -> dict:
@@ -53,12 +57,10 @@ def load_exif_json(image: Path) -> dict:
     return {k.lower(): v for k, v in json.loads(raw)[0].items()}
 
 
-
 @pytest.mark.smoke
 @pytest.mark.parametrize("filename", SAMPLE_FILES)
 def test_scrubber_removes_all_gps(filename, tmp_path):
     """Ensure GPS-related metadata is removed from image in containerized scrub."""
-
     src = ASSETS_DIR / filename
     assert src.exists(), f"❌ Test asset not found: {src}"
 
@@ -80,5 +82,4 @@ def test_scrubber_removes_all_gps(filename, tmp_path):
 
     tags = load_exif_json(scrubbed)
     gps_keys = [k for k in tags if "gps" in k]
-
     assert not gps_keys, f"❌ GPS tags still present: {gps_keys}"

@@ -13,7 +13,10 @@
 SHELL := /bin/bash
 
 DOCKER ?= docker
-DOCKER_RUN := $(DOCKER) run  --read-only --security-opt no-new-privileges --rm $(if $(CI),,-it)
+DOCKER_RUN := $(DOCKER) run --read-only --security-opt no-new-privileges --rm $(if $(CI),,-it) \
+  --tmpfs /tmp:rw,exec,nosuid,size=64m \
+  -e SCRUBEXIF_STABLE_SECONDS=$(SCRUBEXIF_STABLE_SECONDS) \
+  -e SCRUBEXIF_STATE=$(SCRUBEXIF_STATE)
 
 UBUNTU_VERSION ?= 24.04
 
@@ -25,6 +28,9 @@ BASE_LATEST_TAG = $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)
 BUILD_LOG_DIR ?= doc
 BUILD_LOG_FILE ?= build-history.json
 BUILD_LOG_PATH := $(BUILD_LOG_DIR)/$(BUILD_LOG_FILE)
+
+export SCRUBEXIF_STABLE_SECONDS ?= 0
+export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 
 # ================================
 # Targets
@@ -338,6 +344,8 @@ paranoia:
 	PYTHONPATH=. pytest tests/test_paranoia_gps.py
 
 test: dev
+	@echo "🔧 SCRUBEXIF_STABLE_SECONDS=$(SCRUBEXIF_STABLE_SECONDS)"
+	@echo "🔧 SCRUBEXIF_STATE=$(SCRUBEXIF_STATE)"
 	PYTHONPATH=. pytest
 
 

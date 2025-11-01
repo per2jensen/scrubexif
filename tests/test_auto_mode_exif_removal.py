@@ -1,3 +1,4 @@
+# tests/test_auto_mode_exif_removal.py
 # SPDX-License-Identifier: MIT
 """
 Integration test that runs scrubexif in auto mode and verifies:
@@ -5,17 +6,21 @@ Integration test that runs scrubexif in auto mode and verifies:
 - GPS and serial number data are fully removed
 """
 
-import subprocess
-import shutil
-import tempfile
+from __future__ import annotations
+
 import json
 import os
+import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 from scrubexif.scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
 
-IMAGE_NAME = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+# Centralized docker helpers (tmpfs + envs + user flag)
+from tests._docker import mk_mounts, run_container
+
 ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 SAMPLE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 EXIFTOOL = shutil.which("exiftool")
@@ -32,16 +37,13 @@ def find_tag(tags: dict, tag: str) -> str | None:
     )
 
 
-def run_scrubexif_container(input_dir, output_dir, processed_dir):
-    user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    return subprocess.run([
-        "docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm",
-        *user_flag,
-        "-v", f"{input_dir}:/photos/input",
-        "-v", f"{output_dir}:/photos/output",
-        "-v", f"{processed_dir}:/photos/processed",
-        IMAGE_NAME, "--from-input",  "--log-level", "debug"
-    ], capture_output=True, text=True)
+def run_scrubexif_container(input_dir: Path, output_dir: Path, processed_dir: Path) -> subprocess.CompletedProcess:
+    mounts = mk_mounts(input_dir, output_dir, processed_dir)
+    return run_container(
+        mounts=mounts,
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
 
 
 @pytest.mark.skipif(not EXIFTOOL, reason="exiftool not installed")
@@ -56,19 +58,22 @@ def test_exif_sanitization_auto_mode():
         output_dir.mkdir()
         processed_dir.mkdir()
 
+        assert SAMPLE_IMAGE.exists(), f"Missing test image: {SAMPLE_IMAGE}"
         dst = input_dir / SAMPLE_IMAGE.name
         shutil.copyfile(SAMPLE_IMAGE, dst)
 
         result = run_scrubexif_container(input_dir, output_dir, processed_dir)
+        # Always print for helpful CI logs
         print(result.stdout)
-        assert result.returncode == 0, f"Container failed: {result.stderr}"
+        print(result.stderr)
+        assert result.returncode == 0, f"Container failed:\n{result.stderr}\n{result.stdout}"
 
         scrubbed = output_dir / SAMPLE_IMAGE.name
         assert scrubbed.exists(), f"❌ Output file not found: {scrubbed}"
 
-        tags = json.loads(subprocess.check_output(
-            [EXIFTOOL, "-j", str(scrubbed)], text=True
-        ))[0]
+        tags = json.loads(
+            subprocess.check_output([EXIFTOOL, "-j", str(scrubbed)], text=True)
+        )[0]
 
         # ✅ Check that required tags are preserved
         for tag in REQUIRED_TAGS:
@@ -78,3 +83,7 @@ def test_exif_sanitization_auto_mode():
         keys_lower = [k.lower() for k in tags]
         assert not any("gps" in k for k in keys_lower), "❌ GPS tags should be removed"
         assert not any("serialnumber" in k for k in keys_lower), "❌ SerialNumber tag should be removed"
+
+
+
+
