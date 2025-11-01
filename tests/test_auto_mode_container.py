@@ -41,14 +41,20 @@ def setup_test_env(tmp_path):
 
 
 def run_scrubexif_container(input_dir, output_dir, processed_dir):
+    # Force zero stability window in the container and ensure /tmp is writable
     result = subprocess.run([
         "docker", "run", "--rm",
+        "--read-only", "--security-opt", "no-new-privileges",
+        "--tmpfs", "/tmp:rw,exec,nosuid,size=64m",
+        "-e", "SCRUBEXIF_STABLE_SECONDS=0",
+        "-e", "SCRUBEXIF_STATE=/tmp/.scrubexif_state.test.json",
         "--user", str(os.getuid()),
         "-v", f"{input_dir}:/photos/input",
         "-v", f"{output_dir}:/photos/output",
         "-v", f"{processed_dir}:/photos/processed",
-        IMAGE_TAG, "--from-input",  "--log-level", "debug",
+        IMAGE_TAG, "--from-input", "--log-level", "debug",
     ], capture_output=True, text=True)
+
     print(result.stdout)
     print(result.stderr)
     assert result.returncode == 0, f"Docker failed:\n{result.stderr}\n{result.stdout}"
