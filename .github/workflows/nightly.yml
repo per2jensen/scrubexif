@@ -1,0 +1,48 @@
+name: Nightly Stability Tests
+
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC nightly
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pytest & tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt || true
+          pip install pytest
+
+      - name: Build dev image
+        run: |
+          docker build -t scrubexif:dev .
+
+      - name: Verify container env visibility
+        run: |
+          docker run --rm --read-only --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,exec,nosuid,size=64m \
+            -e SCRUBEXIF_STABLE_SECONDS=0 \
+            -e SCRUBEXIF_STATE=/tmp/.scrubexif_state.test.json \
+            --entrypoint env scrubexif:dev | grep SCRUBEXIF_STABLE_SECONDS=0
+
+      - name: Run nightly tests (stability-gated)
+        env:
+          SCRUBEXIF_IMAGE: scrubexif:dev
+        run: |
+          PYTHONPATH=. pytest -m nightly -q

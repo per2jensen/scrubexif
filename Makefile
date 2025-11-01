@@ -32,6 +32,16 @@ BUILD_LOG_PATH := $(BUILD_LOG_DIR)/$(BUILD_LOG_FILE)
 export SCRUBEXIF_STABLE_SECONDS ?= 0
 export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 
+
+# Declare phony targets (they don't correspond to files)
+.PHONY: \
+  check_version validate base final verify-labels verify-cli-version \
+  test-release dry-run-release _dryrun-release-internal release \
+  log-build-json log-build-json-old update-scrub-version update-readme-version \
+  push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
+  show-labels show-tags help
+
+
 # ================================
 # Targets
 # ================================
@@ -343,10 +353,28 @@ paranoia:
 	@echo "🧪 Manually running paranoia tests only"
 	PYTHONPATH=. pytest tests/test_paranoia_gps.py
 
+
 test: dev
 	@echo "🔧 SCRUBEXIF_STABLE_SECONDS=$(SCRUBEXIF_STABLE_SECONDS)"
 	@echo "🔧 SCRUBEXIF_STATE=$(SCRUBEXIF_STATE)"
 	PYTHONPATH=. pytest
+
+
+test-nightly: dev
+	@echo "Running nightly (stability-gate) tests…"
+	PYTHONPATH=. pytest -m nightly -q
+
+
+test-soak: dev
+	@echo "⏲️  Running real-time soak via pytest (slow)."
+	@echo "    Set SOAK_MINUTES, SOAK_INTERVAL_SEC, SOAK_STABLE_SECONDS, SOAK_BATCH to tune."
+	PYTHONPATH=. pytest -m soak -q
+
+
+soak: dev
+	@echo "⏲️  Running standalone soak script (slow)."
+	@chmod +x scripts/soak.sh
+	SCRUBEXIF_IMAGE=scrubexif:dev ./scripts/soak.sh
 
 
 show-labels:

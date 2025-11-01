@@ -1,0 +1,40 @@
+# Changelog
+
+## 0.7.0 — 2025-11-01
+
+### Added
+
+- Full container-integration test suite using shared `_docker.py` harness
+- Soak test script with real JPEG inputs to validate long-run stability
+- Automatic “final flush” option for soak scenario to clear pending files
+- Persistent stability-window behavior across test and soak runs
+- Support for mounting processed and errors dirs in tests
+
+### Improved
+
+- Auto-mode: Stability logic hardened for CI and real ingest pipelines
+- Duplicate handling tests now cover delete and move paths
+- Container log level made explicit in tests (`--log-level debug|info`)
+- Deterministic temp state path in CI for reproducibility
+- Makefile test defaults exclude soak/nightly paths via pytest markers
+- Developer Docker build workflows with stable tag strategy
+- Introduced centralized Docker run flags via `_docker.py`
+
+### Fixed
+
+- Tests now use real JPEGs instead of synthetic 4-byte placeholders
+- Stability-window false positives during soak runs
+- Marker confusion: nightly/soak now explicitly applied at file scope
+- Input file lingering after scrub in edge cases
+- False duplicate detections in transient mounts
+- ExifTool JSON parsing errors from invalid fake test files
+
+### Notes
+
+- This release finalizes the CI-safe, read-only, tmpfs-backed execution model
+- All standard tests pass in <10s; soak runs intentionally long form
+- No breaking CLI changes
+
+## 0.6.x
+
+- Previous refactors and incremental container improvements
