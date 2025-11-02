@@ -37,7 +37,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
   test-release dry-run-release _dryrun-release-internal release \
-  log-build-json log-build-json-old update-scrub-version update-readme-version \
+  log-build-json log-build-json-old update-scrub-version update-details-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
   show-labels show-tags help
 
@@ -163,11 +163,11 @@ dry-run-release:
 
 _dryrun-release-internal: check_version
 	@echo "🔧 Building image scrubexif:$(FINAL_VERSION) (dry-run, no push to Docker Hub)"
-	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-readme-version log-build-json
+	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-details-version log-build-json
 	@make FINAL_VERSION=$(FINAL_VERSION) verify-cli-version --no-print-directory
 
 
-release: check_version update-scrub-version final  verify-cli-version verify-labels test-release update-readme-version login push log-build-json
+release: check_version update-scrub-version final verify-cli-version verify-labels test-release update-details-version login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
 
 
@@ -273,18 +273,18 @@ update-scrub-version:
 	  exit 1; \
 	fi
 
-update-readme-version:
-	@echo "🔄 Updating version examples in README.md to VERSION=$(FINAL_VERSION)"
+update-details-version:
+	@echo "🔄 Updating version examples in DETAILS.md to VERSION=$(FINAL_VERSION)"
 	@if sed -i -E "s/VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?;/VERSION=$(FINAL_VERSION);/" README.md; then \
-	  if ! git diff --quiet README.md; then \
-	    git add README.md; \
+	  if ! git diff --quiet doc/DETAILS.md; then \
+	    git add doc/DETAILS.md; \
 	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
-	    echo "✅ README.md updated and committed"; \
+	    echo "✅ DETAILS.md updated and committed"; \
 	  else \
-	    echo "ℹ️ No changes to commit — README.md already up to date"; \
+	    echo "ℹ️ No changes to commit — DETAILS.md already up to date"; \
 	  fi; \
 	else \
-	  echo "❌ sed command failed — README.md not updated"; \
+	  echo "❌ sed command failed — DETAILS.md not updated"; \
 	  exit 1; \
 	fi
 

@@ -21,7 +21,7 @@ from typing import Optional
 
 sys.stdout.reconfigure(line_buffering=True)
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -127,7 +127,7 @@ def setup_logger(level: str = "info"):
     return logger
 
 
-# Will be set in main()
+# Will be set/overridden in main()
 log = logging.getLogger("scrubexif")
 
 
@@ -166,9 +166,9 @@ def check_dir_safety(path: Path, label: str):
 # Stability state management
 # ----------------------------
 
-def _resolve_state_path() -> Optional[Path]:
+def _resolve_state_path_from_env() -> Optional[Path]:
     """
-    Priority:
+    Priority (when no CLI override is provided):
       1) SCRUBEXIF_STATE env
       2) /photos/.scrubexif_state.json if writable
       3) /tmp/.scrubexif_state.json if writable
@@ -191,7 +191,16 @@ def _resolve_state_path() -> Optional[Path]:
     return None
 
 
-STATE_FILE: Optional[Path] = _resolve_state_path()
+def _validate_writable_path(p: Path) -> Optional[Path]:
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=p.parent, delete=True):
+            return p
+    except Exception:
+        return None
+
+
+STATE_FILE: Optional[Path] = _resolve_state_path_from_env()
 _warned_state_disabled = False
 
 
@@ -676,21 +685,43 @@ def main():
     parser.add_argument("--stable-seconds", type=int,
                         default=int(os.getenv("SCRUBEXIF_STABLE_SECONDS", "120")),
                         help="Only process files whose mtime age ≥ this many seconds (default: 120)")
+    parser.add_argument("--state-file", metavar="PATH|disabled", default=None,
+                        help=("Override stability state file path. "
+                              "Use 'disabled' (or '-', 'none') to force mtime-only. "
+                              "If not provided, uses SCRUBEXIF_STATE or auto-detected writable path."))
     parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
     args = parser.parse_args()
 
     global log
     log = setup_logger(args.log_level)
 
+    # Resolve/override state-file from CLI
+    global STATE_FILE, _warned_state_disabled
+    if args.state_file is not None:
+        choice = str(args.state_file).strip().lower()
+        if choice in {"disabled", "none", "-"}:
+            STATE_FILE = None
+        else:
+            candidate = _validate_writable_path(Path(args.state_file))
+            if candidate is None:
+                log.warning("Requested --state-file %s is not writable; disabling state (mtime-only).", args.state_file)
+                STATE_FILE = None
+            else:
+                STATE_FILE = candidate
+    else:
+        # Re-evaluate env/defaults in case calling context changed
+        STATE_FILE = _resolve_state_path_from_env()
+
     if args.version:
         show_version()
         sys.exit(0)
 
-    # show resolved state path once
+    # Emit the *exact* banner lines tests expect
     if STATE_FILE is None:
-        log.info("State path: disabled (read-only or not set)")
+        print("🔎 [INFO] State path: disabled")
+        print("🔎 [INFO] State disabled: using mtime-only stability.")
     else:
-        log.info("State path: %s", STATE_FILE)
+        print(f"🔎 [INFO] State path: {STATE_FILE}")
 
     summary = ScrubSummary()
 
@@ -735,6 +766,7 @@ def main():
                      preview=args.preview)
 
     summary.print()
+
 
 
 if __name__ == "__main__":

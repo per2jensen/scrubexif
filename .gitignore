@@ -11,6 +11,7 @@ Thumbs.db
 *.tar
 *.log
 *.bak
+*.patch
 
 
 # Docker-related files (optional)

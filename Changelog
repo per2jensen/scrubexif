@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.1 - 2025-11-02
+
+### Added
+
+- New `--state-file` CLI option to override `SCRUBEXIF_STATE`
+- Documentation split: short README + full `doc/DETAILS.md`
+- Added summary tests validating state-file override logic
+- Added `SCRUBEXIF_AUTOBUILD` explanation + behavior matrix
+
+### Improved
+
+- Default read-only container path resolution for state file
+- Test suite reliability for auto-mode stability logic
+- Soak-test framework (not run by default)
+- Log messages for state disable, override, and fallback
+
+### Fixed
+
+- `run_container()` regression from state-file refactor
+- Stability path resolution in `main()` flow
+- Minor path sanitization and quoting issues
+- README truncation on Docker Hub due to length
+
+### Notes
+
+- This release tightens container behavior and test rigor
+- Full documentation moved to `doc/DETAILS.md` for clarity
+- Recommended upgrade for automation users
+
 ## 0.7.0 — 2025-11-01
 
 ### Added
