@@ -79,15 +79,42 @@ Duplicates → deleted or `errors/`
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
-## Systemd Timer Example
+## Systemd Example
+
+This is an example of my workflow, when uploading jpeg files to photoprism and showing the photos to a group of people.
+
+I upload the jpeg files to /tmp/upload/, mapped to /photos/input/ in the container.
+
+`scrubexif` processes the files /photos/input/ and put scrubbed versions in /photoprism/sooc/, mapped to /photos/output/ in the container.
+
+Once processed, a jpeg file is moved to /photoprism/processed, mapped to /photos/processed in the container.
+
+In the real world the systemd services starts a script, which nudges photoprism to import the newly processed jpeg files.
+
+/etc/systemd/system/scrubexif.service example:
 
 ```ini
 [Service]
 ExecStart=/usr/bin/docker run --rm \
-  -v /photos/input:/photos/input \
-  -v /photos/output:/photos/output \
-  -v /photos/processed:/photos/processed \
+  -v /tmp/upload:/photos/input \
+  -v /photoprism/sooc:/photos/output \
+  -v /photoprism/processed:/photos/processed \
   per2jensen/scrubexif:0.7.1 --from-input --stable-seconds 10
+```
+
+/etc/systemd/system/scrubexif.timer example:
+
+```ini
+[Unit]
+Description=Run scrubexif every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
 ```
 
 ## Development
