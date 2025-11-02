@@ -275,7 +275,7 @@ update-scrub-version:
 
 update-details-version:
 	@echo "🔄 Updating version examples in DETAILS.md to VERSION=$(FINAL_VERSION)"
-	@if sed -i -E "s/VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?;/VERSION=$(FINAL_VERSION);/" README.md; then \
+	@if sed -i -E "s/VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?;/VERSION=$(FINAL_VERSION);/" doc/DETAILS.md; then \
 	  if ! git diff --quiet doc/DETAILS.md; then \
 	    git add doc/DETAILS.md; \
 	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
