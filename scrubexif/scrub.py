@@ -98,10 +98,11 @@ class ScrubSummary:
 # Fixed container paths
 # ----------------------------
 
-INPUT_DIR = Path("/photos/input")
-OUTPUT_DIR = Path("/photos/output")
-PROCESSED_DIR = Path("/photos/processed")
-ERRORS_DIR = Path("/photos/errors")
+PHOTOS_ROOT = Path("/photos")
+INPUT_DIR = PHOTOS_ROOT / "input"
+OUTPUT_DIR = PHOTOS_ROOT / "output"
+PROCESSED_DIR = PHOTOS_ROOT / "processed"
+ERRORS_DIR = PHOTOS_ROOT / "errors"
 
 
 # ----------------------------
@@ -460,7 +461,7 @@ def scrub_file(
 
     def display_path(path: Path) -> str:
         try:
-            return str(path.relative_to("/photos"))
+            return str(path.relative_to(PHOTOS_ROOT))
         except ValueError:
             return str(path)
 
@@ -567,6 +568,29 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
 
     save_state(state)
     return summary
+
+
+def resolve_cli_path(raw: Path) -> Path:
+    """
+    Convert user-supplied CLI paths into absolute paths under /photos.
+    Reject anything that escapes the allowed root to avoid clobbering arbitrary files.
+    """
+    candidate = raw if raw.is_absolute() else PHOTOS_ROOT / raw
+    try:
+        resolved = candidate.resolve()
+    except FileNotFoundError:
+        print(f"❌ Path does not exist: {candidate}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+        print(f"❌ Failed to resolve path {raw}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        resolved.relative_to(PHOTOS_ROOT)
+    except ValueError:
+        print(f"❌ Path escapes allowed root {PHOTOS_ROOT}: {raw}", file=sys.stderr)
+        sys.exit(1)
+    return resolved
 
 
 def manual_scrub(files: list[Path],
@@ -749,12 +773,9 @@ def main():
                    stable_seconds=args.stable_seconds)
     else:
         if args.files:
-            resolved_files = [
-                f if f.is_absolute() else Path("/photos") / f
-                for f in args.files
-            ]
+            resolved_files = [resolve_cli_path(f) for f in args.files]
         else:
-            resolved_files = [Path("/photos")]
+            resolved_files = [PHOTOS_ROOT]
 
         manual_scrub(resolved_files,
                      summary=summary,

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- Hardened manual-mode path handling to keep CLI inputs confined to `/photos`
+- Added regression tests exercising container breakout attempts
+
 ## 0.7.1 - 2025-11-02
 
 ### Added

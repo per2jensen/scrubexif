@@ -5,6 +5,17 @@ import pytest
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
+
+def _run_security_container(args: list[str], mounts: list[str] | None = None) -> subprocess.CompletedProcess:
+    """Utility to run the scrubexif container with standard hardening flags."""
+    user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
+    mounts = mounts or []
+    cmd = [
+        "docker", "run", "--rm", "--read-only", "--security-opt", "no-new-privileges"
+    ] + user_flag + mounts + [IMAGE] + args
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
 @pytest.mark.smoke
 def test_root_user_blocked_without_allow_root():
     """Ensure container exits with error when run as root without ALLOW_ROOT=1."""
@@ -29,4 +40,38 @@ def test_root_user_allowed_with_env_override():
     assert "Running as root" not in result.stdout + result.stderr  # It should silently allow
 
 
+def test_manual_mode_rejects_relative_escape(tmp_path):
+    """Passing ../path should be rejected before it can escape /photos."""
+    (tmp_path / "dummy.jpg").write_text("placeholder", encoding="utf-8")
+
+    result = _run_security_container(
+        ["--dry-run", "../etc/passwd"],
+        mounts=["-v", f"{tmp_path}:/photos"]
+    )
+
+    if "permission denied while trying to connect to the Docker daemon socket" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test: permission denied")
+    if "Cannot connect to the Docker daemon" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test")
+
+    assert result.returncode != 0, "Process should exit with failure for escaping relative path"
+    assert "escapes allowed root" in result.stderr + result.stdout
+
+
+def test_manual_mode_rejects_absolute_escape(tmp_path):
+    """Passing an absolute path outside /photos should also be rejected."""
+    (tmp_path / "dummy.jpg").write_text("placeholder", encoding="utf-8")
+
+    result = _run_security_container(
+        ["--dry-run", "/etc/passwd"],
+        mounts=["-v", f"{tmp_path}:/photos"]
+    )
+
+    if "permission denied while trying to connect to the Docker daemon socket" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test: permission denied")
+    if "Cannot connect to the Docker daemon" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test")
+
+    assert result.returncode != 0, "Process should exit with failure for absolute path outside root"
+    assert "escapes allowed root" in result.stderr + result.stdout
 
