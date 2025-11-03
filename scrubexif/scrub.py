@@ -21,7 +21,7 @@ from typing import Optional
 
 sys.stdout.reconfigure(line_buffering=True)
 
-__version__ = "0.7.2"
+__version__ = "0.7.3"
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
@@ -402,6 +402,16 @@ def scrub_file(
     output_file = output_path / input_path.name if output_path else input_path
     print("Output file will be:", output_file)
 
+    if output_path and output_file.is_symlink():
+        msg = f"Destination is a symlink; refusing to scrub into {output_file}"
+        print(f"❌ {msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=msg,
+        )
+
     # duplicates
     if output_file.exists() and input_path.resolve() != output_file.resolve():
         print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
@@ -560,13 +570,21 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                             on_duplicate=on_duplicate)
 
         summary.update(result)
-        if result.status == "scrubbed":
+        if result.status == "scrubbed" and not delete_original:
             dst_processed = PROCESSED_DIR / file.name
-            if file.resolve() != dst_processed.resolve():
-                shutil.move(file, dst_processed)
+            moved = False
+            if file.exists():
+                if dst_processed.is_symlink():
+                    print(f"⚠️ Skipping move: destination is a symlink ({dst_processed})")
+                elif file.resolve() != dst_processed.resolve():
+                    shutil.move(file, dst_processed)
+                    moved = True
+                else:
+                    print("⚠️ Skipping move: source and destination are the same")
             else:
-                print("⚠️ Skipping move: source and destination are the same")
-            print(f"📦 Moved original to {PROCESSED_DIR / file.name}")
+                print(f"⚠️ Skipping move: source file no longer exists ({file})")
+            if moved:
+                print(f"📦 Moved original to {PROCESSED_DIR / file.name}")
 
         mark_seen(file, state)
 
@@ -633,8 +651,10 @@ def manual_scrub(files: list[Path],
         f = targets[0]
         from tempfile import NamedTemporaryFile
         temp = NamedTemporaryFile(suffix=".jpg", delete=False)
-        shutil.copy(f, temp.name)
-        preview_input = Path(temp.name)
+        temp_path = Path(temp.name)
+        temp.close()
+        shutil.copy(f, temp_path)
+        preview_input = temp_path
         preview_output = preview_input.with_suffix(".scrubbed.jpg")
 
         cmd = build_preview_cmd(preview_input, preview_output, paranoia=paranoia)

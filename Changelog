@@ -1,5 +1,11 @@
 # Changelog
 
+## Not releases
+
+### Security
+
+- Refuse to scrub into symlinked output files or move originals onto symlink targets
+
 ## 0.7.2 - 2025-11-03
 
 ### Security
@@ -7,6 +13,12 @@
 - Hardened manual-mode path handling to keep CLI inputs confined to `/photos`
 - Added regression tests exercising container breakout attempts
 - Reject symlinked JPEGs in manual and auto flows to block host-path traversal
+- Refuse to scrub into symlinked output files or move originals onto symlink targets
+
+### Fixed
+
+- Auto mode no longer crashes when `--delete-original` removes the source before moving to `/photos/processed`
+- Preview mode now closes temporary files before copying so Windows runs succeed
 
 ## 0.7.1 - 2025-11-02
 

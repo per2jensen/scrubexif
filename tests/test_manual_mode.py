@@ -14,6 +14,8 @@ import os
 from pathlib import Path
 import pytest
 
+from scrubexif import scrub
+
 from .conftest import SAMPLE_BYTES  # Explicit import
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
@@ -91,6 +93,23 @@ def test_manual_mode_recursive_no_args(tmp_path):
 
     assert result.returncode == 0
     assert "✅ Saved scrubbed file to deep/img.jpg" in result.stdout
+
+
+def test_manual_preview_cleans_tempfiles(tmp_path, monkeypatch):
+    sample = tmp_path / "sample.jpg"
+    shutil.copy(SAMPLE_IMG, sample)
+
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+    monkeypatch.setattr(scrub, "print_tags", lambda *a, **k: None)
+
+    summary = scrub.ScrubSummary()
+    scrub.manual_scrub([sample], summary, recursive=False, preview=True, show_tags_mode="both")
+
+    leftover = list(tmp_path.glob("*.scrubbed.jpg"))
+    assert leftover == []
 
 @pytest.mark.regression
 def test_manual_mode_default_dir(tmp_path):

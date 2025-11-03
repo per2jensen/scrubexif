@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
+from scrubexif.scrub import ScrubResult
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
@@ -103,3 +104,106 @@ def test_resolve_cli_path_rejects_symlink(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit):
         scrub.resolve_cli_path(Path("link.jpg"))
+
+
+def test_scrub_file_rejects_symlink_destination(tmp_path, monkeypatch):
+    src = tmp_path / "input.jpg"
+    dst_dir = tmp_path / "output"
+    dst_dir.mkdir()
+    src.write_bytes(b"jpeg")
+    (dst_dir / src.name).symlink_to(src)
+
+    run_called = False
+
+    def fake_run(*args, **kwargs):
+        nonlocal run_called
+        run_called = True
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+
+    result = scrub.scrub_file(src, output_path=dst_dir)
+
+    assert result.status == "error"
+    assert "symlink" in (result.error_message or "")
+    assert run_called is False, "ExifTool should not run when destination is a symlink"
+
+
+def test_auto_scrub_delete_original_skips_move(tmp_path, monkeypatch):
+    root = tmp_path / "photos"
+    input_dir = root / "input"
+    output_dir = root / "output"
+    processed_dir = root / "processed"
+    errors_dir = root / "errors"
+    for d in (input_dir, output_dir, processed_dir, errors_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    file_path = input_dir / "one.jpg"
+    file_path.write_bytes(b"jpeg")
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+    monkeypatch.setattr(scrub, "INPUT_DIR", input_dir)
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_dir)
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
+    monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
+
+    moves: list[tuple[Path, Path]] = []
+
+    def fake_move(src, dst):
+        moves.append((Path(src), Path(dst)))
+
+    def fake_scrub_file(path, output_path, delete_original, **kwargs):
+        if delete_original and path.exists():
+            path.unlink()
+        return ScrubResult(path, output_path, status="scrubbed")
+
+    monkeypatch.setattr(scrub.shutil, "move", fake_move)
+    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
+
+    summary = scrub.ScrubSummary()
+    scrub.auto_scrub(summary=summary, delete_original=True, stable_seconds=0)
+
+    assert moves == []
+    assert not file_path.exists()
+    assert summary.scrubbed == 1
+
+
+def test_auto_scrub_skips_symlink_destination(tmp_path, monkeypatch):
+    root = tmp_path / "photos"
+    input_dir = root / "input"
+    output_dir = root / "output"
+    processed_dir = root / "processed"
+    errors_dir = root / "errors"
+    for d in (input_dir, output_dir, processed_dir, errors_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    file_path = input_dir / "one.jpg"
+    file_path.write_bytes(b"jpeg")
+    processed_target = processed_dir / file_path.name
+    processed_target.symlink_to(file_path)
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+    monkeypatch.setattr(scrub, "INPUT_DIR", input_dir)
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_dir)
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
+    monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
+
+    moves: list[tuple[Path, Path]] = []
+
+    def fake_move(src, dst):
+        moves.append((Path(src), Path(dst)))
+
+    def fake_scrub_file(path, output_path, delete_original, **kwargs):
+        return ScrubResult(path, output_path, status="scrubbed")
+
+    monkeypatch.setattr(scrub.shutil, "move", fake_move)
+    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
+
+    summary = scrub.ScrubSummary()
+    scrub.auto_scrub(summary=summary, delete_original=False, stable_seconds=0)
+
+    assert moves == []
+    assert file_path.exists()
+    assert summary.scrubbed == 1
