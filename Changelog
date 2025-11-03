@@ -6,6 +6,7 @@
 
 - Hardened manual-mode path handling to keep CLI inputs confined to `/photos`
 - Added regression tests exercising container breakout attempts
+- Reject symlinked JPEGs in manual and auto flows to block host-path traversal
 
 ## 0.7.1 - 2025-11-02
 

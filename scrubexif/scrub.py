@@ -478,10 +478,14 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
     if not dir_path.is_dir():
         return []
     search_func = dir_path.rglob if recursive else dir_path.glob
-    return [
-        f for f in search_func("*")
-        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg")
-    ]
+    results: list[Path] = []
+    for f in search_func("*"):
+        if f.is_symlink():
+            log.debug("Skipping symlinked file: %s", f)
+            continue
+        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg"):
+            results.append(f)
+    return results
 
 
 def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
@@ -576,6 +580,9 @@ def resolve_cli_path(raw: Path) -> Path:
     Reject anything that escapes the allowed root to avoid clobbering arbitrary files.
     """
     candidate = raw if raw.is_absolute() else PHOTOS_ROOT / raw
+    if candidate.is_symlink():
+        print(f"❌ Symlinks are not allowed: {candidate}", file=sys.stderr)
+        sys.exit(1)
     try:
         resolved = candidate.resolve()
     except FileNotFoundError:
@@ -607,14 +614,13 @@ def manual_scrub(files: list[Path],
     targets: list[Path] = []
 
     for file in files:
+        if file.is_symlink():
+            log.warning("Skipping symlink input: %s", file)
+            continue
         if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
             targets.append(file)
         elif file.is_dir():
-            search_func = file.rglob if recursive else file.glob
-            targets.extend(
-                f for f in search_func("*")
-                if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg")
-            )
+            targets.extend(find_jpegs_in_dir(file, recursive=recursive))
 
     if not targets:
         print("⚠️ No JPEGs matched.")
@@ -650,6 +656,9 @@ def manual_scrub(files: list[Path],
         return summary
 
     for f in targets:
+        if f.is_symlink():
+            log.warning("Skipping symlink target: %s", f)
+            continue
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(f, label="before")

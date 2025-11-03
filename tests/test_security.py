@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 import subprocess
 import os
+from pathlib import Path
 import pytest
+
+from scrubexif import scrub
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
@@ -75,3 +78,28 @@ def test_manual_mode_rejects_absolute_escape(tmp_path):
     assert result.returncode != 0, "Process should exit with failure for absolute path outside root"
     assert "escapes allowed root" in result.stderr + result.stdout
 
+
+def test_find_jpegs_skips_symlinks(tmp_path):
+    real = tmp_path / "real.jpg"
+    real.write_bytes(b"jpeg")
+    link = tmp_path / "link.jpg"
+    link.symlink_to(real)
+
+    files = scrub.find_jpegs_in_dir(tmp_path, recursive=False)
+
+    assert real in files
+    assert link not in files
+
+
+def test_resolve_cli_path_rejects_symlink(tmp_path, monkeypatch):
+    root = tmp_path / "photos"
+    root.mkdir()
+    real = root / "real.jpg"
+    real.write_bytes(b"jpeg")
+    link = root / "link.jpg"
+    link.symlink_to(real)
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+
+    with pytest.raises(SystemExit):
+        scrub.resolve_cli_path(Path("link.jpg"))
