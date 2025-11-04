@@ -158,5 +158,15 @@
     "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.7.2",
     "digest": "sha256:6b363b6dbfea05558807842e39df3b9cb32d9f7da2591226e13409f369bb6713",
     "image_id": "sha256:52d9a96e987e59136e023164d6c5333ac7f0748f47190fc924910a5be5f84554"
+  },
+  {
+    "build_number": 16,
+    "tag": "0.7.3",
+    "base_image": "scrubexif-base:24.04-0.7.3",
+    "git_revision": "c916a34",
+    "created": "2025-11-04T17:01:08Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.7.3",
+    "digest": "sha256:9fc82d3d7211935ed7f6720720b88bd8c07b9cd0fa26636ac6205d49a6ab9c11",
+    "image_id": "sha256:d8d79464de9c26fb498667110deaa618d7e874e09ad6088e3d2d5fc723542e01"
   }
 ]
