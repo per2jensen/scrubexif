@@ -2,6 +2,10 @@
 
 ## Not releases
 
+### Added
+
+- New `--debug` CLI flag to enable verbose logging without remembering `--log-level` values
+
 ### Fixed
 
 - `scrub_file` now passes the full destination filename to ExifTool, so auto mode writes into `/output/<name>.jpg` and duplicate reporting uses the correct path

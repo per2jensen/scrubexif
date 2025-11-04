@@ -514,10 +514,18 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
     check_dir_safety(OUTPUT_DIR, "Output")
     check_dir_safety(PROCESSED_DIR, "Processed")
 
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Auto mode directories: input=%s output=%s processed=%s errors=%s",
+            INPUT_DIR, OUTPUT_DIR, PROCESSED_DIR, ERRORS_DIR
+        )
+
     state = load_state()
     prune_state(state)
 
     input_files = find_jpegs_in_dir(INPUT_DIR, recursive=False)
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Input scan yielded %d files before filtering", len(input_files))
 
     # Filter
     filtered: list[Path] = []
@@ -541,6 +549,12 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
 
     if max_files is not None:
         filtered = filtered[:max_files]
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Filtered candidates: %d (skipped temp=%d, unstable=%d)",
+            len(filtered), skipped_temp, skipped_unstable
+        )
 
     if not filtered:
         if skipped_temp or skipped_unstable:
@@ -640,6 +654,9 @@ def manual_scrub(files: list[Path],
         elif file.is_dir():
             targets.extend(find_jpegs_in_dir(file, recursive=recursive))
 
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Manual mode targets gathered: %d files", len(targets))
+
     if not targets:
         print("⚠️ No JPEGs matched.")
         return summary
@@ -720,6 +737,7 @@ def main():
     parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
     parser.add_argument("--paranoia", action="store_true",
@@ -746,7 +764,24 @@ def main():
     args = parser.parse_args()
 
     global log
+    if args.debug:
+        args.log_level = "debug"
+
     log = setup_logger(args.log_level)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug("Debug logging enabled")
+        formatted_args = {}
+        for key, value in vars(args).items():
+            if isinstance(value, Path):
+                formatted_args[key] = str(value)
+            elif isinstance(value, list):
+                formatted_args[key] = [
+                    str(v) if isinstance(v, Path) else v for v in value
+                ]
+            else:
+                formatted_args[key] = value
+        log.debug("CLI arguments: %s", formatted_args)
 
     # Resolve/override state-file from CLI
     global STATE_FILE, _warned_state_disabled

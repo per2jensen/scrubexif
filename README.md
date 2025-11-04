@@ -27,7 +27,6 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-
 **High‑trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context.
 
 > **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
@@ -38,7 +37,7 @@
 Scrub current directory:
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.1
+docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.3
 ```
 
 Batch workflow:
@@ -49,7 +48,7 @@ docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif:0.7.1 --from-input
+  per2jensen/scrubexif:0.7.3 --from-input
 ```
 
 Uploads → `input/`  
@@ -99,7 +98,7 @@ ExecStart=/usr/bin/docker run --rm \
   -v /tmp/upload:/photos/input \
   -v /photoprism/sooc:/photos/output \
   -v /photoprism/processed:/photos/processed \
-  per2jensen/scrubexif:0.7.1 --from-input --stable-seconds 10
+  per2jensen/scrubexif:0.7.3 --from-input --stable-seconds 10
 ```
 
 /etc/systemd/system/scrubexif.timer example:

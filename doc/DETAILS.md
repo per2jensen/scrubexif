@@ -31,8 +31,6 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
----
-
 ## Table of Contents
 
 - [scrubexif](#scrubexif)
@@ -87,9 +85,10 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [License](#license)
   - [Related Tools](#related-tools)
   - [Feedback](#feedback)
+  - [Reference](#reference)
+    - [CLI options](#cli-options)
+    - [Environment variables](#environment-variables-1)
   - [Project Homepage](#project-homepage)
-
----
 
 ## Quick Start
 
@@ -117,8 +116,6 @@ VERSION=0.7.2; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSI
 VERSION=0.7.2; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSION --recursive
 ```
 
----
-
 ### Auto mode (`--from-input`)
 
 Scrubs everything in a predefined input directory and saves output to another — useful for batch processing.
@@ -138,8 +135,6 @@ VERSION=0.7.2; docker run -it --rm \
   -v "$PWD/processed:/photos/processed" \
   per2jensen/scrubexif:$VERSION --from-input
 ```
-
----
 
 #### Duplicate Handling (auto mode)
 
@@ -163,15 +158,14 @@ docker run -v "$PWD/input:/photos/input" \
 
 📌 **Observe**  the -v "$PWD/errors:/photos/errors" volume specification needed for the --on-duplicate move option.
 
----
-
 ## Options
 
 - `--delete-original` — delete originals instead of moving them
 - `--on-duplicate {delete|move}` - delete or move a duplicate
 - `--dry-run` - show what would be scrubbed, but don’t write files
+- `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
-- `--max-files` - limit number of files to scrub (for testing or safe inspection
+- `--max-files` - limit number of files to scrub (useful for testing or safe inspection)
 - `--paranoia` - maximum metadata scrubbing, removes ICC profile including it's (potential) fingerprinting vector
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
 - `-r`, `--recursive` - Recurse into directories
@@ -191,8 +185,6 @@ Example:
 ```sh
 docker run -e ALLOW_ROOT=1 …
 ```
-
----
 
 ### `SCRUBEXIF_AUTOBUILD`
 
@@ -217,8 +209,6 @@ pytest
 # Strict run: fail if dev image is missing
 SCRUBEXIF_AUTOBUILD=0 pytest
 ```
-
----
 
 ### `SCRUBEXIF_ON_DUPLICATE`
 
@@ -249,8 +239,6 @@ CLI override:
 scrub --from-input --stable-seconds 0
 ```
 
----
-
 ### `SCRUBEXIF_STATE`
 
 Applies to `--from-input` (auto mode).
@@ -271,8 +259,6 @@ Disable state file entirely:
 ```sh
 scrub --from-input --state-file disabled
 ```
-
----
 
 ### Summary
 
@@ -305,8 +291,6 @@ VERSION=0.7.2; docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:$VERSI
 ```
 
 📌 **Observe**  In manual mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
-
----
 
 ## Features
 
@@ -360,15 +344,11 @@ The `--show-tags` option lets you inspect metadata **before**, **after**, or **b
 - Verifying that scrubbed output removes private metadata
 - Confirming what remains (e.g. lens info, exposure, etc.)
 
----
-
 ### Note on `--dry-run`
 
 If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run`.
 
 Without `--dry-run`, scrubbing is performed as usual.
-
----
 
 ### Usage Examples
 
@@ -411,8 +391,6 @@ docker run -v "$PWD:/photos" scrubexif:dev test.jpg --preview
 
 🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed. 
 
----
-
 ## What It Cleans
 
 The tool removes:
@@ -425,8 +403,6 @@ The tool removes:
 - MakerNotes (where safely possible)
 
 It **preserves** key tags important for photographers and viewers.
-
----
 
 ## Work on stable files
 
@@ -478,8 +454,6 @@ If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Dock
 - `scrubexif` cannot detect it was originally a symlink.
 - For safety, avoid mounting symbolic links to any of the required directories.
 
----
-
 ## Docker Images
 
 For now I am not using `latest`, as the images are only development quality.
@@ -525,8 +499,6 @@ VERSION=0.7.2; docker run --rm per2jensen/scrubexif:$VERSION --version
 VERSION=0.7.2; docker run --rm per2jensen/scrubexif:$VERSION --help
 ```
 
----
-
 ## User Privileges and Running as Root
 
 By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
@@ -569,8 +541,6 @@ docker run --rm --user 0 -e ALLOW_ROOT=1 scrubexif:dev
 ```
 
   ⚠️ Use this option only if you know what you're doing. Writing files as root can cause permission issues on the host system.
-
----
 
 ## Recommendations
 
@@ -626,8 +596,6 @@ Otherwise, scrubexif will fail fast with a clear error message.
 
 Configure your `scrub.py` to define which EXIF tags to preserve, rather than relying on defaults if privacy is critical.
 
----
-
 ## Viewing Metadata
 
 To inspect the metadata of an image before/after scrubbing:
@@ -644,8 +612,6 @@ Observe the "/photos" in the filename, that is because the container has your $P
 VERSION=0.7.2; docker run --rm -v "$PWD:/photos" --entrypoint exiftool  per2jensen/scrubexif:$VERSION  "/photos/image.jpg"
 ```
 
----
-
 ## Inspecting the Image Itself
 
 To view embedded labels and metadata:
@@ -660,8 +626,6 @@ You can also check the digest and ID:
 VERSION=0.7.2; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
 
----
-
 ## Example Integration
 
 This image is ideal for:
@@ -672,15 +636,11 @@ This image is ideal for:
 - Backup pipelines before upload
 - Static site generators like Hugo/Jekyll
 
----
-
 ## Build Locally
 
 ```bash
 docker build -t scrubexif .
 ```
-
----
 
 ## Test Image
 
@@ -703,8 +663,6 @@ If no such local image exists, the test will fail.
 Licensed under the GNU General Public License v3.0 or later  
 See the `LICENSE` file in this repository.
 
----
-
 ## Related Tools
 
 📸 [file-manager-scripts](https://github.com/per2jensen/file-manager-scripts) — Nautilus context menu integrations  
@@ -713,14 +671,39 @@ See the `LICENSE` file in this repository.
 
 `scrubexif` focuses on **automated, container-friendly workflows** with **safe defaults** for photographers.
 
----
-
 ## Feedback
 
 Suggestions, issues, or pull requests are always welcome.  
 Maintained by **Per Jensen**
 
----
+## Reference
+
+### CLI options
+
+- `--delete-original` — Delete the input image after a successful auto-mode scrub.
+- `--files` — Optional list of files or directories (relative to `/photos` when running in Docker).
+- `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`.
+- `--max-files N` — Limit the number of eligible files scrubbed in the current run.
+- `--on-duplicate {delete,move}` — Auto-mode duplicate policy; default is `delete`.
+- `--paranoia` — Remove ICC profiles as well as the standard EXIF/IPTC/XMP payload.
+- `--preview` — Scrub a temporary copy to preview metadata changes without touching the original file.
+- `-r`, `--recursive` — Recurse into subdirectories when scanning in manual mode.
+- `--show-tags {before,after,both}` — Dump metadata before/after scrubbing.
+- `--stable-seconds N` — Require files to be at least `N` seconds old (default `120`).
+- `--state-file PATH|disabled` — Override the stability state JSON path, or disable persistence entirely.
+- Non-functional options
+- `--log-level {debug,info,warn,error,crit}` — Set logger verbosity (`info` by default).
+- `--debug` — Convenience flag that forces `--log-level debug` and prints additional diagnostics.
+- `--dry-run` — Describe planned actions without invoking ExifTool.
+- `-v`, `--version` — Print version and license information, then exit.
+
+### Environment variables
+
+- `ALLOW_ROOT` — Set to `1` to allow running as UID 0 inside the container.
+- `SCRUBEXIF_AUTOBUILD` — When truthy, tests auto-build the `scrubexif:dev` image if missing.
+- `SCRUBEXIF_ON_DUPLICATE` — Default duplicate policy (`delete` or `move`) when the CLI switch is omitted.
+- `SCRUBEXIF_STABLE_SECONDS` — Default stability window for auto mode.
+- `SCRUBEXIF_STATE` — Preferred state-file path; must be writable to enable persistent stability tracking.
 
 ## Project Homepage
 
