@@ -2,6 +2,11 @@
 
 ## Not releases
 
+### Fixed
+
+- `scrub_file` now passes the full destination filename to ExifTool, so auto mode writes into `/output/<name>.jpg` and duplicate reporting uses the correct path
+- Added bulk auto-mode coverage that seeds 50 JPEGs with EXIF/XMP/IPTC/GPS data and confirms every output is scrubbed in the container suite
+
 ### Security
 
 - Refuse to scrub into symlinked output files or move originals onto symlink targets

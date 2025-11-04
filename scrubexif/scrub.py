@@ -414,16 +414,16 @@ def scrub_file(
 
     # duplicates
     if output_file.exists() and input_path.resolve() != output_file.resolve():
-        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_path}")
+        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_file}")
 
         if dry_run:
-            print(f"🚫 [dry-run] Would detect duplicate: {output_path.name}")
-            return ScrubResult(input_path, output_path, status="duplicate")
+            print(f"🚫 [dry-run] Would detect duplicate: {output_file.name}")
+            return ScrubResult(input_path, output_file, status="duplicate")
 
         if on_duplicate == "delete":
             print(f"🗑️  Duplicate detected — deleting {input_path.name}")
             input_path.unlink(missing_ok=True)
-            return ScrubResult(input_path, output_path, status="duplicate")
+            return ScrubResult(input_path, output_file, status="duplicate")
 
         elif on_duplicate == "move":
             target = ERRORS_DIR / input_path.name
@@ -433,7 +433,7 @@ def scrub_file(
                 count += 1
             shutil.move(input_path, target)
             print(f"📦 Moved duplicate to: {target}")
-            return ScrubResult(input_path, output_path, status="duplicate", duplicate_path=target)
+            return ScrubResult(input_path, output_file, status="duplicate", duplicate_path=target)
 
     # dry-run
     if dry_run:
@@ -442,11 +442,11 @@ def scrub_file(
         if show_tags_mode in {"after", "both"}:
             print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
         print(f"🔍 Dry run: would scrub {input_path}")
-        return ScrubResult(input_path, output_path, status="scrubbed")
+        return ScrubResult(input_path, output_file, status="scrubbed")
 
     # exiftool command
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
-    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_path,
+    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_file,
                              overwrite=in_place, paranoia=paranoia)
 
     if log.isEnabledFor(logging.DEBUG):
@@ -467,7 +467,7 @@ def scrub_file(
         )
 
     if show_tags_mode in {"after", "both"}:
-        print_tags(output_path or input_path, label="after")
+        print_tags(output_file, label="after")
 
     def display_path(path: Path) -> str:
         try:
@@ -475,13 +475,13 @@ def scrub_file(
         except ValueError:
             return str(path)
 
-    print(f"✅ Saved scrubbed file to {display_path(output_path or input_path)}")
+    print(f"✅ Saved scrubbed file to {display_path(output_file)}")
 
     if delete_original and not in_place and input_path.exists():
         input_path.unlink()
         print(f"❌ Deleted original: {input_path}")
 
-    return ScrubResult(input_path, output_path, status="scrubbed")
+    return ScrubResult(input_path, output_file, status="scrubbed")
 
 
 def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:

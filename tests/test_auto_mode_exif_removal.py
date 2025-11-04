@@ -85,5 +85,47 @@ def test_exif_sanitization_auto_mode():
         assert not any("serialnumber" in k for k in keys_lower), "❌ SerialNumber tag should be removed"
 
 
+@pytest.mark.skipif(not EXIFTOOL, reason="exiftool not installed")
+def test_bulk_auto_mode_scrubs_all_metadata(tmp_path):
+    """Ensure bulk auto-mode scrubs EXIF, XMP, IPTC, and GPS from many files."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+    for d in (input_dir, output_dir, processed_dir):
+        d.mkdir(parents=True, exist_ok=True)
 
+    total = 50
+    for idx in range(total):
+        target = input_dir / f"bulk_{idx:02d}.jpg"
+        shutil.copyfile(SAMPLE_IMAGE, target)
+        lat = 55.0 + idx * 0.01
+        lon = 12.0 + idx * 0.01
+        meta_cmd = [
+            EXIFTOOL,
+            "-overwrite_original",
+            f"-EXIF:Artist=Photographer-{idx}",
+            f"-GPSLatitude={lat}",
+            "-GPSLatitudeRef=N",
+            f"-GPSLongitude={lon}",
+            "-GPSLongitudeRef=E",
+            f"-XMP:Subject=Secret-{idx}",
+            f"-IPTC:Keywords=Confidential-{idx}",
+            str(target),
+        ]
+        subprocess.run(meta_cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
+    result = run_scrubexif_container(input_dir, output_dir, processed_dir)
+    print(result.stdout)
+    print(result.stderr)
+    assert result.returncode == 0, f"Container failed:\n{result.stderr}\n{result.stdout}"
+
+    outputs = sorted(output_dir.glob("*.jpg"))
+    assert len(outputs) == total, f"Expected {total} scrubbed files, found {len(outputs)}"
+    assert len(list(processed_dir.glob('*.jpg'))) == total, "Originals should be moved to processed/"
+
+    for file in outputs:
+        tags = json.loads(subprocess.check_output([EXIFTOOL, "-j", str(file)], text=True))[0]
+        keys_lower = {k.lower() for k in tags}
+        assert not any("gps" in key for key in keys_lower), f"GPS tag leaked in {file.name}"
+        assert "xmp:subject" not in keys_lower, f"XMP Subject present in {file.name}"
+        assert "iptc:keywords" not in keys_lower, f"IPTC Keywords present in {file.name}"
