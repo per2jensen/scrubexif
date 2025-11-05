@@ -34,10 +34,13 @@
 
 ## Quick Start
 
-Scrub current directory:
+Scrub current directory (hardened container defaults):
 
 ```bash
-docker run -it --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.3
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.3
 ```
 
 Batch workflow:
@@ -45,6 +48,7 @@ Batch workflow:
 ```bash
 mkdir input output processed
 docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
@@ -60,7 +64,7 @@ Duplicates → deleted or `errors/`
 
 - Removes GPS and personal data
 - Keeps camera + exposure metadata
-- Runs in secure read‑only container mode
+- Default run uses read‑only + no-new-privileges hardening
 - Duplicate handling: delete or move
 - Optional state‑file for high‑volume pipelines
 - `--preview`, `--paranoia`, `--stable-seconds N`
@@ -95,6 +99,7 @@ In the real world the systemd services starts a script, which nudges photoprism 
 ```ini
 [Service]
 ExecStart=/usr/bin/docker run --rm \
+  --read-only --security-opt no-new-privileges \
   -v /tmp/upload:/photos/input \
   -v /photoprism/sooc:/photos/output \
   -v /photoprism/processed:/photos/processed \

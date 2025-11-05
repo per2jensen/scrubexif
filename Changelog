@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.4 - 2025-11-05
+
+### Added
+
+- Integration test `test_auto_mode_scrubs_with_hardening_flags` to verify auto mode succeeds under `--read-only` and `--security-opt no-new-privileges`
+- Embedded minimal JPEG fixture for container tests so the hardened run covers real data writes
+
+### Improved
+
+- README and DETAILS quick-start examples now default to the hardened Docker flags
+- DETAILS now documents what the hardening flags do, when they matter, and common pitfalls (tmpfs for `/tmp`, ensuring mount writability)
+
+### Security
+
+- Formalized hardened launch guidance across docs to drive consistent `--read-only` + `no-new-privileges` usage
+
 ## 0.7.3 - 2025-11-04
 
 ### Added

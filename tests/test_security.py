@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-import subprocess
+import base64
 import os
+import subprocess
 from pathlib import Path
 import pytest
 
@@ -8,6 +9,10 @@ from scrubexif import scrub
 from scrubexif.scrub import ScrubResult
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+
+MINIMAL_JPEG = base64.b64decode(
+    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxISEhUTEhIVFhUVFRUVFRUVFRUVFRUWFRUXFhUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OFxAQFy0dHR0tKy0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAKgBLAMBIgACEQEDEQH/xAAZAAEBAQEBAQAAAAAAAAAAAAAAAgEDBAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAFHp//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUC3//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8BP//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8BP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEABj8Cf//Z"
+)
 
 
 def _run_security_container(args: list[str], mounts: list[str] | None = None) -> subprocess.CompletedProcess:
@@ -18,6 +23,13 @@ def _run_security_container(args: list[str], mounts: list[str] | None = None) ->
         "docker", "run", "--rm", "--read-only", "--security-opt", "no-new-privileges"
     ] + user_flag + mounts + [IMAGE] + args
     return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def _skip_if_docker_unavailable(result: subprocess.CompletedProcess) -> None:
+    if "permission denied while trying to connect to the Docker daemon socket" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test: permission denied")
+    if "Cannot connect to the Docker daemon" in result.stderr:
+        pytest.skip("Docker daemon unavailable for test")
 
 
 @pytest.mark.smoke
@@ -207,3 +219,46 @@ def test_auto_scrub_skips_symlink_destination(tmp_path, monkeypatch):
     assert moves == []
     assert file_path.exists()
     assert summary.scrubbed == 1
+
+
+@pytest.mark.smoke
+def test_auto_mode_scrubs_with_hardening_flags(tmp_path):
+    """Full auto pipeline works with read-only + no-new-privileges flags."""
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+
+    for path in (input_dir, output_dir, processed_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    sample = input_dir / "sample.jpg"
+    sample.write_bytes(MINIMAL_JPEG)
+
+    user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
+    cmd = [
+        "docker",
+        "run",
+        "--rm",
+        "--read-only",
+        "--security-opt",
+        "no-new-privileges",
+    ] + user_flag + [
+        "-v",
+        f"{input_dir}:/photos/input",
+        "-v",
+        f"{output_dir}:/photos/output",
+        "-v",
+        f"{processed_dir}:/photos/processed",
+        IMAGE,
+        "--from-input",
+        "--stable-seconds",
+        "0",
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    _skip_if_docker_unavailable(result)
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert (output_dir / sample.name).exists(), "Scrubbed file missing in output"
+    assert (processed_dir / sample.name).exists(), "Original not moved to processed"
+    assert not sample.exists(), "Input file should be moved out of intake"
