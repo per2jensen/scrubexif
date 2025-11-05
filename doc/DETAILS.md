@@ -101,7 +101,7 @@ Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
 #### Scrub specific files
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION "file1.jpg" "file2.jpeg"
@@ -110,7 +110,7 @@ VERSION=0.7.3; docker run -it --rm \
 #### Scrub all JPEGs in current directory
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION
@@ -119,7 +119,7 @@ VERSION=0.7.3; docker run -it --rm \
 #### Recursively scrub nested folders
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive
@@ -138,7 +138,7 @@ You **must** mount three volumes:
 #### Example
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
@@ -288,7 +288,7 @@ scrub --from-input --state-file disabled
 Scrub all `.jpg` files in subdirectories:
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive
@@ -297,7 +297,7 @@ VERSION=0.7.3; docker run -it --rm \
 Dry-run (preview only):
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --dry-run
@@ -306,7 +306,7 @@ VERSION=0.7.3; docker run -it --rm \
 Mix recursion and dry-run:
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive --dry-run
@@ -507,7 +507,7 @@ I am currently going with:
 Versioned image:
 
 ```bash
-VERSION=0.7.3; docker pull per2jensen/scrubexif:$VERSION
+VERSION=0.7.4; docker pull per2jensen/scrubexif:$VERSION
 ```
 
 Pull the latest `stable` release (when available)
@@ -523,7 +523,7 @@ docker pull per2jensen/scrubexif:stable
 🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
 ```bash
-VERSION=0.7.3; docker run -it --rm \
+VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION
@@ -532,9 +532,9 @@ VERSION=0.7.3; docker run -it --rm \
 🛠️ Show version and help
 
 ```bash
-VERSION=0.7.3; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
   per2jensen/scrubexif:$VERSION --version
-VERSION=0.7.3; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
   per2jensen/scrubexif:$VERSION --help
 ```
 
@@ -665,7 +665,7 @@ Inside the container (optional):
 Observe the "/photos" in the filename, that is because the container has your $PWD mounted on /photos.
 
 ```bash
-VERSION=0.7.3; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
   -v "$PWD:/photos" \
   --entrypoint exiftool \
   per2jensen/scrubexif:$VERSION "/photos/image.jpg"
@@ -676,13 +676,13 @@ VERSION=0.7.3; docker run --rm --read-only --security-opt no-new-privileges \
 To view embedded labels and metadata:
 
 ```bash
-VERSION=0.7.3; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
+VERSION=0.7.4; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
 ```
 
 You can also check the digest and ID:
 
 ```bash
-VERSION=0.7.3; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
+VERSION=0.7.4; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
 
 ## Example Integration
