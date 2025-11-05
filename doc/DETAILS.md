@@ -103,6 +103,7 @@ Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION "file1.jpg" "file2.jpeg"
 ```
@@ -112,6 +113,7 @@ VERSION=0.7.4; docker run -it --rm \
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION
 ```
@@ -121,6 +123,7 @@ VERSION=0.7.4; docker run -it --rm \
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive
 ```
@@ -140,6 +143,7 @@ You **must** mount three volumes:
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
@@ -160,6 +164,7 @@ The reason to delete a duplicate by default is that the files are probably not t
 ```bash
 # Move duplicates to /photos/errors instead of deleting
 docker run --read-only --security-opt no-new-privileges \
+           --tmpfs /tmp \
            -v "$PWD/input:/photos/input" \
            -v "$PWD/output:/photos/output" \
            -v "$PWD/processed:/photos/processed" \
@@ -195,6 +200,7 @@ Example:
 
 ```sh
 docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   --user 0 -e ALLOW_ROOT=1 \
   scrubexif:dev
 ```
@@ -290,6 +296,7 @@ Scrub all `.jpg` files in subdirectories:
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive
 ```
@@ -299,6 +306,7 @@ Dry-run (preview only):
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --dry-run
 ```
@@ -308,6 +316,7 @@ Mix recursion and dry-run:
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
@@ -351,11 +360,13 @@ When enabled, `--paranoia` disables color profile preservation and removes finge
 ```bash
 # Safe color-preserving scrub (default)
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev image.jpg
 
 # Maximum scrub, removes the ICC profile
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev image.jpg --paranoia
 ```
@@ -381,16 +392,19 @@ Without `--dry-run`, scrubbing is performed as usual.
 ```bash
 # See tags BEFORE scrub (scrub still happens)
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev image.jpg --show-tags before
 
 # See both BEFORE and AFTER (scrub still happens)
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev image.jpg --show-tags both
 
 # Just show metadata, DO NOT scrub
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev image.jpg --show-tags before --dry-run
 ```
@@ -419,6 +433,7 @@ This mode:
 
 ```bash
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev test.jpg --preview
 ```
@@ -498,7 +513,7 @@ I am currently going with:
 |------------|--------------------------------------------------|------------|----------------|
 | `:0.x.y`   | Versioned releases following semantic versioning | ✅ Yes     | `docker pull per2jensen/scrubexif:0.5.11`   |
 | `:stable`  | Latest "good" and trusted version; perhaps `:rc` | ✅ Yes     | `docker pull per2jensen/scrubexif:stable` |
-| `:dev`     | Development version; may be broken or incomplete | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges scrubexif:dev` |
+| `:dev`     | Development version; may be broken or incomplete | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev` |
 
 🔄 The release pipeline automatically updates build-history.json, which contains metadata for each uploaded image.
 
@@ -525,6 +540,7 @@ docker pull per2jensen/scrubexif:stable
 ```bash
 VERSION=0.7.4; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION
 ```
@@ -533,8 +549,10 @@ VERSION=0.7.4; docker run -it --rm \
 
 ```bash
 VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --version
 VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --help
 ```
 
@@ -545,7 +563,7 @@ By default, the `scrubexif` container runs as user ID 1000, not root. This is a 
 🧑 Default Behavior
 
 ```bash
-docker run --rm --read-only --security-opt no-new-privileges scrubexif:dev
+docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev
 ```
 
 Runs the container as UID 1000 by default
@@ -560,6 +578,7 @@ You can specify a different UID (e.g., match your local user) using the --user f
 
 ```bash
 docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   --user $(id -u) \
   scrubexif:dev
 ```
@@ -572,6 +591,7 @@ Running the container as root (UID 0) is explicitly disallowed to prevent unsafe
 
 ```bash
 docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   --user 0 \
   scrubexif:dev
 # ❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.
@@ -581,6 +601,7 @@ To override this safeguard, set the following environment variable:
 
 ```bash
 docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   --user 0 \
   -e ALLOW_ROOT=1 \
   scrubexif:dev
@@ -598,9 +619,11 @@ Use these options when starting a container:
 
 - [--read-only](https://docs.docker.com/reference/cli/docker/container/run/#read-only)
 - [--security-opt no-new-privileges](https://docs.docker.com/reference/cli/docker/container/run/#security-opt)  
+- `--tmpfs /tmp`
 
 ```bash
 docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
@@ -624,6 +647,7 @@ Instead:
 
 ```bash
 docker run --read-only --security-opt no-new-privileges \
+           --tmpfs /tmp \
            -v "$PWD/input:/photos/input" \
            -v "$PWD/output:/photos/output" \
            -v "$PWD/processed:/photos/processed" \
@@ -666,6 +690,7 @@ Observe the "/photos" in the filename, that is because the container has your $P
 
 ```bash
 VERSION=0.7.4; docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
   -v "$PWD:/photos" \
   --entrypoint exiftool \
   per2jensen/scrubexif:$VERSION "/photos/image.jpg"

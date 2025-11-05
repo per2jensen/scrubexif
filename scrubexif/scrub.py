@@ -131,6 +131,15 @@ def setup_logger(level: str = "info"):
 # Will be set/overridden in main()
 log = logging.getLogger("scrubexif")
 
+DEBUG_ENV_VARS = (
+    "ALLOW_ROOT",
+    "SCRUBEXIF_STATE",
+    "SCRUBEXIF_ON_DUPLICATE",
+    "SCRUBEXIF_STABLE_SECONDS",
+    "SCRUBEXIF_IMAGE",
+    "SCRUBEXIF_AUTOBUILD",
+)
+
 
 def show_version():
     script_name = os.path.basename(sys.argv[0])
@@ -291,22 +300,44 @@ def is_file_stable(path: Path, state: dict, stable_seconds: int) -> bool:
       1) mtime age >= stable_seconds, and
       2) if previously seen, size+mtime unchanged since last run.
     """
+    reason = "ok"
     try:
         st = path.stat()
     except FileNotFoundError:
+        if log.isEnabledFor(logging.DEBUG):
+            log.debug("Stability check: %s missing -> unstable", path)
         return False
 
     now = time.time()
-    if stable_seconds > 0:
-        if now - st.st_mtime < stable_seconds:
-            return False
-
     key = str(path.resolve())
     prev = state.get(key)
-    if prev and (prev.get("size") != st.st_size or prev.get("mtime") != st.st_mtime):
-        return False
+    age = now - st.st_mtime
 
-    return True
+    stable = True
+    if stable_seconds > 0 and age < stable_seconds:
+        stable = False
+        reason = f"age<{stable_seconds}"
+    elif prev and (prev.get("size") != st.st_size or prev.get("mtime") != st.st_mtime):
+        stable = False
+        reason = "changed"
+
+    if log.isEnabledFor(logging.DEBUG):
+        prev_seen = prev.get("seen") if prev else None
+        prev_age = (now - prev_seen) if prev_seen else None
+        log.debug(
+            "Stability check: %s size=%d age=%.2fs threshold=%ds prev=%s -> %s (%s)",
+            path,
+            st.st_size,
+            age,
+            stable_seconds,
+            {"size": prev.get("size") if prev else None,
+             "mtime": prev.get("mtime") if prev else None,
+             "seen_age": prev_age},
+            stable,
+            reason,
+        )
+
+    return stable
 
 
 # ----------------------------
@@ -782,6 +813,8 @@ def main():
             else:
                 formatted_args[key] = value
         log.debug("CLI arguments: %s", formatted_args)
+        env_snapshot = {name: os.getenv(name) for name in DEBUG_ENV_VARS}
+        log.debug("Environment snapshot: %s", env_snapshot)
 
     # Resolve/override state-file from CLI
     global STATE_FILE, _warned_state_disabled

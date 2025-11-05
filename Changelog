@@ -1,5 +1,15 @@
 # Changelog
 
+## not release
+
+### Added
+
+- Expanded `--debug` logging with environment snapshots and per-file stability timing to aid troubleshooting
+
+### Improved
+
+- README and DETAILS quick-start examples now include `--tmpfs /tmp` for writable scratch space
+
 ## 0.7.4 - 2025-11-05
 
 ### Added
