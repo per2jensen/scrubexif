@@ -36,6 +36,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 - [scrubexif](#scrubexif)
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
+    - [Build \& Run Locally](#build--run-locally)
     - [Manual mode (default)](#manual-mode-default)
       - [Scrub specific files](#scrub-specific-files)
       - [Scrub all JPEGs in current directory](#scrub-all-jpegs-in-current-directory)
@@ -73,6 +74,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
   - [Recommendations](#recommendations)
     - [Hardening](#hardening)
+      - [What these flags do (and how they can bite you)](#what-these-flags-do-and-how-they-can-bite-you)
     - [Use Real Directories for Mounts](#use-real-directories-for-mounts)
     - [Run as a Non-Root User](#run-as-a-non-root-user)
     - [Always Pre-Check Mount Paths](#always-pre-check-mount-paths)
@@ -771,6 +773,7 @@ See the `LICENSE` file in this repository.
 
 ## Related Tools
 
+📸 [Exiftool](https://github.com/exiftool/exiftool) - The wonderful swiss knife of metadata handling
 📸 [file-manager-scripts](https://github.com/per2jensen/file-manager-scripts) — Nautilus context menu integrations  
 📸 image-scrubber — Browser-based interactive metadata removal  
 📸 jpg-exif-scrubber — Python tool that strips all metadata (no preservation)
