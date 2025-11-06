@@ -94,6 +94,27 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 There are **two modes**:
 
+### Build & Run Locally
+
+```bash
+# build an image from the Dockerfile in this repo
+docker build -t scrubexif:local .
+
+# inspect CLI usage exported by python -m scrubexif.scrub
+docker run --rm scrubexif:local --help
+
+# scrub the current directory with hardened defaults
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  scrubexif:local
+```
+
+Arguments placed after the image name are passed straight through to the
+`python3 -m scrubexif.scrub` entrypoint, so all CLI flags shown below work the
+same whether you use the published image or a locally built one.
+
 ### Manual mode (default)
 
 Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
@@ -137,6 +158,7 @@ You **must** mount three volumes:
 - `/photos/input` — input directory (e.g. `$PWD/input`)
 - `/photos/output` — scrubbed files saved here
 - `/photos/processed` — originals are moved here (or deleted if `--delete-original` is used)
+- Any file ExifTool cannot scrub (e.g. corrupted JPEG) is logged and moved to `/photos/processed` so it does not loop
 
 #### Example
 

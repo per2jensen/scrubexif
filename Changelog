@@ -5,10 +5,14 @@
 ### Added
 
 - Expanded `--debug` logging with environment snapshots and per-file stability timing to aid troubleshooting
+- Integration test covering mixed valid/corrupted JPEG batches to ensure graceful recovery
 
 ### Improved
 
 - README and DETAILS quick-start examples now include `--tmpfs /tmp` for writable scratch space
+- Dockerfile trims pip install step and runs `python3 -m scrubexif.scrub` directly, reducing installed surface area
+- Auto mode now relocates failed scrubs into `processed/` with an explicit warning, preventing retry loops on broken inputs
+- ExifTool stderr handling tolerates non-UTF8 noise emitted by bad files, keeping long runs alive
 
 ## 0.7.4 - 2025-11-05
 

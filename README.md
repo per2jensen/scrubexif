@@ -61,6 +61,27 @@ Uploads → `input/`
 Scrubbed → `output/`  
 Originals → `processed/` (or deleted)  
 Duplicates → deleted or `errors/`
+Corrupted → logged as failures, originals relocated to `processed/` for inspection
+
+### Build & Run Locally
+
+```bash
+# build the image from the Dockerfile in this repo
+docker build -t scrubexif:local .
+
+# show CLI usage (ENTRYPOINT runs python -m scrubexif.scrub)
+docker run --rm scrubexif:local --help
+
+# scrub the current directory with hardened defaults
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  scrubexif:local
+```
+
+Any arguments appended to `docker run … scrubexif:*` are forwarded to the underlying
+`python3 -m scrubexif.scrub` entrypoint.
 
 ## Key Features
 

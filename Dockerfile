@@ -19,7 +19,6 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         util-linux \
         python3 \
-        python3-pip \
         bash \
         ca-certificates \
         coreutils \
@@ -40,12 +39,8 @@ RUN apt-get update && \
 COPY . /app/
 WORKDIR /app
 
-# Install as CLI tool
-RUN pip install .  --break-system-packages
-
-
 # Run the main CLI
-ENTRYPOINT ["scrub"]
+ENTRYPOINT ["python3", "-m", "scrubexif.scrub"]
 
 # Default to UID 1000 unless overridden with --user
 USER 1000

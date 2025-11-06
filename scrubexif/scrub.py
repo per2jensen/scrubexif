@@ -486,7 +486,13 @@ def scrub_file(
     if show_tags_mode in {"before", "both"}:
         print_tags(input_path, label="before")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if result.returncode != 0:
         err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Unknown error"
         print(f"❌ Failed to scrub {input_path.name}: {err_msg}")
@@ -608,15 +614,19 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             summary.total += 1
             continue
 
-        result = scrub_file(file, OUTPUT_DIR,
-                            delete_original=delete_original,
-                            show_tags_mode=show_tags_mode,
-                            paranoia=paranoia,
-                            on_duplicate=on_duplicate)
+        result = scrub_file(
+            file,
+            OUTPUT_DIR,
+            delete_original=delete_original,
+            show_tags_mode=show_tags_mode,
+            paranoia=paranoia,
+            on_duplicate=on_duplicate,
+        )
 
         summary.update(result)
+        dst_processed = PROCESSED_DIR / file.name
+
         if result.status == "scrubbed" and not delete_original:
-            dst_processed = PROCESSED_DIR / file.name
             moved = False
             if file.exists():
                 if dst_processed.is_symlink():
@@ -629,7 +639,19 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             else:
                 print(f"⚠️ Skipping move: source file no longer exists ({file})")
             if moved:
-                print(f"📦 Moved original to {PROCESSED_DIR / file.name}")
+                print(f"📦 Moved original to {dst_processed}")
+        elif result.status == "error":
+            if file.exists():
+                if dst_processed.is_symlink():
+                    print(f"⚠️ Scrub failed; destination is a symlink ({dst_processed}), leaving original in place")
+                else:
+                    try:
+                        shutil.move(file, dst_processed)
+                        print(f"⚠️ Scrub failed for {file.name}; moved original to {dst_processed} for inspection")
+                    except Exception as exc:
+                        print(f"⚠️ Scrub failed for {file.name}; unable to move original: {exc}")
+            else:
+                print(f"⚠️ Scrub failed and source already missing: {file}")
 
         mark_seen(file, state)
 
