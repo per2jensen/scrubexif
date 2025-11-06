@@ -1,6 +1,6 @@
 # Changelog
 
-## not release
+## 0.7.5 - 2025-11-06
 
 ### Added
 
