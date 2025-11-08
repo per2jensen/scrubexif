@@ -32,6 +32,9 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Update and install exiftool
+      run: sudo apt-get update && sudo apt-get install -y exiftool
+
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
