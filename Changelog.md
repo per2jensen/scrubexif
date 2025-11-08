@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.6 - 2025-11-07
+
+### Added
+
+- Automated release workflow that runs Syft SBOM generation plus Grype vulnerability scanning before publishing Docker images and GitHub releases
+- SBOM artifact upload and hardened release gate so every tag ships with provenance and scan results
+- The workflow fails if Grype finds vulnerablilities >= High
+
 ## 0.7.5 - 2025-11-06
 
 ### Added

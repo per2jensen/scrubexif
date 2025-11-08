@@ -752,7 +752,6 @@ On Ubuntu, some extras are needed
 sudo apt-get update && sudo apt-get install -y exiftool
 python -m pip install --upgrade pip
 pip install pytest
-#pip install Pillow  --break-system-packages
 ```
 
 ## Test Image
