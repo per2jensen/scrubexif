@@ -4,7 +4,9 @@ name = "scrubexif"
 version = "0.7.6"
 description = "CLI tool to scrub JPEG EXIF metadata"
 authors = [{ name = "Per Jensen", email = "per2jensen@gmail.com" }]
-dependencies = []
+dependencies = [
+    "Pillow>=10.0.0",
+]
 
 [build-system]
 requires = ["setuptools"]
@@ -15,4 +17,3 @@ packages = ["scrubexif"]
 
 [project.scripts]
 scrub = "scrubexif.scrub:main"
-

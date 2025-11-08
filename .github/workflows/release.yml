@@ -38,6 +38,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
+        pip install . --break-system-packages--break-system-packages
         pip install pytest
 
     - name: Dry-run release
