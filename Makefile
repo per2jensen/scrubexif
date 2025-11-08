@@ -205,19 +205,17 @@ log-build-json: check_version
 	else \
 	  echo "ℹ️ No Grype SARIF file found at $$GRYPE_SARIF; skipping vulnerability summary."; \
 	fi; \
-	GRYPE_SUMMARY_JSON=$$(python3 scripts/grype_sarif_summary.py "$$GRYPE_SARIF"); \
-	jq --arg version "$(FINAL_VERSION)" \
-	    --arg base "$(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION)" \
-	    --arg rev "$(GIT_REV)" \
-	    --arg created "$(DATE)" \
-	    --arg url "https://hub.docker.com/r/$(DOCKERHUB_REPO)/tags/$(FINAL_VERSION)" \
-	    --arg digest "$(DIGEST_ONLY)" \
-	    --arg image_id "$(IMAGE_ID)" \
-	    --argjson build_number $(BUILD_NUMBER) \
-	    --argjson grype_scan "$$GRYPE_SUMMARY_JSON" \
-	    '. += [({"build_number": $$build_number, "tag": $$version, "base_image": $$base, "git_revision": $$rev, "created": $$created, "dockerhub_tag_url": $$url, "digest": $$digest, "image_id": $$image_id} \
-	           + (if $grype_scan == null then {} else {"grype_scan": $grype_scan} end))]' \
-	    $(BUILD_LOG_PATH) > $(BUILD_LOG_PATH).tmp && mv $(BUILD_LOG_PATH).tmp $(BUILD_LOG_PATH)
+	python3 scripts/update_build_log.py \
+	  --log "$(BUILD_LOG_PATH)" \
+	  --build-number $(BUILD_NUMBER) \
+	  --version "$(FINAL_VERSION)" \
+	  --base "$(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION)" \
+	  --git-rev "$(GIT_REV)" \
+	  --created "$(DATE)" \
+	  --url "https://hub.docker.com/r/$(DOCKERHUB_REPO)/tags/$(FINAL_VERSION)" \
+	  --digest "$(DIGEST_ONLY)" \
+	  --image-id "$(IMAGE_ID)" \
+	  --grype-sarif "$$GRYPE_SARIF"
 
 	@echo "🔄 Checking if $(BUILD_LOG_PATH) changed"
 	@if ! git diff --quiet $(BUILD_LOG_PATH); then \
