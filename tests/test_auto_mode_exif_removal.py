@@ -84,7 +84,7 @@ def test_exif_sanitization_auto_mode():
         assert not any("gps" in k for k in keys_lower), "❌ GPS tags should be removed"
         assert not any("serialnumber" in k for k in keys_lower), "❌ SerialNumber tag should be removed"
 
-
+@pytest.mark.nightly
 @pytest.mark.skipif(not EXIFTOOL, reason="exiftool not installed")
 def test_bulk_auto_mode_scrubs_all_metadata(tmp_path):
     """Ensure bulk auto-mode scrubs EXIF, XMP, IPTC, and GPS from many files."""

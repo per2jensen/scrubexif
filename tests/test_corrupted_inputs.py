@@ -92,7 +92,7 @@ def _lightly_corrupt_file(path: Path, seed: int) -> bool:
         path.write_bytes(original)
         return False
 
-
+@pytest.mark.nightly
 @pytest.mark.docker
 def test_corrupted_inputs_moved_to_processed(tmp_path):
     if not SOURCE_IMAGE.exists():
