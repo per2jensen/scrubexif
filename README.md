@@ -92,6 +92,12 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 - Optional state‑file for high‑volume pipelines
 - `--preview`, `--paranoia`, `--stable-seconds N`
 
+## Supply Chain Transparency
+
+- Every release is produced by a public GitHub Actions workflow that builds the Docker image, runs Syft to publish an SPDX SBOM, and scans the image with Grype (failing on high/critical CVEs).
+- The vulnerability results (`grype-results-<version>.sarif`) and SBOM (`sbom-v<version>.spdx.json`) are attached to each GitHub Release → see the **[Releases tab](https://github.com/per2jensen/scrubexif/releases)** for the latest artifacts.
+- `doc/build-history.json` tracks every tag with the Git commit, image digest, and (when available) the Grype severity counts, giving downstream users a verifiable audit trail.
+
 ## Common Options
 
 ```
