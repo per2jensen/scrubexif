@@ -1,5 +1,11 @@
-.git
-*.jpg
-*.jpeg
-*.png
-*.tar
+# Ignore everything by default
+**
+
+# Allow only the runtime package and minimal metadata
+!scrubexif/
+!scrubexif/**
+!pyproject.toml
+!LICENSE
+
+# Drop bytecode caches even inside the package
+scrubexif/__pycache__/

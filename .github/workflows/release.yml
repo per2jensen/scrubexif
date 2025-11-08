@@ -1,0 +1,99 @@
+
+
+name: Manual Docker Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      FINAL_VERSION:
+        description: 'Release version (e.g. 1.2.3)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  security-events: write
+
+
+jobs:
+
+  release:
+    runs-on: ubuntu-24.04
+
+    env:
+      FINAL_VERSION: ${{ inputs.FINAL_VERSION }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Initial clean and test
+      run: |
+        make dev-clean
+        make test
+
+    - name: Dry Run Build and tag release
+      run: make FINAL_VERSION=${{ env.FINAL_VERSION }} dry-run-release
+
+    - name: make Final version
+      run: |
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} final
+
+    - name: Install Syft and Grype
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+    - name: Cache Grype DB
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/grype/db
+        key: grype-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}
+        restore-keys: |
+          grype-db-${{ runner.os }}-
+
+    - name: Generate SBOM with Syft
+      run: syft per2jensen/scrubexif:${{ env.FINAL_VERSION }} -o spdx-json > sbom.spdx.json
+
+    - name: Scan image with Grype (fail on high)
+      run: grype per2jensen/scrubexif:${{ env.FINAL_VERSION }} --fail-on high -o sarif > grype-results.sarif
+
+    - name: Upload Grype SARIF report
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: grype-report
+        path: grype-results.sarif
+
+    - name: Upload SARIF to GitHub Security tab
+      if: always()
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: grype-results.sarif
+
+    - name: Docker login
+      run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USER_NAME }}" --password-stdin
+
+    # - name: Docker push
+    #   run: docker push per2jensen/scrubexif:${{ env.FINAL_VERSION }}
+
+
+    - name: Post summary
+      run: |
+        echo "###   ====>>  TESTING   <<<=====  ✅ Release v${{ env.FINAL_VERSION }} completed successfully" >> $GITHUB_STEP_SUMMARY
+        echo "- Docker image: \`per2jensen/scrubexif:${{ env.FINAL_VERSION }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- SBOM and vulnerability scan uploaded" >> $GITHUB_STEP_SUMMARY
+
+    # - name: Create GitHub Release
+    #   uses: softprops/action-gh-release@v1
+    #   with:
+    #     tag_name: v${{ env.FINAL_VERSION }}
+    #     name: Release v${{ env.FINAL_VERSION }}
+    #     generate_release_notes: true
+    #   env:
+    #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
