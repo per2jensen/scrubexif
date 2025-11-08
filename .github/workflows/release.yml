@@ -58,23 +58,38 @@ jobs:
           grype-db-${{ runner.os }}-
 
     - name: Generate SBOM with Syft
-      run: syft per2jensen/scrubexif:${{ env.FINAL_VERSION }} -o spdx-json > sbom.spdx.json
+      run: syft per2jensen/scrubexif:${{ env.FINAL_VERSION }} -o spdx-json > sbom-${{ env.FINAL_VERSION }}.spdx.json
+
+    - name: Upload SBOM to release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ env.FINAL_VERSION }}
+        files: sbom-${{ env.FINAL_VERSION }}.spdx.json
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload SBOM artifact, visible in Actions tab
+      uses: actions/upload-artifact@v3
+      with:
+        name: sbom-v${{ env.FINAL_VERSION }}
+        path: sbom-${{ env.FINAL_VERSION }}.spdx.json
 
     - name: Scan image with Grype (fail on high)
-      run: grype per2jensen/scrubexif:${{ env.FINAL_VERSION }} --fail-on high -o sarif > grype-results.sarif
+      run: grype per2jensen/scrubexif:${{ env.FINAL_VERSION }} --fail-on high -o sarif > grype-results-${{ env.FINAL_VERSION }}.sarif
 
     - name: Upload Grype SARIF report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
-        name: grype-report
-        path: grype-results.sarif
+        name: grype-report-${{ env.FINAL_VERSION }}
+        path: grype-results-${{ env.FINAL_VERSION }}.sarif
 
     - name: Upload SARIF to GitHub Security tab
       if: always()
-      uses: github/codeql-action/upload-sarif@v2
+      uses: github/codeql-action/upload-sarif@v3.28.21
       with:
         sarif_file: grype-results.sarif
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Docker login
       run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USER_NAME }}" --password-stdin
