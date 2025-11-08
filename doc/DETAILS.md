@@ -82,7 +82,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Viewing Metadata](#viewing-metadata)
   - [Inspecting the Image Itself](#inspecting-the-image-itself)
   - [Example Integration](#example-integration)
-  - [Build Locally](#build-locally)
+  - [Dev setup](#dev-setup)
   - [Test Image](#test-image)
   - [License](#license)
   - [Related Tools](#related-tools)
@@ -744,10 +744,15 @@ This image is ideal for:
 - Backup pipelines before upload
 - Static site generators like Hugo/Jekyll
 
-## Build Locally
+## Dev setup
+
+On Ubuntu, some extras are needed
 
 ```bash
-docker build -t scrubexif .
+sudo apt-get update && sudo apt-get install -y exiftool
+python -m pip install --upgrade pip
+pip install pytest
+#pip install Pillow  --break-system-packages
 ```
 
 ## Test Image
@@ -764,7 +769,12 @@ This means that the tests will attempt to run:
 
 `docker run --read-only --security-opt no-new-privileges ... scrubexif:dev ...`
 
-If no such local image exists, the test will fail.
+A good methodology is:
+
+```bash
+make dev-clean
+make test
+```
 
 ## License
 

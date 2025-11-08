@@ -13,7 +13,7 @@ on:
 permissions:
   contents: write
   security-events: write
-
+  pull-requests: write  
 
 jobs:
 
@@ -41,17 +41,18 @@ jobs:
         pip install pytest
         pip install Pillow  --break-system-packages
 
-    - name: Initial clean and test
+    - name: Dry-run release
       run: |
-        make dev-clean
-        make test
-
-    - name: Dry Run Build and tag release
-      run: make FINAL_VERSION=${{ env.FINAL_VERSION }} dry-run-release
+        git config --global user.name "github-actions"
+        git config --global user.email "actions@github.com"
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} dry-run-release
 
     - name: make Final version
       run: |
         make FINAL_VERSION=${{ env.FINAL_VERSION }} final
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-cli-version
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-labels
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} make update-details-version 
 
     - name: Install Syft and Grype
       run: |
