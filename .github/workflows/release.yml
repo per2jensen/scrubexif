@@ -98,7 +98,7 @@ jobs:
       if: always()
       uses: github/codeql-action/upload-sarif@v3.28.21
       with:
-        sarif_file: grype-results.sarif
+        sarif_file: grype-results-${{ env.FINAL_VERSION }}.sarif
         token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Docker login
