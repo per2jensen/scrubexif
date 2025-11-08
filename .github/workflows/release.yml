@@ -52,7 +52,7 @@ jobs:
         make FINAL_VERSION=${{ env.FINAL_VERSION }} final
         make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-cli-version
         make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-labels
-        make FINAL_VERSION=${{ env.FINAL_VERSION }} make update-details-version 
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version 
 
     - name: Install Syft and Grype
       run: |
