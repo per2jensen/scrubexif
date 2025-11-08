@@ -32,6 +32,12 @@ jobs:
       with:
         python-version: '3.12'
 
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pytest
+        pip install Pillow  --break-system-packages
+
     - name: Initial clean and test
       run: |
         make dev-clean
