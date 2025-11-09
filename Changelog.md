@@ -1,12 +1,13 @@
 # Changelog
 
-## not released
+## 0.7.8 - 2025-11-09
 
 ### Added
 
 - **Supply chain transparency**. SBOM and Grype vuln summary now linked in the README.md for all to study.
 - Nightly test now includes soak.sh
 - Be clear that GPL 3 license means no guarantees on scrubexif code or docs
+- Automating housekeeping on release
 
 ### Security
 
