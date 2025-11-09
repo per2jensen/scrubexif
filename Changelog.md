@@ -1,5 +1,9 @@
 # Changelog
 
+## not released
+
+### Added
+
 ## 0.7.8 - 2025-11-09
 
 ### Added

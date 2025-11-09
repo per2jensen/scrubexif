@@ -297,7 +297,7 @@ update-details-version:
 
 update-readme-version:
 	@echo "🔄 Updating version examples in README.md to version: $(FINAL_VERSION)"
-	@if sed -i -E "s/:[0-9]+\.[0-9]+\.[0-9]/:9.9.9/" README.md; then \
+	@if sed -i -E "s/:[0-9]+\.[0-9]+\.[0-9]/:$(FINAL_VERSION)/" README.md; then \
 	  if ! git diff --quiet README.md; then \
 	    git add README.md; \
 	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
