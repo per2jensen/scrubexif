@@ -4,7 +4,7 @@
 
 <!-- 📦 Project Metadata -->
 <a href="https://github.com/per2jensen/scrubexif/releases"><img alt="Tag" src="https://img.shields.io/github/v/tag/per2jensen/scrubexif"/></a>
-<a href="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg"/></a>
+<a href="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg"/></a>
 <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"/>
 
 <!-- 🐳 Docker Hub Stats -->
@@ -120,7 +120,7 @@ One use case is to quickly show dog owners photos at exhibitions.
 | ------------------------ | -------------------- | ----------------------------------------------------------- |
 | `/some/directory/`       | `/photos/input/`     | Location for new JPEG uploads on the server                 |
 | `/photoprism/sooc/`      | `/photos/output/`    | Destination for scrubbed JPEG versions, for Photoprim import|
-| `/photoprism/processed/` | `/photos/processed/` | Holding area for already-imported files. |
+| `/photoprism/processed/` | `/photos/processed/` | Holding area for already-imported files.                    |
 
 ### Systemd
 
