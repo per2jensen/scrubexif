@@ -8,6 +8,10 @@
 - Nightly test now includes soak.sh
 - Be clear that GPL 3 license means no guarantees on scrubexif code or docs
 
+### Security
+
+- Call exiftool with path on input file names, security advice from [exiftool website](http://exiftool.com)
+
 ## 0.7.7 - 2025-11-08
 
 ### Added

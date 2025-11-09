@@ -295,6 +295,22 @@ update-details-version:
 	  exit 1; \
 	fi
 
+update-readme-version:
+	@echo "🔄 Updating version examples in README.md to version: $(FINAL_VERSION)"
+	@if sed -i -E "s/:[0-9]+\.[0-9]+\.[0-9]/:9.9.9/" README.md; then \
+	  if ! git diff --quiet README.md; then \
+	    git add README.md; \
+	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
+	    echo "✅ README.md updated and committed"; \
+	  else \
+	    echo "ℹ️ No changes to commit — README.md already up to date"; \
+	  fi; \
+	else \
+	  echo "❌ sed command failed — README.md not updated"; \
+	  exit 1; \
+	fi
+
+
 push: check_version
 	@echo "Pushing $(DOCKERHUB_REPO):$(FINAL_VERSION) to Docker Hub..."
 	$(DOCKER) push $(DOCKERHUB_REPO):$(FINAL_VERSION)
