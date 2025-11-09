@@ -80,7 +80,7 @@ print_counts() {
   proc=$(ls -1 "$PROCESSED" 2>/dev/null | wc -l | tr -d ' ')
   err=$(ls -1 "$ERRORS" 2>/dev/null | wc -l | tr -d ' ')
   inc=$(ls -1 "$INPUT" 2>/dev/null | wc -l | tr -d ' ')
-  echo "   Counts → output:$outc  processed:$proc  errors:$err  input:$inc"
+  echo "  Counts → output:$outc  processed:$proc  errors:$err  input:$inc"
 }
 
 while [[ "$(date +%s)" -lt "$deadline" ]]; do

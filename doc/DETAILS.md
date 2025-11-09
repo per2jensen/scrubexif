@@ -777,8 +777,10 @@ make test
 
 ## License
 
-Licensed under the GNU General Public License v3.0 or later  
-See the `LICENSE` file in this repository.
+Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
+
+THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See section 15 and section 16 in the supplied "LICENSE" file.
 
 ## Related Tools
 

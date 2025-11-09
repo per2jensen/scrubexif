@@ -46,3 +46,7 @@ jobs:
           SCRUBEXIF_IMAGE: scrubexif:dev
         run: |
           PYTHONPATH=. pytest -m nightly -q
+
+      - name: Soak.sh
+        run: |
+          scripts/soak.sh 

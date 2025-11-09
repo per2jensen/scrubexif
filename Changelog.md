@@ -4,15 +4,17 @@
 
 ### Added
 
-- **Supply chain transparency**. SBOM and Grype results now linked in the README.md for all to study.
+- **Supply chain transparency**. SBOM and Grype vuln summary now linked in the README.md for all to study.
+- Nightly test now includes soak.sh
+- Be clear that GPL 3 license means no guarantees on scrubexif code or docs
 
-## 0.7.7 - 2025-11-07
+## 0.7.7 - 2025-11-08
 
 ### Added
 
 - Grype findings summary added to docs/build-history.json
 
-## 0.7.6 - 2025-11-07
+## 0.7.6 - 2025-11-08
 
 ### Added
 

@@ -27,7 +27,7 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-**High‑trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context.
+**High‑trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
 
 > **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
 > This README is intentionally short for Docker Hub visibility.
@@ -162,6 +162,11 @@ pytest -m soak   # optional long-run
 ## License
 
 GPL‑3.0‑or‑later
+
+Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
+
+THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See section 15 and section 16 in the supplied "LICENSE" file.
 
 ---
 
