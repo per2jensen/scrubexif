@@ -41,7 +41,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:9.9.9
+  per2jensen/scrubexif:0.7.7
 ```
 
 Batch workflow:
@@ -54,7 +54,7 @@ docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif:9.9.9 --from-input
+  per2jensen/scrubexif:0.7.7 --from-input
 ```
 
 Uploads → `input/`  
