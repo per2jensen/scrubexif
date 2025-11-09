@@ -41,7 +41,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.7
+  per2jensen/scrubexif:9.9.9
 ```
 
 Batch workflow:
