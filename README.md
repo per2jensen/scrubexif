@@ -41,7 +41,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.7
+  per2jensen/scrubexif:9.9.9
 ```
 
 Batch workflow:
@@ -54,7 +54,7 @@ docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif:0.7.7 --from-input
+  per2jensen/scrubexif:9.9.9 --from-input
 ```
 
 Uploads → `input/`  
@@ -111,32 +111,33 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
-## Systemd Example
+## Example setup
 
-This is an example of my workflow, when uploading jpeg files to photoprism and showing the photos to a group of people.
+This is an example of my workflow to quickly upload JPEG files to PhotoPrism.
+One use case is to quickly show dog owners photos at exhibitions.
 
-I upload the jpeg files to /tmp/upload/, mapped to /photos/input/ in the container.
+| Host filesystem path     | Container path       | Purpose                                                     |
+| ------------------------ | -------------------- | ----------------------------------------------------------- |
+| `/some/directory/`       | `/photos/input/`     | Location for new JPEG uploads on the server                 |
+| `/photoprism/sooc/`      | `/photos/output/`    | Destination for scrubbed JPEG versions, for Photoprim import|
+| `/photoprism/processed/` | `/photos/processed/` | Holding area for already-imported files. |
 
-`scrubexif` processes the files /photos/input/ and put scrubbed versions in /photoprism/sooc/, mapped to /photos/output/ in the container.
+### Systemd
 
-Once processed, a jpeg file is moved to /photoprism/processed, mapped to /photos/processed in the container.
-
-In the real world the systemd services starts a script, which nudges photoprism to import the newly processed jpeg files.
-
-/etc/systemd/system/scrubexif.service example:
+/etc/systemd/system/scrubexif.service:
 
 ```ini
 [Service]
 ExecStart=/usr/bin/docker run --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
-  -v /tmp/upload:/photos/input \
+  -v /some/directory:/photos/input \
   -v /photoprism/sooc:/photos/output \
   -v /photoprism/processed:/photos/processed \
   per2jensen/scrubexif:0.7.7 --from-input --stable-seconds 10
 ```
 
-/etc/systemd/system/scrubexif.timer example:
+/etc/systemd/system/scrubexif.timer:
 
 ```ini
 [Unit]
@@ -154,9 +155,9 @@ WantedBy=timers.target
 ## Development
 
 ```bash
-make dev     # build dev image
-make test    # full test suite
-pytest -m soak   # optional long-run
+make dev-clean   # remove dev image
+make test        # make dev image and run full test suite
+pytest -m soak   # optional 10 min run or try scripts/soak.sh
 ```
 
 ## License

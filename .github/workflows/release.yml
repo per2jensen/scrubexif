@@ -109,7 +109,8 @@ jobs:
       run: |
         git config --global user.name "github-actions"
         git config --global user.email "actions@github.com"
-        make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version 
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version
+        make FINAL_VERSION=${{ env.FINAL_VERSION }} update-readme-version 
         make FINAL_VERSION=${{ env.FINAL_VERSION }} log-build-json
         git push origin HEAD
 

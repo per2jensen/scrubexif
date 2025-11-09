@@ -348,7 +348,6 @@ EXIF_TAGS_TO_KEEP = [
     "ExposureTime",
     "FNumber",
     "ImageSize",
-    "Title",
     "FocalLength",
     "ISO",
     "Orientation",
@@ -380,7 +379,7 @@ def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool) -> li
     cmd += build_preserve_args(paranoia=paranoia)
     if paranoia:
         cmd += ["-ICC_Profile:all="]
-    cmd += ["-o", str(output_path), str(input_path)]
+    cmd += ["-o", str(output_path), str(input_path.absolute())]   #  security advice on https://exiftool.org/
     return cmd
 
 
@@ -400,14 +399,15 @@ def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
     cmd += build_preserve_args(paranoia=paranoia)
     if output_path:
         cmd += ["-o", str(output_path)]
-    cmd.append(str(input_path))
+
+    cmd.append(str(input_path.absolute()))  # security advice on https://exiftool.org/
     return cmd
 
 
 def print_tags(file: Path, label: str = ""):
     try:
         result = subprocess.run(
-            ["exiftool", "-a", "-G1", "-s", str(file)],
+            ["exiftool", "-a", "-G1", "-s", str(file.absolute())],   # security advice on https://exiftool.org/
             capture_output=True, text=True
         )
         print(f"\n📸 Tags {label} {file.name}:")
@@ -532,6 +532,8 @@ def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
             continue
         if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg"):
             results.append(f)
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(f"JPEGs in '{dir_path}', # of files: '{len(results)}', results: {results}")
     return results
 
 
