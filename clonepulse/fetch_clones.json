@@ -2,15 +2,15 @@
   "annotations": [
     {
       "date": "2025-11-08",
-      "label": "Daily max: 69"
+      "label": "Reddit r/github"
     },
     {
       "date": "2025-11-08",
-      "label": "Reddit r/github"
+      "label": "Daily max: 69"
     }
   ],
-  "total_clones": 716,
-  "unique_clones": 522,
+  "total_clones": 747,
+  "unique_clones": 536,
   "daily": [
     {
       "timestamp": "2025-06-29T00:00:00Z",
@@ -609,8 +609,8 @@
     },
     {
       "timestamp": "2025-10-27T00:00:00Z",
-      "count": 10,
-      "uniques": 7
+      "count": 5,
+      "uniques": 4
     },
     {
       "timestamp": "2025-10-28T00:00:00Z",
@@ -674,8 +674,8 @@
     },
     {
       "timestamp": "2025-11-09T00:00:00Z",
-      "count": 1,
-      "uniques": 1
+      "count": 37,
+      "uniques": 18
     }
   ]
 }
