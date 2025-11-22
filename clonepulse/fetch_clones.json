@@ -6,11 +6,11 @@
     },
     {
       "date": "2025-11-08",
-      "label": "Daily max: 69"
+      "label": "Daily max: 64"
     }
   ],
-  "total_clones": 796,
-  "unique_clones": 573,
+  "total_clones": 797,
+  "unique_clones": 574,
   "daily": [
     {
       "timestamp": "2025-06-29T00:00:00Z",
@@ -669,8 +669,8 @@
     },
     {
       "timestamp": "2025-11-08T00:00:00Z",
-      "count": 69,
-      "uniques": 32
+      "count": 64,
+      "uniques": 29
     },
     {
       "timestamp": "2025-11-09T00:00:00Z",
@@ -731,6 +731,11 @@
       "timestamp": "2025-11-20T00:00:00Z",
       "count": 4,
       "uniques": 3
+    },
+    {
+      "timestamp": "2025-11-21T00:00:00Z",
+      "count": 6,
+      "uniques": 4
     }
   ]
 }
