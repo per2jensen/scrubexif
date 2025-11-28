@@ -5,6 +5,7 @@
 !scrubexif/
 !scrubexif/**
 !pyproject.toml
+!README.md
 !LICENSE
 
 # Drop bytecode caches even inside the package

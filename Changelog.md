@@ -1,8 +1,11 @@
 # Changelog
 
-## not released
+## 0.7.9 - not released
 
-### Added
+### Changed
+
+- Image build is now staged. Make `scrubexif` a pip wheel in stage 1, copy it over in stage 2. This should make `syft` pick it up when scanning the image and add `scrubexif` to the SBOM.
+- Build metadata logging is now more comprehensive. The `log-build-json` target archives a detailed record of each build in `doc/build-history.json`, including the git revision, image digest, and a summary of vulnerability scans from Grype. This provides a complete and auditable history of all releases.
 
 ## 0.7.8 - 2025-11-09
 

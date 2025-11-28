@@ -37,7 +37,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
   test-release dry-run-release _dryrun-release-internal release \
-  log-build-json log-build-json-old update-scrub-version update-details-version \
+  log-build-json update-readme-version update-scrub-version update-details-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
   show-labels show-tags help
 
@@ -63,20 +63,7 @@ validate:
 	@command -v docker >/dev/null || { echo "❌ docker not found"; exit 1; }
 
 
-base: check_version validate
-	@echo "Building base image..."
-	$(DOCKER) build --pull -f Dockerfile \
-		--build-arg VERSION=$(FINAL_VERSION) \
-		--label org.opencontainers.image.base.name="ubuntu" \
-		--label org.opencontainers.image.base.version="$(UBUNTU_VERSION)" \
-		--label org.opencontainers.image.version="$(FINAL_VERSION)-base" \
-		--label org.opencontainers.image.created="$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		--label org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>" \
-		-t $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION) .
-	$(DOCKER) tag $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION) $(BASE_LATEST_TAG)
-
-
-final: check_version validate base
+final: check_version validate
 	$(eval DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
 	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
 	$(eval FINAL_TAG := $(FINAL_IMAGE_NAME):$(FINAL_VERSION))
@@ -228,43 +215,6 @@ log-build-json: check_version
 
 
 
-log-build-json-old: check_version
-	@mkdir -p $(BUILD_LOG_DIR)
-	@test -f $(BUILD_LOG_PATH) || echo "[]" > $(BUILD_LOG_PATH)
-
-	$(eval DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
-	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
-
-	$(eval DIGEST := $(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo ""))
-	@if [ -z "$(DIGEST)" ]; then \
-		echo "❌ Digest not found. Make sure the image has been pushed."; \
-		exit 1; \
-	fi
-
-	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION)))
-	@if [ -z "$(IMAGE_ID)" ]; then \
-		echo "❌ Image ID not found. Did you build the final image?"; \
-		exit 1; \
-	fi
-
-	$(eval DIGEST_ONLY := $(shell echo "$(DIGEST)" | cut -d'@' -f2))
-	$(eval BUILD_NUMBER := $(shell test -f $(BUILD_LOG_PATH) && jq length $(BUILD_LOG_PATH) || echo 0))
-
-	@jq --arg version "$(FINAL_VERSION)" \
-	    --arg base "$(BASE_IMAGE_NAME):$(UBUNTU_VERSION)-$(FINAL_VERSION)" \
-	    --arg rev "$(GIT_REV)" \
-	    --arg created "$(DATE)" \
-	    --arg url "https://hub.docker.com/r/$(DOCKERHUB_REPO)/tags/$(FINAL_VERSION)" \
-	    --arg digest "$(DIGEST_ONLY)" \
-	    --arg image_id "$(IMAGE_ID)" \
-	    --argjson build_number $(BUILD_NUMBER) \
-	    '. += [{"build_number": $$build_number, "tag": $$version, "base_image": $$base, "git_revision": $$rev, "created": $$created, "dockerhub_tag_url": $$url, "digest": $$digest, "image_id": $$image_id}]' \
-	    $(BUILD_LOG_PATH) > $(BUILD_LOG_PATH).tmp && mv $(BUILD_LOG_PATH).tmp $(BUILD_LOG_PATH)
-
-
-
-
-
 update-scrub-version:
 	@echo "🔄 Updating __version__ in scrub.py to VERSION=$(FINAL_VERSION)"
 	@if sed -i -E 's/^__version__\s*=\s*".*"/__version__ = "$(FINAL_VERSION)"/' scrubexif/scrub.py; then \
@@ -344,8 +294,8 @@ clean-all:
 
 BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
-dev: FINAL_VERSION=dev
-dev: validate base
+dev:
+	$(eval FINAL_VERSION := dev)
 	@echo "Building development image: scrubexif:dev ..."
 	$(DOCKER) build -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
