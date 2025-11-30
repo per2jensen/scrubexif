@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.9 - not released
+## 0.7.9 - 2025-11-30
 
 ### Added
 
