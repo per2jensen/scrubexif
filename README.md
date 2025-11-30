@@ -41,7 +41,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.8
+  per2jensen/scrubexif:0.7.9
 ```
 
 Batch workflow:
@@ -54,7 +54,7 @@ docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif:0.7.8 --from-input
+  per2jensen/scrubexif:0.7.9 --from-input
 ```
 
 Uploads → `input/`  
@@ -134,7 +134,7 @@ ExecStart=/usr/bin/docker run --rm \
   -v /some/directory:/photos/input \
   -v /photoprism/sooc:/photos/output \
   -v /photoprism/processed:/photos/processed \
-  per2jensen/scrubexif:0.7.8 --from-input --stable-seconds 10
+  per2jensen/scrubexif:0.7.9 --from-input --stable-seconds 10
 ```
 
 /etc/systemd/system/scrubexif.timer:
