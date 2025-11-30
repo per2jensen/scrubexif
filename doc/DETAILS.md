@@ -69,6 +69,10 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
     - [Temp/partial file filter](#temppartial-file-filter)
       - [Scope](#scope)
     - [Configuration](#configuration)
+  - [Integration Script (optional)](#integration-script-optional)
+    - [Security note about ALLOW\_ROOT](#security-note-about-allow_root)
+    - [Example systemd service and timer (optional)](#example-systemd-service-and-timer-optional)
+    - [Summary](#summary-1)
   - [Known limitations](#known-limitations)
   - [Docker Images](#docker-images)
   - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
@@ -516,6 +520,79 @@ Summary now reports “Skipped (unstable)”. Duplicates/error logic unaffected.
 CLI: --stable-seconds N.
 
 Env: SCRUBEXIF_STABLE_SECONDS if the flag is omitted. Default 120.
+
+## Integration Script (optional)
+
+If you want scrubexif to automatically process newly arrived JPEG files and then trigger a PhotoPrism import, you can use the example script included in `scripts/run_scrubexif_photoprism.sh`.
+
+This script:
+
+- runs scrubexif in **auto mode** (`--from-input`)
+- uses the hardened Docker flags recommended in this document
+- parses the machine-readable `SCRUBEXIF_SUMMARY` line
+- **only triggers PhotoPrism indexing when new files were actually scrubbed**
+- prevents overlapping runs through a lock file
+- allows users to quickly integrate scrubexif into an existing SOOC → scrubbed → PhotoPrism pipeline
+
+The script expects that you have three directories:
+
+``` bash
+/photos/input       # new JPEGs arrive here
+/photos/output      # scrubbed JPEGs written here
+/photos/processed   # originals moved here after scrub
+```
+
+These can be mapped to any host paths via `-v` mounts, as shown in the example.
+
+### Security note about ALLOW_ROOT
+
+The script in the repository **does not** set `ALLOW_ROOT=1`, for security reasons.
+
+By default, scrubexif refuses to run as root inside the container unless the user explicitly opts in. This protects users who copy the example script into environments where Docker would otherwise default to UID 0.
+
+If your system *requires* containers to run as root (e.g., some NAS systems, certain appliance-style deployments), you can enable this explicitly by uncommenting the line shown in the script:
+
+```bash
+# -e ALLOW_ROOT=1 \
+```
+
+For most users, this should remain commented.
+
+### Example systemd service and timer (optional)
+
+If you want scrubexif to run periodically, you can pair the integration script with a systemd service/timer:
+
+```ini
+[Unit]
+Description=Run scrubexif and trigger PhotoPrism indexing
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/run_scrubexif_photoprism.sh
+```
+
+```ini
+[Unit]
+Description=Run scrubexif every 5 minutes
+
+[Timer]
+OnBootSec=300s
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+```
+
+This makes scrubexif completely automatic in a PhotoPrism setup.
+
+### Summary
+
+- The integration script is optional but recommended for continuous workflows.
+- It only indexes PhotoPrism when meaningful work was done (`scrubbed>0`).
+- Default configuration avoids running the container as root.
+- Users who require root can opt in explicitly via `ALLOW_ROOT=1`.
+
+Refer to `scripts/run_scrubexif_photoprism.sh` in this repository for the maintained version.
 
 ## Known limitations
 

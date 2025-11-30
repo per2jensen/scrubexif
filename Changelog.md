@@ -2,10 +2,19 @@
 
 ## 0.7.9 - not released
 
+### Added
+
+- Machine-readable summary output. `SCRUBEXIF_SUMMARY` line is now emitted at the end of every run with `total= scrubbed= skipped= errors= duplicates_* duration=` fields for automation and integration scripts.
+- Test case. Verify the various counters reported are correct.
+- Duration reporting. All runs now include a precise `Duration:` field in the human-readable summary.
+- Integration script. A hardened example (`scripts/run_scrubexif_photoprism.sh`) was added for users who want automatic SOOC → scrubbed → PhotoPrism indexing. It only triggers `photoprism index` when `scrubbed > 0`.
+- Documentation: `doc/DETAILS.md` updated with a full Integration Script section, security notes on `ALLOW_ROOT`, systemd examples, and recommended directory layout.
+
 ### Changed
 
 - Image build is now staged. Make `scrubexif` a pip wheel in stage 1, copy it over in stage 2. This should make `syft` pick it up when scanning the image and add `scrubexif` to the SBOM.
 - Build metadata logging is now more comprehensive. The `log-build-json` target archives a detailed record of each build in `doc/build-history.json`, including the git revision, image digest, and a summary of vulnerability scans from Grype. This provides a complete and auditable history of all releases.
+
 
 ## 0.7.8 - 2025-11-09
 

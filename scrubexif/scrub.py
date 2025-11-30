@@ -66,6 +66,8 @@ class ScrubSummary:
         self.duplicates_deleted = 0
         self.duplicates_moved = 0
         self.errors = 0
+        # Track wall-clock duration of the whole run
+        self.started_at = time.time()
 
     def update(self, result: ScrubResult):
         self.total += 1
@@ -83,6 +85,7 @@ class ScrubSummary:
                 self.errors += 1
 
     def print(self):
+        duration = time.time() - self.started_at
         print("📊 Summary:")
         print(f"  Total JPEGs found        : {self.total}")
         print(f"  Successfully scrubbed    : {self.scrubbed}")
@@ -92,6 +95,18 @@ class ScrubSummary:
             print(f"  Duplicates deleted       : {self.duplicates_deleted}")
         if self.duplicates_moved:
             print(f"  Duplicates moved         : {self.duplicates_moved}")
+        print(f"  Duration                 : {duration:.2f}s")
+        # Machine-parsable one-liner for the bash script
+        print(
+            "SCRUBEXIF_SUMMARY "
+            f"total={self.total} "
+            f"scrubbed={self.scrubbed} "
+            f"skipped={self.skipped} "
+            f"errors={self.errors} "
+            f"duplicates_deleted={self.duplicates_deleted} "
+            f"duplicates_moved={self.duplicates_moved} "
+            f"duration={duration:.3f}"
+        )
 
 
 # ----------------------------
@@ -193,7 +208,7 @@ def _resolve_state_path_from_env() -> Optional[Path]:
 
     for p in candidates:
         try:
-            p.parent.mkdir(parents=True, exist_ok=True)
+            p.parent.mkdir(parers=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=p.parent, delete=True):
                 return p
         except Exception:
@@ -908,7 +923,6 @@ def main():
                      preview=args.preview)
 
     summary.print()
-
 
 
 if __name__ == "__main__":
