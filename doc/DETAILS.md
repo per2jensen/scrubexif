@@ -36,64 +36,38 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 - [scrubexif](#scrubexif)
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
-    - [Build \& Run Locally](#build--run-locally)
+    - [Build & Run Locally](#build--run-locally)
     - [Manual mode (default)](#manual-mode-default)
-      - [Scrub specific files](#scrub-specific-files)
-      - [Scrub all JPEGs in current directory](#scrub-all-jpegs-in-current-directory)
-      - [Recursively scrub nested folders](#recursively-scrub-nested-folders)
     - [Auto mode (`--from-input`)](#auto-mode---from-input)
       - [Example](#example)
-      - [Duplicate Handling (auto mode)](#duplicate-handling-auto-mode)
+      - [Duplicate Handling](#duplicate-handling)
   - [Options](#options)
   - [Environment variables](#environment-variables)
-    - [`ALLOW_ROOT`](#allow_root)
-    - [`SCRUBEXIF_AUTOBUILD`](#scrubexif_autobuild)
-    - [`SCRUBEXIF_ON_DUPLICATE`](#scrubexif_on_duplicate)
-    - [`SCRUBEXIF_STABLE_SECONDS`](#scrubexif_stable_seconds)
-    - [`SCRUBEXIF_STATE`](#scrubexif_state)
-    - [Summary](#summary)
-    - [Examples](#examples)
   - [Features](#features)
     - [Metadata Preservation Strategy](#metadata-preservation-strategy)
     - [`--paranoia` Mode](#--paranoia-mode)
-    - [Example](#example-1)
     - [Inspecting Metadata with `--show-tags`](#inspecting-metadata-with---show-tags)
-    - [Note on `--dry-run`](#note-on---dry-run)
-    - [Usage Examples](#usage-examples)
     - [Preview Mode (`--preview`)](#preview-mode---preview)
-    - [Typical Use](#typical-use)
   - [What It Cleans](#what-it-cleans)
   - [Work on stable files](#work-on-stable-files)
     - [Stability gate](#stability-gate)
     - [State tracking](#state-tracking)
     - [Temp/partial file filter](#temppartial-file-filter)
-      - [Scope](#scope)
     - [Configuration](#configuration)
-  - [Integration Script (optional)](#integration-script-optional)
-    - [Security note about ALLOW\_ROOT](#security-note-about-allow_root)
-    - [Example systemd service and timer (optional)](#example-systemd-service-and-timer-optional)
-    - [Summary](#summary-1)
+  - [Integration (optional)](#integration-optional)
+    - [Integration script](#integration-script)
+    - [Example systemd service and timer](#example-systemd-service-and-timer)
+  - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
+  - [Hardening & Recommendations](#hardening--recommendations)
   - [Known limitations](#known-limitations)
   - [Docker Images](#docker-images)
-  - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
-  - [Recommendations](#recommendations)
-    - [Hardening](#hardening)
-      - [What these flags do (and how they can bite you)](#what-these-flags-do-and-how-they-can-bite-you)
-    - [Use Real Directories for Mounts](#use-real-directories-for-mounts)
-    - [Run as a Non-Root User](#run-as-a-non-root-user)
-    - [Always Pre-Check Mount Paths](#always-pre-check-mount-paths)
-    - [Keep Metadata You Intend to Preserve Explicit](#keep-metadata-you-intend-to-preserve-explicit)
   - [Viewing Metadata](#viewing-metadata)
   - [Inspecting the Image Itself](#inspecting-the-image-itself)
-  - [Example Integration](#example-integration)
   - [Dev setup](#dev-setup)
   - [Test Image](#test-image)
   - [License](#license)
   - [Related Tools](#related-tools)
   - [Feedback](#feedback)
-  - [Reference](#reference)
-    - [CLI options](#cli-options)
-    - [Environment variables](#environment-variables-1)
   - [Project Homepage](#project-homepage)
 
 ## Quick Start
@@ -125,8 +99,6 @@ same whether you use the published image or a locally built one.
 
 Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
 
-#### Scrub specific files
-
 ```bash
 VERSION=0.7.9; docker run -it --rm \
   --read-only --security-opt no-new-privileges \
@@ -135,7 +107,7 @@ VERSION=0.7.9; docker run -it --rm \
   per2jensen/scrubexif:$VERSION "file1.jpg" "file2.jpeg"
 ```
 
-#### Scrub all JPEGs in current directory
+Scrub all JPEGs in the current directory:
 
 ```bash
 VERSION=0.7.9; docker run -it --rm \
@@ -145,7 +117,7 @@ VERSION=0.7.9; docker run -it --rm \
   per2jensen/scrubexif:$VERSION
 ```
 
-#### Recursively scrub nested folders
+Recursively scrub nested folders:
 
 ```bash
 VERSION=0.7.9; docker run -it --rm \
@@ -178,7 +150,7 @@ VERSION=0.7.9; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --from-input
 ```
 
-#### Duplicate Handling (auto mode)
+#### Duplicate Handling
 
 By default, if a file with the same name already exists in the output folder, it is treated as a **duplicate**:
 
@@ -186,8 +158,6 @@ By default, if a file with the same name already exists in the output folder, it
 - `--on-duplicate move`: Moves the duplicate file to `/photos/errors` for inspection.
 
 This ensures output is not overwritten and prevents silently skipping files.
-
-The reason to delete a duplicate by default is that the files are probably not that important, mostly used to give viewers a quick glance. It also conserves disk space.
 
 ```bash
 # Move duplicates to /photos/errors instead of deleting
@@ -200,7 +170,7 @@ docker run --read-only --security-opt no-new-privileges \
            scrubexif:dev --from-input --on-duplicate move
 ```
 
-📌 **Observe**  the -v "$PWD/errors:/photos/errors" volume specification needed for the --on-duplicate move option.
+📌 **Observe** the `-v "$PWD/errors:/photos/errors"` volume specification needed for the `--on-duplicate move` option.
 
 ## Options
 
@@ -210,39 +180,26 @@ docker run --read-only --security-opt no-new-privileges \
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
 - `--max-files` - limit number of files to scrub (useful for testing or safe inspection)
-- `--paranoia` - maximum metadata scrubbing, removes ICC profile including it's (potential) fingerprinting vector
+- `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
 - `-r`, `--recursive` - Recurse into directories
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
 - `--stable-seconds` <secs> - Number of seconds a file must not change before being processed. Default is 120 secs
+- `--state-file PATH|disabled` — Override stability tracking path or disable persistence entirely
+- `--files` — Optional list of files or directories (relative to `/photos` when running in Docker)
+- `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
+- `--max-files N` — Limit the number of eligible files scrubbed in the current run
 - `-v`, `--version` - show version and license
 
 ## Environment variables
 
-### `ALLOW_ROOT`
-
-Must be `1` for `scrubexif` to operate as root.
-If unset, running as UID 0 will exit with an error.
-
-Example:
-
-```sh
-docker run --rm --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  --user 0 -e ALLOW_ROOT=1 \
-  scrubexif:dev
-```
-
-### `SCRUBEXIF_AUTOBUILD`
-
-Applies to development and testing only.
-
-Controls whether `pytest` automatically builds the `scrubexif:dev` image if missing.
-
-| Value | Meaning |
-|-------|--------|
-| `1` (default) | Auto-build `scrubexif:dev` on first test run |
-| `0` | Do **not** build; tests fail if the image is missing |
+| Variable | Purpose |
+|---------|--------|
+| `ALLOW_ROOT` | Permit execution as root (must be `1`) |
+| `SCRUBEXIF_AUTOBUILD` | Auto-build `scrubexif:dev` on first test run when running pytest |
+| `SCRUBEXIF_ON_DUPLICATE` | Default duplicate policy (`delete`/`move`) for auto mode |
+| `SCRUBEXIF_STABLE_SECONDS` | Default stability window before scrubbing |
+| `SCRUBEXIF_STATE` | Path to persistent mtime state tracking (supports CLI override) |
 
 Examples:
 
@@ -256,68 +213,6 @@ pytest
 # Strict run: fail if dev image is missing
 SCRUBEXIF_AUTOBUILD=0 pytest
 ```
-
-### `SCRUBEXIF_ON_DUPLICATE`
-
-Applies to `--from-input` (auto mode).
-
-Controls how duplicate files are handled.
-
-| Value | Behavior |
-|-------|---------|
-| `delete` (default) | Delete duplicate input file |
-| `move` | Move duplicate to `/photos/errors/` |
-
----
-
-### `SCRUBEXIF_STABLE_SECONDS`
-
-Applies to `--from-input` (auto mod
-e).
-
-Minimum stability window before a file is processed.
-A file must remain unchanged for this duration.
-
-Default: `120`
-
-CLI override:
-
-```sh
-scrub --from-input --stable-seconds 0
-```
-
-### `SCRUBEXIF_STATE`
-
-Applies to `--from-input` (auto mode).
-
-Path to JSON state file used to track file stability across runs.
-Allows efficient incremental scrubbing.
-
-Defaults to disabled if not writable (container read-only mode fallback).
-
-CLI override:
-
-```sh
-scrub --from-input --state-file /tmp/state.json
-```
-
-Disable state file entirely:
-
-```sh
-scrub --from-input --state-file disabled
-```
-
-### Summary
-
-| Variable | Purpose |
-|---------|--------|
-| `ALLOW_ROOT` | Permit execution as root |
-| `SCRUBEXIF_AUTOBUILD` | Auto-build dev image when running tests |
-| `SCRUBEXIF_ON_DUPLICATE` | Duplicate file policy (`delete`/`move`) |
-| `SCRUBEXIF_STABLE_SECONDS` | Stability window before scrubbing |
-| `SCRUBEXIF_STATE` | Path to persistent mtime state tracking (supports CLI override) |
-
-### Examples
 
 Scrub all `.jpg` files in subdirectories:
 
@@ -349,7 +244,7 @@ VERSION=0.7.9; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
 
-📌 **Observe**  In manual mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
+📌 **Observe** In manual mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
 
 ## Features
 
@@ -383,24 +278,6 @@ When enabled, `--paranoia` disables color profile preservation and removes finge
 | *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate |
 | `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum  |
 
-### Example
-
-```bash
-# Safe color-preserving scrub (default)
-docker run --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  scrubexif:dev image.jpg
-
-# Maximum scrub, removes the ICC profile
-docker run --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  scrubexif:dev image.jpg --paranoia
-```
-
-Note: The ICC profile includes values like ProfileDescription, ColorSpace, and ProfileID. The latter is a hash that may vary by device or editing software.
-
 ### Inspecting Metadata with `--show-tags`
 
 The `--show-tags` option lets you inspect metadata **before**, **after**, or **both before and after** scrubbing. This is useful for:
@@ -409,13 +286,7 @@ The `--show-tags` option lets you inspect metadata **before**, **after**, or **b
 - Verifying that scrubbed output removes private metadata
 - Confirming what remains (e.g. lens info, exposure, etc.)
 
-### Note on `--dry-run`
-
 If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run`.
-
-Without `--dry-run`, scrubbing is performed as usual.
-
-### Usage Examples
 
 ```bash
 # See tags BEFORE scrub (scrub still happens)
@@ -437,14 +308,6 @@ docker run --read-only --security-opt no-new-privileges \
   scrubexif:dev image.jpg --show-tags before --dry-run
 ```
 
-Works in both modes
-
-  Manual mode: for individual files or folders
-
-  Auto mode (--from-input): applies to all JPEGs in `input`directory.
-
-🛡 Tip: Combine `--dry-run --paranoia --show-tags before` to verify level of metadata removal before commiting.
-
 ### Preview Mode (`--preview`)
 
 The `--preview` option lets you **safely simulate** the scrubbing process on a **single** JPEG **without modifying the original file**.
@@ -457,8 +320,6 @@ This mode:
 - Deletes the temp files automatically
 - Never alters the original image
 
-### Typical Use
-
 ```bash
 docker run --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -466,7 +327,7 @@ docker run --read-only --security-opt no-new-privileges \
   scrubexif:dev test.jpg --preview
 ```
 
-🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed. 
+🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed.
 
 ## What It Cleans
 
@@ -521,7 +382,7 @@ CLI: --stable-seconds N.
 
 Env: SCRUBEXIF_STABLE_SECONDS if the flag is omitted. Default 120.
 
-## Integration Script (optional)
+## Integration (optional)
 
 If you want scrubexif to automatically process newly arrived JPEG files and then trigger a PhotoPrism import, you can use the example script included in `scripts/run_scrubexif_photoprism.sh`.
 
@@ -544,23 +405,15 @@ The script expects that you have three directories:
 
 These can be mapped to any host paths via `-v` mounts, as shown in the example.
 
-### Security note about ALLOW_ROOT
+### Integration script
 
-The script in the repository **does not** set `ALLOW_ROOT=1`, for security reasons.
-
-By default, scrubexif refuses to run as root inside the container unless the user explicitly opts in. This protects users who copy the example script into environments where Docker would otherwise default to UID 0.
-
-If your system *requires* containers to run as root (e.g., some NAS systems, certain appliance-style deployments), you can enable this explicitly by uncommenting the line shown in the script:
+The script in the repository **does not** set `ALLOW_ROOT=1`, for security reasons. If your system requires containers to run as root (e.g., some NAS systems), you can enable this explicitly by uncommenting the line shown in the script.
 
 ```bash
 # -e ALLOW_ROOT=1 \
 ```
 
-For most users, this should remain commented.
-
-### Example systemd service and timer (optional)
-
-If you want scrubexif to run periodically, you can pair the integration script with a systemd service/timer:
+### Example systemd service and timer
 
 ```ini
 [Unit]
@@ -585,24 +438,60 @@ WantedBy=timers.target
 
 This makes scrubexif completely automatic in a PhotoPrism setup.
 
-### Summary
+## User Privileges and Running as Root
 
-- The integration script is optional but recommended for continuous workflows.
-- It only indexes PhotoPrism when meaningful work was done (`scrubbed>0`).
-- Default configuration avoids running the container as root.
-- Users who require root can opt in explicitly via `ALLOW_ROOT=1`.
+By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
 
-Refer to `scripts/run_scrubexif_photoprism.sh` in this repository for the maintained version.
+```bash
+docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev
+```
+
+- Specify a custom UID with `--user $(id -u)` to match host permissions.
+- Running as root is blocked unless `ALLOW_ROOT=1` is set. Use with caution:
+
+```bash
+docker run --rm --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  --user 0 \
+  -e ALLOW_ROOT=1 \
+  scrubexif:dev
+```
+
+## Hardening & Recommendations
+
+Use these options when starting a container:
+
+- [--read-only](https://docs.docker.com/reference/cli/docker/container/run/#read-only)
+- [--security-opt no-new-privileges](https://docs.docker.com/reference/cli/docker/container/run/#security-opt)
+- `--tmpfs /tmp`
+
+```bash
+docker run --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD/input:/photos/input" \
+  -v "$PWD/output:/photos/output" \
+  -v "$PWD/processed:/photos/processed" \
+  scrubexif:dev --from-input
+```
+
+What these flags do (and how they can bite you)
+
+- **`--read-only`** mounts the container root filesystem as read-only so the image can’t be mutated at runtime. All app writes *must* land in writable mounts such as `/photos/*`.  
+  - *Watch out*: if you rely on a custom `--state-file` path or duplicate handling output, make sure that path lives on a mounted volume. Docker normally provisions `/tmp` as a tmpfs when `--read-only` is used, but other runtimes might require an explicit `--tmpfs /tmp`.
+- **`--security-opt no-new-privileges`** blocks any attempt to gain more privileges (e.g. via setuid binaries).  
+  - *Watch out*: commands that expect to invoke `sudo`, or wrappers that rely on setuid/setgid helpers inside the container, will fail silently. `scrubexif` doesn’t need them, but your surrounding tooling might.
+
+If you orchestrate with Kubernetes, set `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false` to mirror these flags. Always verify that mounted host directories (input/output/processed/errors/state) stay writable by the container UID when the root filesystem is locked down.
+
+Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
+
+Ensure the input, output, and processed directories exist on the host, are not files or symlinks, and are writable by the container’s user.
 
 ## Known limitations
 
 > Symlinked input paths are not detected inside the container
 
-If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Docker resolves the symlink before passing it to the container. This means:
-
-- The container sees `/photos/input` as a normal directory.
-- `scrubexif` cannot detect it was originally a symlink.
-- For safety, avoid mounting symbolic links to any of the required directories.
+If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Docker resolves the symlink before passing it to the container. For safety, avoid mounting symbolic links to any of the required directories.
 
 ## Docker Images
 
@@ -657,126 +546,6 @@ VERSION=0.7.9; docker run --rm --read-only --security-opt no-new-privileges \
   per2jensen/scrubexif:$VERSION --help
 ```
 
-## User Privileges and Running as Root
-
-By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
-
-🧑 Default Behavior
-
-```bash
-docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev
-```
-
-Runs the container as UID 1000 by default
-
-Ensures safer file operations on mounted volumes
-
-Compatible with most host setups
-
-👤 Running as a Custom User
-
-You can specify a different UID (e.g., match your local user) using the --user flag:
-
-```bash
-docker run --rm --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  --user $(id -u) \
-  scrubexif:dev
-```
-
-This ensures created or modified files match your current user permissions.
-
-🚫 Root is Blocked by Default
-
-Running the container as root (UID 0) is explicitly disallowed to prevent unsafe behavior:
-
-```bash
-docker run --rm --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  --user 0 \
-  scrubexif:dev
-# ❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.
-```
-
-To override this safeguard, set the following environment variable:
-
-```bash
-docker run --rm --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  --user 0 \
-  -e ALLOW_ROOT=1 \
-  scrubexif:dev
-```
-
-  ⚠️ Use this option only if you know what you're doing. Writing files as root can cause permission issues on the host system.
-
-## Recommendations
-
-To ensure smooth and safe operation when using `scrubexif`, follow these guidelines:
-
-### Hardening
-
-Use these options when starting a container:
-
-- [--read-only](https://docs.docker.com/reference/cli/docker/container/run/#read-only)
-- [--security-opt no-new-privileges](https://docs.docker.com/reference/cli/docker/container/run/#security-opt)  
-- `--tmpfs /tmp`
-
-```bash
-docker run --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD/input:/photos/input" \
-  -v "$PWD/output:/photos/output" \
-  -v "$PWD/processed:/photos/processed" \
-  scrubexif:dev --from-input
-```
-
-#### What these flags do (and how they can bite you)
-
-- **`--read-only`** mounts the container root filesystem as read-only so the image can’t be mutated at runtime. All app writes *must* land in writable mounts such as `/photos/*`.  
-  - *Watch out*: if you rely on a custom `--state-file` path or duplicate handling output, make sure that path lives on a mounted volume. Docker normally provisions `/tmp` as a tmpfs when `--read-only` is used, but other runtimes might require an explicit `--tmpfs /tmp`.
-- **`--security-opt no-new-privileges`** blocks any attempt to gain more privileges (e.g. via setuid binaries).  
-  - *Watch out*: commands that expect to invoke `sudo`, or wrappers that rely on setuid/setgid helpers inside the container, will fail silently. `scrubexif` doesn’t need them, but your surrounding tooling might.
-
-If you orchestrate with Kubernetes, set `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false` to mirror these flags. Always verify that mounted host directories (input/output/processed/errors/state) stay writable by the container UID when the root filesystem is locked down.
-
-### Use Real Directories for Mounts
-
-Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
-
-Instead:
-
-```bash
-docker run --read-only --security-opt no-new-privileges \
-           --tmpfs /tmp \
-           -v "$PWD/input:/photos/input" \
-           -v "$PWD/output:/photos/output" \
-           -v "$PWD/processed:/photos/processed" \
-           scrubexif:dev --from-input
-```
-
-### Run as a Non-Root User
-
-`scrubexif` checks directory writability. If you mount a directory as root-only, and the container runs as a non-root user (recommended), it will detect and exit cleanly.
-
-Tip: Use --user 1000 or ensure mounted dirs are writable by UID 1000.
-
-### Always Pre-Check Mount Paths
-
-Ensure the input, output, and processed directories:
-
-  Exist on the host
-
-  Are not files or symlinks
-
-  Are writable by the container’s user
-
-Otherwise, scrubexif will fail fast with a clear error message.
-
-### Keep Metadata You Intend to Preserve Explicit
-
-Configure your `scrub.py` to define which EXIF tags to preserve, rather than relying on defaults if privacy is critical.
-
 ## Viewing Metadata
 
 To inspect the metadata of an image before/after scrubbing:
@@ -810,16 +579,6 @@ You can also check the digest and ID:
 ```bash
 VERSION=0.7.9; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
-
-## Example Integration
-
-This image is ideal for:
-
-- Web galleries
-- Dog show photo sharing
-- Social media publishing
-- Backup pipelines before upload
-- Static site generators like Hugo/Jekyll
 
 ## Dev setup
 
@@ -872,35 +631,6 @@ See section 15 and section 16 in the supplied "LICENSE" file.
 
 Suggestions, issues, or pull requests are always welcome.  
 Maintained by **Per Jensen**
-
-## Reference
-
-### CLI options
-
-- `--delete-original` — Delete the input image after a successful auto-mode scrub.
-- `--files` — Optional list of files or directories (relative to `/photos` when running in Docker).
-- `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`.
-- `--max-files N` — Limit the number of eligible files scrubbed in the current run.
-- `--on-duplicate {delete,move}` — Auto-mode duplicate policy; default is `delete`.
-- `--paranoia` — Remove ICC profiles as well as the standard EXIF/IPTC/XMP payload.
-- `--preview` — Scrub a temporary copy to preview metadata changes without touching the original file.
-- `-r`, `--recursive` — Recurse into subdirectories when scanning in manual mode.
-- `--show-tags {before,after,both}` — Dump metadata before/after scrubbing.
-- `--stable-seconds N` — Require files to be at least `N` seconds old (default `120`).
-- `--state-file PATH|disabled` — Override the stability state JSON path, or disable persistence entirely.
-- Non-functional options
-- `--log-level {debug,info,warn,error,crit}` — Set logger verbosity (`info` by default).
-- `--debug` — Convenience flag that forces `--log-level debug` and prints additional diagnostics.
-- `--dry-run` — Describe planned actions without invoking ExifTool.
-- `-v`, `--version` — Print version and license information, then exit.
-
-### Environment variables
-
-- `ALLOW_ROOT` — Set to `1` to allow running as UID 0 inside the container.
-- `SCRUBEXIF_AUTOBUILD` — When truthy, tests auto-build the `scrubexif:dev` image if missing.
-- `SCRUBEXIF_ON_DUPLICATE` — Default duplicate policy (`delete` or `move`) when the CLI switch is omitted.
-- `SCRUBEXIF_STABLE_SECONDS` — Default stability window for auto mode.
-- `SCRUBEXIF_STATE` — Preferred state-file path; must be writable to enable persistent stability tracking.
 
 ## Project Homepage
 
