@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.10 - 2025-12-01
+
+### Fixed
+
+- State path resolution now correctly creates parent directories, enabling stability state files to be written instead of silently falling back to mtime-only mode.
+
+### Added
+
+- Unit coverage for state resolution: positive (writable env path) and negative (unwritable env path) cases to guard against regressions.
+
 ## 0.7.9 - 2025-11-30
 
 ### Added

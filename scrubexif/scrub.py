@@ -208,7 +208,7 @@ def _resolve_state_path_from_env() -> Optional[Path]:
 
     for p in candidates:
         try:
-            p.parent.mkdir(parers=True, exist_ok=True)
+            p.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=p.parent, delete=True):
                 return p
         except Exception:
