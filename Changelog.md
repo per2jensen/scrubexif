@@ -1,14 +1,16 @@
 # Changelog
 
-## 0.7.10 - 2025-12-01
+## 0.7.10 - not released
 
 ### Fixed
 
 - State path resolution now correctly creates parent directories, enabling stability state files to be written instead of silently falling back to mtime-only mode.
+- Explicit state paths that are unwritable now log a warning and disable state rather than quietly relocating the file to a fallback path.
 
 ### Added
 
 - Unit coverage for state resolution: positive (writable env path) and negative (unwritable env path) cases to guard against regressions.
+- Additional tests for auto path selection: /tmp fallback when /photos is unwritable, and disabling state when no writable defaults exist.
 
 ## 0.7.9 - 2025-11-30
 

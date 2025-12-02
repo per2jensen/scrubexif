@@ -195,24 +195,26 @@ def _resolve_state_path_from_env() -> Optional[Path]:
     """
     Priority (when no CLI override is provided):
       1) SCRUBEXIF_STATE env
-      2) /photos/.scrubexif_state.json if writable
-      3) /tmp/.scrubexif_state.json if writable
+      2) If no env: /photos/.scrubexif_state.json if writable
+      3) If no env: /tmp/.scrubexif_state.json if writable
       4) None => state disabled, mtime-only
     """
     env = os.getenv("SCRUBEXIF_STATE")
-    candidates = []
     if env:
-        candidates.append(Path(env))
-    candidates.append(Path("/photos/.scrubexif_state.json"))
-    candidates.append(Path("/tmp/.scrubexif_state.json"))
+        env_path = Path(env)
+        candidate = _validate_writable_path(env_path)
+        if candidate:
+            return candidate
+        log.warning("SCRUBEXIF_STATE=%s is not writable; disabling state (mtime-only).", env_path)
+        return None
 
-    for p in candidates:
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(dir=p.parent, delete=True):
-                return p
-        except Exception:
-            continue
+    for p in (Path("/photos/.scrubexif_state.json"), Path("/tmp/.scrubexif_state.json")):
+        candidate = _validate_writable_path(p)
+        if candidate:
+            log.info("State path auto-selected: %s", candidate)
+            return candidate
+
+    log.warning("No writable state path found; disabling state (mtime-only).")
     return None
 
 

@@ -358,11 +358,12 @@ First-seen files that are already older than the threshold pass on the next run 
 
 ### State tracking
 
-A JSON file /photos/.scrubexif_state.json stores {path: {size, mtime, seen}}.
+A JSON file stores `{path: {size, mtime, seen}}` to remember previous runs:
 
-Each run updates entries for observed files and prunes paths that no longer exist.
-
-Delete this file to reset history.
+- If you pass `--state-file` or set `SCRUBEXIF_STATE`, that exact path is used **only if writable**. If it is not writable, scrubexif logs a warning and disables state (mtime-only) instead of silently relocating it.
+- When no explicit path is provided, scrubexif auto-selects `/photos/.scrubexif_state.json` if writable, otherwise `/tmp/.scrubexif_state.json`. The chosen auto path is logged; if neither is writable, state is disabled and mtime-only checks are used.
+- Each run updates entries for observed files and prunes paths that no longer exist.
+- Delete the state file to reset history.
 
 ### Temp/partial file filter
 

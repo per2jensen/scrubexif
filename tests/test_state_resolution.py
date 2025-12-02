@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -10,8 +11,18 @@ import pytest
 from scrubexif import scrub
 
 
+def _reset_scrub_logger():
+    """Clear scrubexif logger handlers so caplog can capture without closed streams."""
+    logger = logging.getLogger("scrubexif")
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+    logger.propagate = True
+    logger.setLevel(logging.NOTSET)
+
+
 def test_resolve_state_env_creates_parent(tmp_path, monkeypatch):
     """Writable env path should be returned and its parent created."""
+    _reset_scrub_logger()
     target = tmp_path / "nested" / "state" / "file.json"
     monkeypatch.setenv("SCRUBEXIF_STATE", str(target))
     assert not target.parent.exists(), "Precondition: parent should not exist"
@@ -25,34 +36,55 @@ def test_resolve_state_env_creates_parent(tmp_path, monkeypatch):
         pass
 
 
-def test_resolve_state_env_unwritable_falls_back(tmp_path, monkeypatch):
-    """
-    If the env path is not writable, the resolver should skip it and return a fallback.
-    """
+def test_resolve_state_env_unwritable_disables_state(tmp_path, monkeypatch, caplog):
+    """If the env path is not writable, resolver should warn and disable state."""
+    _reset_scrub_logger()
     env_path = tmp_path / "blocked" / "state.json"
     env_path.parent.mkdir(parents=True, exist_ok=True)
     env_path.parent.chmod(0o500)  # remove write permission
     monkeypatch.setenv("SCRUBEXIF_STATE", str(env_path))
 
-    real_namedtemp = scrub.tempfile.NamedTemporaryFile
-    call_count = {"n": 0}
+    caplog.set_level(logging.WARNING, logger="scrubexif")
+    resolved = scrub._resolve_state_path_from_env()
 
-    def flaky_namedtempfile(*args, **kwargs):
-        call_count["n"] += 1
-        if call_count["n"] == 1:
-            raise PermissionError("forced failure for env path")
-        return real_namedtemp(*args, **kwargs)
+    # Restore permissions to let pytest clean up
+    env_path.parent.chmod(0o700)
 
-    monkeypatch.setattr(scrub.tempfile, "NamedTemporaryFile", flaky_namedtempfile)
+    assert resolved is None
+    assert any("SCRUBEXIF_STATE" in rec.message and "not writable" in rec.message for rec in caplog.records)
 
-    try:
-        resolved = scrub._resolve_state_path_from_env()
-    finally:
-        # Restore permissions to let pytest clean up
-        env_path.parent.chmod(0o700)
 
-    assert resolved is not None
-    assert resolved != env_path
-    assert resolved.parent.exists()
-    with real_namedtemp(dir=resolved.parent, delete=True):
-        pass
+def test_resolve_state_auto_falls_back_to_tmp(monkeypatch, caplog):
+    """Without env, auto path should pick /tmp when /photos is unwritable."""
+    _reset_scrub_logger()
+    photos_path = Path("/photos/.scrubexif_state.json")
+    tmp_path = Path("/tmp/.scrubexif_state.json")
+
+    def fake_validate(path: Path):
+        if path == photos_path:
+            return None  # simulate unwritable /photos
+        if path == tmp_path:
+            return path
+        return None
+
+    monkeypatch.setenv("SCRUBEXIF_STATE", "")
+    monkeypatch.setattr(scrub, "_validate_writable_path", fake_validate)
+    caplog.set_level(logging.INFO, logger="scrubexif")
+
+    resolved = scrub._resolve_state_path_from_env()
+
+    assert resolved == tmp_path
+    assert any("auto-selected" in rec.message and str(tmp_path) in rec.message for rec in caplog.records)
+
+
+def test_resolve_state_auto_disabled_when_no_candidates(monkeypatch, caplog):
+    """Without env and no writable defaults, resolver should disable state with warning."""
+    _reset_scrub_logger()
+    monkeypatch.setenv("SCRUBEXIF_STATE", "")
+    monkeypatch.setattr(scrub, "_validate_writable_path", lambda _p: None)
+    caplog.set_level(logging.WARNING, logger="scrubexif")
+
+    resolved = scrub._resolve_state_path_from_env()
+
+    assert resolved is None
+    assert any("No writable state path found" in rec.message for rec in caplog.records)
