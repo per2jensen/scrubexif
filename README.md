@@ -27,58 +27,99 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-**High‑trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
+**High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
 
 > **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
 > This README is intentionally short for Docker Hub visibility.
 
 ## Quick Start
 
-Scrub current directory (hardened container defaults):
+### Easiest one-liner (simple mode, non-destructive)
 
-```bash
-docker run -it --rm \
-  --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.9
-```
+Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
+`$PWD/output/`:
 
-Batch workflow:
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10 --simple
 
-```bash
-mkdir input output processed
-docker run -it --rm \
-  --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD/input:/photos/input" \
-  -v "$PWD/output:/photos/output" \
-  -v "$PWD/processed:/photos/processed" \
-  per2jensen/scrubexif:0.7.9 --from-input
-```
+This:
+
+- scans **your current directory** (`$PWD`) for `*.jpg` / `*.jpeg` (also in capital letters)
+- writes scrubbed copies to **$PWD/output/**  
+- leaves the originals untouched in **$PWD/**
+  
+### Hardened in-place scrub (current directory)
+
+Same idea, but with container hardening and in-place overwrite:
+
+    docker run -it --rm \
+      --read-only --security-opt no-new-privileges \
+      --tmpfs /tmp \
+      -v "$PWD:/photos" \
+      per2jensen/scrubexif:0.7.10
+
+### Batch workflow (PhotoPrism / intake style)
+
+Use auto mode with explicit input/output/processed directories:
+
+    mkdir input output processed errors
+    docker run -it --rm \
+      --read-only --security-opt no-new-privileges \
+      --tmpfs /tmp \
+      -v "$PWD/input:/photos/input" \
+      -v "$PWD/output:/photos/output" \
+      -v "$PWD/processed:/photos/processed" \
+      -v "$PWD/errors:/photos/errors" \
+      per2jensen/scrubexif:0.7.10 --from-input
 
 Uploads → `input/`  
 Scrubbed → `output/`  
 Originals → `processed/` (or deleted)  
-Duplicates → deleted or `errors/`
+Duplicates → deleted or `errors/`  
 Corrupted → logged as failures, originals relocated to `processed/` for inspection
+
+### Data flow overview (auto mode: `--from-input`)
+
+This flow diagram describes what happens **only in auto mode** (`--from-input`),
+where four directories (`input/`, `output/`, `processed/`, `errors/`) are used.
+
+```
+[input/]  --scrub-->  [output/]
+     |
+     +-->  [processed/]   (original JPEGs moved here after successful scrub,
+                           unless --delete-original is used)
+     |
+     +-->  [errors/]      (duplicates or corrupted files — only used when
+                           --on-duplicate move)
+```
+
+Meaning:
+
+- `input/`
+    New JPEGs arrive here (e.g. from uploads or PhotoSync).
+
+- `output/`
+    Scrubbed JPEGs with safe EXIF metadata.
+
+- `processed/`
+    Original JPEGs moved here after scrub (or deleted when requested).
+
+- `errors/`
+    Only created/used when `--on-duplicate move` is enabled.
 
 ### Build & Run Locally
 
-```bash
-# build the image from the Dockerfile in this repo
-docker build -t scrubexif:local .
+    # build the image from the Dockerfile in this repo
+    docker build -t scrubexif:local .
 
-# show CLI usage (ENTRYPOINT runs python -m scrubexif.scrub)
-docker run --rm scrubexif:local --help
+    # show CLI usage (ENTRYPOINT runs python -m scrubexif.scrub)
+    docker run --rm scrubexif:local --help
 
-# scrub the current directory with hardened defaults
-docker run -it --rm \
-  --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  scrubexif:local
-```
+    # scrub the current directory with hardened defaults
+    docker run -it --rm \
+      --read-only --security-opt no-new-privileges \
+      --tmpfs /tmp \
+      -v "$PWD:/photos" \
+      scrubexif:local
 
 Any arguments appended to `docker run … scrubexif:*` are forwarded to the underlying
 `python3 -m scrubexif.scrub` entrypoint.
@@ -87,9 +128,9 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 - Removes GPS and personal data
 - Keeps camera + exposure metadata
-- Default run uses read‑only + no-new-privileges hardening
+- Default run uses read-only + no-new-privileges hardening
 - Duplicate handling: delete or move
-- Optional state‑file for high‑volume pipelines
+- Optional state-file for high-volume pipelines
 - `--preview`, `--paranoia`, `--stable-seconds N`
 
 ## Supply Chain Transparency
@@ -100,14 +141,12 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 ## Common Options
 
-```
---from-input          auto mode
---preview             no write, view only
---paranoia            maximum scrub, removes ICC
---on-duplicate        delete | move
---stable-seconds N    intake stability window
---state-file PATH     override queue DB
-```
+    --from-input          auto mode
+    --preview             no write, view only
+    --paranoia            maximum scrub, removes ICC
+    --on-duplicate        delete | move
+    --stable-seconds N    intake stability window
+    --state-file PATH     override queue DB
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
@@ -124,45 +163,45 @@ One use case is to quickly show dog owners photos at exhibitions.
 
 ### Systemd
 
-/etc/systemd/system/scrubexif.service:
+`/etc/systemd/system/scrubexif.service`:
 
-```ini
-[Service]
-ExecStart=/usr/bin/docker run --rm \
-  --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v /some/directory:/photos/input \
-  -v /photoprism/sooc:/photos/output \
-  -v /photoprism/processed:/photos/processed \
-  per2jensen/scrubexif:0.7.9 --from-input --stable-seconds 10
-```
+    [Service]
+    ExecStart=/usr/bin/docker run --rm \
+      --read-only --security-opt no-new-privileges \
+      --tmpfs /tmp \
+      -v /some/directory:/photos/input \
+      -v /photoprism/sooc:/photos/output \
+      -v /photoprism/processed:/photos/processed \
+      per2jensen/scrubexif:0.7.10 --from-input --stable-seconds 10
 
-/etc/systemd/system/scrubexif.timer:
+`/etc/systemd/system/scrubexif.timer`:
 
-```ini
-[Unit]
-Description=Run scrubexif every 5 minutes
+    [Unit]
+    Description=Run scrubexif every 5 minutes
 
-[Timer]
-OnBootSec=1min
-OnUnitActiveSec=5min
-Persistent=true
+    [Timer]
+    OnBootSec=1min
+    OnUnitActiveSec=5min
+    Persistent=true
 
-[Install]
-WantedBy=timers.target
-```
+    [Install]
+    WantedBy=timers.target
+
+### Photoprism systemd script
+
+I use `scrubexif` to clean my jpegs on dog exhibitions. I upload the files to a server using rclone and a systemd timer runs the script below every 5 minutes.
+
+You can see my (anonymized) script in [the Github scrubexif repo](https://github.com/per2jensen/scrubexif/blob/main/scripts/run_scrubexif_photoprism.sh)
 
 ## Development
 
-```bash
-make dev-clean   # remove dev image
-make test        # make dev image and run full test suite
-pytest -m soak   # optional 10 min run or try scripts/soak.sh
-```
+    make dev-clean   # remove dev image
+    make test        # make dev image and run full test suite
+    pytest -m soak   # optional 10 min run or try scripts/soak.sh
 
 ## License
 
-GPL‑3.0‑or‑later
+GPL-3.0-or-later
 
 Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 

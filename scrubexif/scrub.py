@@ -678,6 +678,102 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
     return summary
 
 
+def simple_scrub(summary: ScrubSummary,
+                 recursive: bool = False,
+                 dry_run: bool = False,
+                 show_tags_mode: str | None = None,
+                 paranoia: bool = True,
+                 max_files: int | None = None,
+                 on_duplicate: str = "delete") -> ScrubSummary:
+    """
+    Simple mode:
+      - Scan /photos for JPEGs (non-recursive by default, -r respected)
+      - Write scrubbed copies to /photos/output
+      - Leave originals in place.
+
+    Intended for the "one-liner" use case:
+
+        docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10 --simple
+    """
+    print(f"🚀 Simple mode: Scrubbing JPEGs in {PHOTOS_ROOT}")
+    print(f"📁 Output directory: {OUTPUT_DIR}")
+
+    # Safety: /photos must exist and be usable, and we must be able to write to /photos/output
+    check_dir_safety(PHOTOS_ROOT, "Photos root")
+
+    try:
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        print(f"❌ Failed to create output directory {OUTPUT_DIR}: {exc}")
+        sys.exit(1)
+
+    check_dir_safety(OUTPUT_DIR, "Output")
+
+    files = find_jpegs_in_dir(PHOTOS_ROOT, recursive=recursive)
+
+    # Avoid feeding our own pipeline directories back into the scrub loop
+    filtered: list[Path] = []
+    for f in files:
+        # Skip symlinks aggressively
+        if f.is_symlink():
+            log.debug("Skipping symlink in simple mode: %s", f)
+            continue
+
+        skip = False
+        for special in (INPUT_DIR, OUTPUT_DIR, PROCESSED_DIR, ERRORS_DIR):
+            try:
+                f.relative_to(special)
+                skip = True
+                break
+            except ValueError:
+                continue
+        if skip:
+            continue
+
+        filtered.append(f)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Simple mode: found %d JPEGs under %s (recursive=%s, after filtering=%d)",
+            len(files),
+            PHOTOS_ROOT,
+            recursive,
+            len(filtered),
+        )
+
+    if not filtered:
+        print("⚠️ No eligible JPEGs found in simple mode.")
+        return summary
+
+    if max_files is not None:
+        filtered = filtered[:max_files]
+
+    for f in filtered:
+        dst = OUTPUT_DIR / f.name
+
+        if dry_run:
+            if show_tags_mode in {"before", "both"}:
+                print_tags(f, label="before")
+            if show_tags_mode in {"after", "both"}:
+                print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
+            print(f"🔍 [simple] Would scrub: {f} -> {dst}")
+            summary.total += 1
+            continue
+
+        result = scrub_file(
+            f,
+            output_path=OUTPUT_DIR,
+            delete_original=False,
+            dry_run=False,
+            show_tags_mode=show_tags_mode,
+            paranoia=paranoia,
+            on_duplicate=on_duplicate,
+        )
+        summary.update(result)
+
+    return summary
+
+
 def resolve_cli_path(raw: Path) -> Path:
     """
     Convert user-supplied CLI paths into absolute paths under /photos.
@@ -809,6 +905,7 @@ def main():
     parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
+    parser.add_argument("--simple", action="store_true", help="Simple mode: scrub <current dir> → <current>/output (non-destructive)")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
@@ -821,7 +918,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
     parser.add_argument("--on-duplicate", choices=["delete", "move"],
                         default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
-                        help="Duplicate handling in auto mode. 'delete' or 'move' to /photos/errors/")
+                        help="Duplicate handling in auto/simple modes. 'delete' or 'move' to /photos/errors/")
     parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
     parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info",
                         help="Set log verbosity")
@@ -878,6 +975,14 @@ def main():
         show_version()
         sys.exit(0)
 
+    # Mode sanity checks
+    if args.simple and args.from_input:
+        print("❌ --simple and --from-input cannot be used together.", file=sys.stderr)
+        sys.exit(1)
+    if args.simple and args.files:
+        print("❌ --simple does not take positional file or directory arguments.", file=sys.stderr)
+        sys.exit(1)
+
     # Emit the *exact* banner lines tests expect
     if STATE_FILE is None:
         print("🔎 [INFO] State path: disabled")
@@ -901,31 +1006,46 @@ def main():
         args.max_files = 1
 
     if args.from_input:
-        auto_scrub(summary=summary,
-                   dry_run=args.dry_run,
-                   delete_original=args.delete_original,
-                   show_tags_mode=args.show_tags,
-                   paranoia=args.paranoia,
-                   max_files=args.max_files,
-                   on_duplicate=args.on_duplicate,
-                   stable_seconds=args.stable_seconds)
+        auto_scrub(
+            summary=summary,
+            dry_run=args.dry_run,
+            delete_original=args.delete_original,
+            show_tags_mode=args.show_tags,
+            paranoia=args.paranoia,
+            max_files=args.max_files,
+            on_duplicate=args.on_duplicate,
+            stable_seconds=args.stable_seconds,
+        )
+    elif args.simple:
+        simple_scrub(
+            summary=summary,
+            recursive=args.recursive,
+            dry_run=args.dry_run,
+            show_tags_mode=args.show_tags,
+            paranoia=args.paranoia,
+            max_files=args.max_files,
+            on_duplicate=args.on_duplicate,
+        )
     else:
         if args.files:
             resolved_files = [resolve_cli_path(f) for f in args.files]
         else:
             resolved_files = [PHOTOS_ROOT]
 
-        manual_scrub(resolved_files,
-                     summary=summary,
-                     recursive=args.recursive,
-                     dry_run=args.dry_run,
-                     show_tags_mode=args.show_tags,
-                     paranoia=args.paranoia,
-                     max_files=args.max_files,
-                     preview=args.preview)
+        manual_scrub(
+            resolved_files,
+            summary=summary,
+            recursive=args.recursive,
+            dry_run=args.dry_run,
+            show_tags_mode=args.show_tags,
+            paranoia=args.paranoia,
+            max_files=args.max_files,
+            preview=args.preview,
+        )
 
     summary.print()
 
 
 if __name__ == "__main__":
     main()
+
