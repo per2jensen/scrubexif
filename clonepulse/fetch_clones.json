@@ -5,16 +5,16 @@
       "label": "Reddit r/github"
     },
     {
-      "date": "2025-11-08",
-      "label": "Daily max: 64"
+      "date": "2025-12-03",
+      "label": "--simple added"
     },
     {
       "date": "2025-12-03",
-      "label": "--simple added"
+      "label": "Daily max: 146"
     }
   ],
-  "total_clones": 893,
-  "unique_clones": 633,
+  "total_clones": 1039,
+  "unique_clones": 699,
   "daily": [
     {
       "timestamp": "2025-06-29T00:00:00Z",
@@ -795,6 +795,11 @@
       "timestamp": "2025-12-02T00:00:00Z",
       "count": 35,
       "uniques": 15
+    },
+    {
+      "timestamp": "2025-12-03T00:00:00Z",
+      "count": 146,
+      "uniques": 66
     }
   ]
 }
