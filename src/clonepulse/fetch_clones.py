@@ -212,15 +212,18 @@ def main():
     milestones_hit = [m for m in MILESTONES if total_clones >= m]
 
 
-    # Optional: write a badge for the highest milestone just reached
+    # Optional: write a badge for the highest milestone reached
     if milestones_hit:
         last = milestones_hit[-1]
 
-        # Determine number of 🎉 to show
-        index = MILESTONES.index(last) + 1
-        celebration = "🎉" * index
-
-        print (f"🎯 Milestone reached: {last} clones {celebration}")
+        # Convert milestone number into a compact label (1k+, 2k+, 5k+ ...)
+        if last >= 1000:
+            label = f"{last // 1000}k+ clones"
+        else:
+            # For 500 milestone
+            label = f"{last}+ clones"
+ 
+        print(f"🎯 Milestone reached: {label}")
 
         if last >= 2000:
             color = "red"
@@ -232,7 +235,7 @@ def main():
         badge = {
             "schemaVersion": 1,
             "label": "Milestone",
-            "message": f"{last} clones {celebration}",
+            "message": label,
             "color": color
         }
     else:

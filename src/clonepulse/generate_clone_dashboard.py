@@ -59,7 +59,7 @@ from clonepulse.util import show_scriptname
 CLONES_FILE = "clonepulse/fetch_clones.json"
 OUTPUT_PNG = "clonepulse/weekly_clones.png"
 EMPTY_DASHBOARD_MESSAGE = "Not enough data to generate a dashboard.\nOne week's data needed."
-NUM_WEEKS = 16  # Default weeks to display on the chart
+NUM_WEEKS = 20  # Default weeks to display on the chart
 
 
 def render_empty_dashboard(message: str):

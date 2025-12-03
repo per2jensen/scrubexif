@@ -7,6 +7,10 @@
     {
       "date": "2025-11-08",
       "label": "Daily max: 64"
+    },
+    {
+      "date": "2025-12-03",
+      "label": "--simple added"
     }
   ],
   "total_clones": 893,
