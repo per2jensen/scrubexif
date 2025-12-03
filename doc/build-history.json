@@ -263,5 +263,30 @@
         "unknown": 0
       }
     }
+  },
+  {
+    "build_number": 22,
+    "tag": "0.7.10",
+    "base_image": "scrubexif-base:24.04-0.7.10",
+    "git_revision": "05ab088",
+    "created": "2025-12-03T15:36:55Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.7.10",
+    "digest": "sha256:1696fb825ada0c1b569830e2ddb239a9c812e2ab75137cadd4d54ca702fb0f6a",
+    "image_id": "sha256:c9f7d8f08a25b70b91ed09d2a4e943731ea81b610677b7e316f8e27d8236459e",
+    "grype_scan": {
+      "file": "grype-results-0.7.10.sarif",
+      "total": 30,
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "negligible": 0,
+        "warning": 15,
+        "note": 15,
+        "info": 0,
+        "unknown": 0
+      }
+    }
   }
 ]
