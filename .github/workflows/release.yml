@@ -41,6 +41,12 @@ jobs:
         pip install . --break-system-packages
         pip install pytest
 
+    - name: Run tests
+      run: |
+        python3 --version
+        exiftool -ver 
+        make dev-clean
+        make test
     - name: Dry-run release
       run: |
         git config --global user.name "github-actions"
