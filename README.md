@@ -39,7 +39,7 @@
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
 `$PWD/output/`:
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10 --simple
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.100 --simple
 
 This:
 
@@ -55,7 +55,7 @@ Same idea, but with container hardening and in-place overwrite:
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.10
+      per2jensen/scrubexif:0.7.100
 
 ### Batch workflow (PhotoPrism / intake style)
 
@@ -69,7 +69,7 @@ Use auto mode with explicit input/output/processed directories:
       -v "$PWD/output:/photos/output" \
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.10 --from-input
+      per2jensen/scrubexif:0.7.100 --from-input
 
 Uploads → `input/`  
 Scrubbed → `output/`  
@@ -172,7 +172,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.10 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.100 --from-input --stable-seconds 10
 
 `/etc/systemd/system/scrubexif.timer`:
 
