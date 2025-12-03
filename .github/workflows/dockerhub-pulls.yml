@@ -30,11 +30,12 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
 
-          # Always stage the docker_pulls.json file (in case it's new)
+          # Always stage the docker_pulls.json file (in case it's new or updated)
           git add clonepulse/docker_pulls.json || true
-                    
-          if ! git diff --quiet; then
-            git commit -am "Update Docker Hub pull stats"
+
+          # Check for staged changes (index vs HEAD), not working tree vs index
+          if ! git diff --cached --quiet; then
+            git commit -m "Update Docker Hub pull stats"
             git push origin HEAD
           else
             echo "No changes to commit"
