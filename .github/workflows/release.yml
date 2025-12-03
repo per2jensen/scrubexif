@@ -111,13 +111,20 @@ jobs:
     - name: Docker push
       run: docker push per2jensen/scrubexif:${{ env.FINAL_VERSION }}
 
-    - name: housekeeping - update details and build log
+    - name: housekeeping - update details, clonepulse, and build log
       run: |
         git config --global user.name "github-actions"
         git config --global user.email "actions@github.com"
+
+        # Update docs and build log
         make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version
         make FINAL_VERSION=${{ env.FINAL_VERSION }} update-readme-version 
         make FINAL_VERSION=${{ env.FINAL_VERSION }} log-build-json
+
+        # Add clonepulse annotation: "Rel. <version>"
+        python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"
+
+        git status
         git push origin HEAD
 
     - name: Post summary
