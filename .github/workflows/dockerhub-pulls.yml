@@ -31,7 +31,7 @@ jobs:
           git config --global user.email "actions@github.com"
 
           # Always stage the docker_pulls.json file (in case it's new)
-          git add doc/docker_pulls.json || true
+          git add clonepulse/docker_pulls.json || true
                     
           if ! git diff --quiet; then
             git commit -am "Update Docker Hub pull stats"
