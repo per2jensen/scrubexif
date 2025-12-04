@@ -59,7 +59,9 @@ from clonepulse.util import show_scriptname
 CLONES_FILE = "clonepulse/fetch_clones.json"
 OUTPUT_PNG = "clonepulse/weekly_clones.png"
 EMPTY_DASHBOARD_MESSAGE = "Not enough data to generate a dashboard.\nOne week's data needed."
-NUM_WEEKS = 20  # Default weeks to display on the chart
+NUM_WEEKS = 16  # Default weeks to display on the chart
+ENV_USER = "GITHUB_USER"
+ENV_REPO = "GITHUB_REPO"
 
 
 def render_empty_dashboard(message: str):
@@ -129,6 +131,22 @@ def main(argv=None):
 
     # CLI
     parser = argparse.ArgumentParser(description="Render GitHub clones weekly dashboard.")
+
+    env_user = os.getenv(ENV_USER)
+    env_repo = os.getenv(ENV_REPO)
+
+    parser.add_argument(
+        "--user",
+        type=str,
+        default=env_user,
+        help=f"GitHub username/org (or set {ENV_USER})",
+    )
+    parser.add_argument(
+        "--repo",
+        type=str,
+        default=env_repo,
+        help=f"GitHub repository (or set {ENV_REPO})",
+    )
 
     # Mutually exclusive: --year OR --start
     mx = parser.add_mutually_exclusive_group()
@@ -392,7 +410,19 @@ def main(argv=None):
                     clip_on=True,
                 )
 
-    ax.set_title("Weekly Clone Metrics (Reported on Following Monday)")
+    repo_label = None
+    if args.user and args.repo:
+        repo_label = f"{args.user}/{args.repo}"
+    elif args.repo:
+        repo_label = args.repo
+    elif args.user:
+        repo_label = args.user
+
+    title = "Weekly Clone Metrics"
+    if repo_label:
+        title = f"{title} - {repo_label}"
+
+    ax.set_title(title)
     ax.set_xlabel("Reporting Date (Monday after week ends)")
     ax.set_ylabel("Clones")
     ax.grid(True)
