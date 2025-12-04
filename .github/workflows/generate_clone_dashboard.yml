@@ -31,7 +31,7 @@ jobs:
         run: pip install "pandas>=2.3,<3" "matplotlib>=3.10,<4"
 
       - name: Generate dashboard image
-        run: PYTHONPATH=src python src/clonepulse/generate_clone_dashboard.py
+        run: PYTHONPATH=src python src/clonepulse/generate_clone_dashboard.py  --user per2jensen --repo scrubexif
 
       - name: Check dashboard image exists
         run: |
