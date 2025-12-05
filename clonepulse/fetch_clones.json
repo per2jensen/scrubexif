@@ -14,19 +14,19 @@
     },
     {
       "date": "2025-12-03",
-      "label": "Daily max: 184"
-    },
-    {
-      "date": "2025-12-03",
       "label": "Rel. v0.7.10"
     },
     {
       "date": "2025-12-04",
       "label": "Reddit r/linuxmint"
+    },
+    {
+      "date": "2025-12-03",
+      "label": "Daily max: 184"
     }
   ],
-  "total_clones": 1079,
-  "unique_clones": 719,
+  "total_clones": 1094,
+  "unique_clones": 729,
   "daily": [
     {
       "timestamp": "2025-06-29T00:00:00Z",
@@ -750,8 +750,8 @@
     },
     {
       "timestamp": "2025-11-21T00:00:00Z",
-      "count": 6,
-      "uniques": 4
+      "count": 2,
+      "uniques": 1
     },
     {
       "timestamp": "2025-11-22T00:00:00Z",
@@ -815,8 +815,13 @@
     },
     {
       "timestamp": "2025-12-04T00:00:00Z",
-      "count": 2,
-      "uniques": 2
+      "count": 17,
+      "uniques": 12
+    },
+    {
+      "timestamp": "2025-12-05T00:00:00Z",
+      "count": 4,
+      "uniques": 3
     }
   ]
 }
