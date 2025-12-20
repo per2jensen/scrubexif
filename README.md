@@ -29,33 +29,40 @@
 
 **High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
 
+>**Breaking change in 0.7.11**
+>
+>Default behaviour is now to NOT modify jpeg files, instead write modified files to >\<current_directory\>/output/
+>
+>
 > **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
 > This README is intentionally short for Docker Hub visibility.
 
 ## Quick Start
 
-### Easiest one-liner (simple mode, non-destructive)
+### Easiest one-liner (default safe mode, non-destructive)
 
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
 `$PWD/output/`:
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.100 --simple
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.11
 
 This:
 
 - scans **your current directory** (`$PWD`) for `*.jpg` / `*.jpeg` (also in capital letters)
 - writes scrubbed copies to **$PWD/output/**  
 - leaves the originals untouched in **$PWD/**
-  
+- refuses to run if **$PWD/output/** already exists
+- prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
+
 ### Hardened in-place scrub (current directory)
 
-Same idea, but with container hardening and in-place overwrite:
+Same idea, but with container hardening and in-place overwrite (destructive):
 
     docker run -it --rm \
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.100
+      per2jensen/scrubexif:0.7.11 --clean-inline
 
 ### Batch workflow (PhotoPrism / intake style)
 
@@ -69,7 +76,7 @@ Use auto mode with explicit input/output/processed directories:
       -v "$PWD/output:/photos/output" \
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.100 --from-input
+      per2jensen/scrubexif:0.7.11 --from-input
 
 Uploads → `input/`  
 Scrubbed → `output/`  
@@ -142,6 +149,9 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 ## Common Options
 
     --from-input          auto mode
+    --clean-inline        in-place scrub (destructive)
+    --show-container-paths include container paths in output
+    -q, --quiet           no output on success
     --preview             no write, view only
     --paranoia            maximum scrub, removes ICC
     --on-duplicate        delete | move
@@ -172,7 +182,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.100 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.11 --from-input --stable-seconds 10
 
 `/etc/systemd/system/scrubexif.timer`:
 

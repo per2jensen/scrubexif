@@ -37,7 +37,8 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
     - [Build & Run Locally](#build--run-locally)
-    - [Manual mode (default)](#manual-mode-default)
+    - [Default safe mode (copy)](#default-safe-mode-copy)
+    - [Clean-inline mode (`--clean-inline`)](#clean-inline-mode---clean-inline)
     - [Auto mode (`--from-input`)](#auto-mode---from-input)
       - [Example](#example)
       - [Duplicate Handling](#duplicate-handling)
@@ -81,7 +82,7 @@ There are **two modes**:
 docker build -t scrubexif:local .
 
 # inspect CLI usage exported by python -m scrubexif.scrub
-docker run --rm scrubexif:local --help
+docker run --rm --read-only --security-opt no-new-privileges scrubexif:local --help
 
 # scrub the current directory with hardened defaults
 docker run -it --rm \
@@ -95,19 +96,10 @@ Arguments placed after the image name are passed straight through to the
 `python3 -m scrubexif.scrub` entrypoint, so all CLI flags shown below work the
 same whether you use the published image or a locally built one.
 
-### Manual mode (default)
+### Default safe mode (copy)
 
-Manually scrub one or more `.jpg` / `.jpeg` files from the current directory.
-
-```bash
-VERSION=0.7.10; docker run -it --rm \
-  --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  per2jensen/scrubexif:$VERSION "file1.jpg" "file2.jpeg"
-```
-
-Scrub all JPEGs in the current directory:
+Scrub all JPEGs in the current directory and write cleaned copies to `output/`.
+Originals are left untouched. This mode refuses to run if `output/` already exists.
 
 ```bash
 VERSION=0.7.10; docker run -it --rm \
@@ -125,6 +117,28 @@ VERSION=0.7.10; docker run -it --rm \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION --recursive
+```
+
+### Clean-inline mode (`--clean-inline`)
+
+Manually scrub one or more `.jpg` / `.jpeg` files in-place (destructive).
+
+```bash
+VERSION=0.7.10; docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION --clean-inline "file1.jpg" "file2.jpeg"
+```
+
+Recursively scrub nested folders in-place:
+
+```bash
+VERSION=0.7.10; docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION --clean-inline --recursive
 ```
 
 ### Auto mode (`--from-input`)
@@ -175,6 +189,8 @@ docker run --read-only --security-opt no-new-privileges \
 ## Options
 
 - `--delete-original` — delete originals instead of moving them
+- `--clean-inline` — scrub in-place (destructive). Required for positional file/dir arguments
+- `-q`, `--quiet` — suppress all output on success
 - `--on-duplicate {delete|move}` - delete or move a duplicate
 - `--dry-run` - show what would be scrubbed, but don’t write files
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
@@ -182,11 +198,12 @@ docker run --read-only --security-opt no-new-privileges \
 - `--max-files` - limit number of files to scrub (useful for testing or safe inspection)
 - `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
+- `--show-container-paths` - include container paths alongside host paths in output
 - `-r`, `--recursive` - Recurse into directories
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
 - `--stable-seconds` <secs> - Number of seconds a file must not change before being processed. Default is 120 secs
 - `--state-file PATH|disabled` — Override stability tracking path or disable persistence entirely
-- `--files` — Optional list of files or directories (relative to `/photos` when running in Docker)
+- positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); requires `--clean-inline`
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
 - `--max-files N` — Limit the number of eligible files scrubbed in the current run
 - `-v`, `--version` - show version and license
@@ -244,7 +261,7 @@ VERSION=0.7.10; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
 
-📌 **Observe** In manual mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
+📌 **Observe** In clean-inline mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
 
 ## Features
 
@@ -373,7 +390,7 @@ These are still recorded in state but never processed while they look temporary.
 
 #### Scope
 
-Applies to auto mode (--from-input) only. Manual mode stays unchanged.
+Applies to auto mode (--from-input) only. Clean-inline mode stays unchanged.
 
 Summary now reports “Skipped (unstable)”. Duplicates/error logic unaffected.
 

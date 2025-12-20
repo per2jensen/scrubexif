@@ -49,7 +49,7 @@ def test_root_user_allowed_with_env_override():
     result = subprocess.run([
         "docker", "run", "--rm","--read-only", "--security-opt", "no-new-privileges", "--user", "0",
         "-e", "ALLOW_ROOT=1",
-        IMAGE, "--dry-run"
+        IMAGE, "--clean-inline", "--dry-run"
     ], capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
@@ -61,7 +61,7 @@ def test_manual_mode_rejects_relative_escape(tmp_path):
     (tmp_path / "dummy.jpg").write_text("placeholder", encoding="utf-8")
 
     result = _run_security_container(
-        ["--dry-run", "../etc/passwd"],
+        ["--clean-inline", "--dry-run", "../etc/passwd"],
         mounts=["-v", f"{tmp_path}:/photos"]
     )
 
@@ -79,7 +79,7 @@ def test_manual_mode_rejects_absolute_escape(tmp_path):
     (tmp_path / "dummy.jpg").write_text("placeholder", encoding="utf-8")
 
     result = _run_security_container(
-        ["--dry-run", "/etc/passwd"],
+        ["--clean-inline", "--dry-run", "/etc/passwd"],
         mounts=["-v", f"{tmp_path}:/photos"]
     )
 

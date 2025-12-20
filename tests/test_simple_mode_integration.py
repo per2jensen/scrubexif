@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Integration test for --simple mode using the real exiftool binary.
+Integration test for default safe mode using the real exiftool binary.
 
 Proves that:
   - the output directory is automatically created
@@ -61,7 +61,7 @@ def test_simple_mode_scrubs_all_jpeg_variants_and_preserves_originals(tmp_path, 
         p = photos_root / f"file.{ext}"
         originals[p] = _write_small_jpeg(p)
 
-    # Run simple_scrub with the real exiftool (no monkeypatch of subprocess.run)
+    # Run default safe mode with the real exiftool (no monkeypatch of subprocess.run)
     summary = scrub.ScrubSummary()
     scrub.simple_scrub(
         summary=summary,
@@ -83,7 +83,7 @@ def test_simple_mode_scrubs_all_jpeg_variants_and_preserves_originals(tmp_path, 
 
     # 3) Originals are not modified in any way: still exist and bytes unchanged
     for path, original_bytes in originals.items():
-        assert path.exists(), f"Original file missing after simple mode: {path}"
+        assert path.exists(), f"Original file missing after default mode: {path}"
         assert path.read_bytes() == original_bytes, f"Original file modified: {path}"
 
     # Sanity: each corresponding output file exists and is non-empty

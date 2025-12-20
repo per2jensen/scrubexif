@@ -1,6 +1,25 @@
 # Changelog
 
-## 0.7.10 - not released
+## 0.7.11 - 2025-12-20
+
+### Breaking
+
+- Default behavior now uses safe copy mode (previous `--simple`) and refuses to run if `/<current_directory>/output` already exists.
+- `--simple` flag removed; in-place scrubbing now requires `--clean-inline`.
+
+### Added
+
+- `--clean-inline` to explicitly allow destructive in-place scrubbing.
+- `--show-container-paths` to include container paths alongside host paths in output.
+- `-q`, `--quiet` to suppress all output on success (errors still print to stderr).
+- Host-path output for directories and files to make copy/paste work outside containers.
+
+### Changed
+
+- Default output now prints host paths only unless `--show-container-paths` is set.
+- Tests updated to reflect new defaults and output formatting.
+
+## 0.7.10 - 2025-12-03
 
 ### Fixed
 

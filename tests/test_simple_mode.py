@@ -1,7 +1,7 @@
 # tests/test_simple_mode.py
 # SPDX-License-Identifier: GPL-3.0-or-later
 """
-Tests for the new `--simple` mode.
+Tests for the default safe mode.
 
 Covers:
   - Output directory is automatically created
@@ -27,7 +27,7 @@ def _setup_simple_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
       tmp_path/
         photos/
           (JPEGs will be placed directly here)
-          output/   (created automatically by simple mode)
+          output/   (created automatically by default mode)
     """
     root = tmp_path / "photos"
     root.mkdir()
@@ -99,7 +99,7 @@ def test_simple_mode_creates_output_and_processes_all_jpeg_extensions(tmp_path, 
 
 def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
     """
-    Ensure that `--simple` never modifies or deletes the original files:
+    Ensure that default mode never modifies or deletes the original files:
     - All originals still exist after the run
     - Their byte content is unchanged
     """
@@ -141,6 +141,26 @@ def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
 
     # Originals must still exist and be byte-for-byte identical
     for path, expected_bytes in original_bytes.items():
-        assert path.exists(), f"Original file missing after simple mode: {path}"
+        assert path.exists(), f"Original file missing after default mode: {path}"
         assert path.read_bytes() == expected_bytes, f"Original file modified: {path}"
 
+
+def test_default_mode_warns_and_exits_when_output_exists(tmp_path, monkeypatch, capsys):
+    photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
+    output_dir.mkdir(parents=True)
+
+    summary = scrub.ScrubSummary()
+    with pytest.raises(SystemExit) as excinfo:
+        scrub.simple_scrub(
+            summary=summary,
+            recursive=False,
+            dry_run=False,
+            show_tags_mode=None,
+            paranoia=True,
+            max_files=None,
+            on_duplicate="delete",
+        )
+
+    assert excinfo.value.code == 1
+    captured = capsys.readouterr()
+    assert "Output directory already exists" in captured.out

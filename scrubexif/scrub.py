@@ -8,6 +8,8 @@ Designed for photographers who want to preserve camera details
 """
 
 import argparse
+import contextlib
+import io
 import json
 import logging
 import os
@@ -120,6 +122,74 @@ PROCESSED_DIR = PHOTOS_ROOT / "processed"
 ERRORS_DIR = PHOTOS_ROOT / "errors"
 
 
+def _unescape_mountinfo(value: str) -> str:
+    return (
+        value.replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+    )
+
+
+def _resolve_mount_source(path: Path) -> Optional[str]:
+    """
+    Best-effort resolve of a bind-mount source path for a mount point.
+    Falls back to None if /proc/self/mountinfo is unavailable or unhelpful.
+    """
+    try:
+        with open("/proc/self/mountinfo", "r", encoding="utf-8") as f:
+            for line in f:
+                if " - " not in line:
+                    continue
+                pre, post = line.rstrip("\n").split(" - ", 1)
+                pre_fields = pre.split()
+                if len(pre_fields) < 5:
+                    continue
+                root = _unescape_mountinfo(pre_fields[3])
+                mount_point = _unescape_mountinfo(pre_fields[4])
+                if mount_point != str(path):
+                    continue
+                if root.startswith("/"):
+                    return root
+                post_fields = post.split()
+                if len(post_fields) >= 2 and post_fields[1].startswith("/"):
+                    return _unescape_mountinfo(post_fields[1])
+    except OSError:
+        return None
+    return None
+
+
+SHOW_CONTAINER_PATHS = False
+
+
+def _format_path_with_host(path: Path) -> str:
+    host_root = _resolve_mount_source(PHOTOS_ROOT)
+    if not host_root:
+        return str(path)
+    try:
+        rel = path.relative_to(PHOTOS_ROOT)
+    except ValueError:
+        return str(path)
+    host_path = Path(host_root) / rel
+    if SHOW_CONTAINER_PATHS:
+        return f"{path} (host: {host_path})"
+    return str(host_path)
+
+
+def _format_relative_path_with_host(path: Path) -> str:
+    host_root = _resolve_mount_source(PHOTOS_ROOT)
+    if not host_root:
+        return str(path)
+    try:
+        rel = path.relative_to(PHOTOS_ROOT)
+    except ValueError:
+        return str(path)
+    host_path = Path(host_root) / rel
+    if SHOW_CONTAINER_PATHS:
+        return f"{rel} (host: {host_path})"
+    return str(host_path)
+
+
 # ----------------------------
 # Logger
 # ----------------------------
@@ -168,14 +238,15 @@ def show_version():
 # ----------------------------
 
 def check_dir_safety(path: Path, label: str):
+    display_path = _format_path_with_host(path)
     if not path.exists():
-        print(f"❌ {label} directory does not exist: {path}")
+        print(f"❌ {label} directory does not exist: {display_path}")
         sys.exit(1)
     if not path.is_dir():
-        print(f"❌ {label} path is not a directory: {path}")
+        print(f"❌ {label} path is not a directory: {display_path}")
         sys.exit(1)
     if path.is_symlink():
-        print(f"❌ {label} is a symbolic link (not allowed): {path}")
+        print(f"❌ {label} is a symbolic link (not allowed): {display_path}")
         sys.exit(1)
     try:
         test_file = path / ".scrubexif_write_test"
@@ -183,7 +254,7 @@ def check_dir_safety(path: Path, label: str):
             f.write("test")
         test_file.unlink()
     except Exception:
-        print(f"❌ {label} directory is not writable: {path}")
+        print(f"❌ {label} directory is not writable: {display_path}")
         sys.exit(1)
 
 
@@ -427,7 +498,7 @@ def print_tags(file: Path, label: str = ""):
             ["exiftool", "-a", "-G1", "-s", str(file.absolute())],   # security advice on https://exiftool.org/
             capture_output=True, text=True
         )
-        print(f"\n📸 Tags {label} {file.name}:")
+        print(f"\n📸 Tags {label} {_format_path_with_host(file)}:")
         print(result.stdout.strip())
     except Exception as e:
         print(f"❌ Failed to read tags: {e}")
@@ -446,12 +517,12 @@ def scrub_file(
     paranoia: bool = True,
     on_duplicate: str = "delete",
 ) -> ScrubResult:
-    print(f"scrub_file: input={input_path}, output={output_path}")
+    print(f"scrub_file: input={_format_path_with_host(input_path)}, output={_format_path_with_host(output_path) if output_path else None}")
     output_file = output_path / input_path.name if output_path else input_path
-    print("Output file will be:", output_file)
+    print("Output file will be:", _format_path_with_host(output_file))
 
     if output_path and output_file.is_symlink():
-        msg = f"Destination is a symlink; refusing to scrub into {output_file}"
+        msg = f"Destination is a symlink; refusing to scrub into {_format_path_with_host(output_file)}"
         print(f"❌ {msg}")
         return ScrubResult(
             input_path=input_path,
@@ -462,14 +533,18 @@ def scrub_file(
 
     # duplicates
     if output_file.exists() and input_path.resolve() != output_file.resolve():
-        print(f"⚠️ Duplicate logic triggered: input={input_path}, output={output_file}")
+        print(
+            "⚠️ Duplicate logic triggered: "
+            f"input={_format_path_with_host(input_path)}, "
+            f"output={_format_path_with_host(output_file)}"
+        )
 
         if dry_run:
-            print(f"🚫 [dry-run] Would detect duplicate: {output_file.name}")
+            print(f"🚫 [dry-run] Would detect duplicate: {_format_path_with_host(output_file)}")
             return ScrubResult(input_path, output_file, status="duplicate")
 
         if on_duplicate == "delete":
-            print(f"🗑️  Duplicate detected — deleting {input_path.name}")
+            print(f"🗑️  Duplicate detected — deleting {_format_path_with_host(input_path)}")
             input_path.unlink(missing_ok=True)
             return ScrubResult(input_path, output_file, status="duplicate")
 
@@ -480,7 +555,7 @@ def scrub_file(
                 target = ERRORS_DIR / f"{input_path.stem}_{count}{input_path.suffix}"
                 count += 1
             shutil.move(input_path, target)
-            print(f"📦 Moved duplicate to: {target}")
+            print(f"📦 Moved duplicate to: {_format_path_with_host(target)}")
             return ScrubResult(input_path, output_file, status="duplicate", duplicate_path=target)
 
     # dry-run
@@ -489,7 +564,7 @@ def scrub_file(
             print_tags(input_path, label="before")
         if show_tags_mode in {"after", "both"}:
             print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-        print(f"🔍 Dry run: would scrub {input_path}")
+        print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
         return ScrubResult(input_path, output_file, status="scrubbed")
 
     # exiftool command
@@ -512,7 +587,7 @@ def scrub_file(
     )
     if result.returncode != 0:
         err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Unknown error"
-        print(f"❌ Failed to scrub {input_path.name}: {err_msg}")
+        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
         return ScrubResult(
             input_path=input_path,
             output_path=output_file,
@@ -524,16 +599,13 @@ def scrub_file(
         print_tags(output_file, label="after")
 
     def display_path(path: Path) -> str:
-        try:
-            return str(path.relative_to(PHOTOS_ROOT))
-        except ValueError:
-            return str(path)
+        return _format_relative_path_with_host(path)
 
     print(f"✅ Saved scrubbed file to {display_path(output_file)}")
 
     if delete_original and not in_place and input_path.exists():
         input_path.unlink()
-        print(f"❌ Deleted original: {input_path}")
+        print(f"❌ Deleted original: {_format_path_with_host(input_path)}")
 
     return ScrubResult(input_path, output_file, status="scrubbed")
 
@@ -560,7 +632,11 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                max_files: int | None = None,
                on_duplicate: str = "delete",
                stable_seconds: int = 120) -> ScrubSummary:
-    print(f"🚀 Auto mode: Scrubbing JPEGs in {INPUT_DIR}")
+    print(f"🚀 Auto mode: Scrubbing JPEGs in {_format_path_with_host(INPUT_DIR)}")
+    print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
+    print(f"📁 Processed directory: {_format_path_with_host(PROCESSED_DIR)}")
+    if on_duplicate == "move":
+        print(f"📁 Errors directory: {_format_path_with_host(ERRORS_DIR)}")
     print(f"⏳ Stability threshold: {stable_seconds}s")
     if STATE_FILE is None:
         print("ℹ️ Stability state: mtime-only (no writable state file)")
@@ -629,7 +705,7 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                 print_tags(file, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-            print(f"🔍 Would scrub: {file.name}")
+            print(f"🔍 Would scrub: {_format_path_with_host(file)}")
             summary.total += 1
             continue
 
@@ -649,28 +725,31 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             moved = False
             if file.exists():
                 if dst_processed.is_symlink():
-                    print(f"⚠️ Skipping move: destination is a symlink ({dst_processed})")
+                    print(f"⚠️ Skipping move: destination is a symlink ({_format_path_with_host(dst_processed)})")
                 elif file.resolve() != dst_processed.resolve():
                     shutil.move(file, dst_processed)
                     moved = True
                 else:
                     print("⚠️ Skipping move: source and destination are the same")
             else:
-                print(f"⚠️ Skipping move: source file no longer exists ({file})")
+                print(f"⚠️ Skipping move: source file no longer exists ({_format_path_with_host(file)})")
             if moved:
-                print(f"📦 Moved original to {dst_processed}")
+                print(f"📦 Moved original to {_format_path_with_host(dst_processed)}")
         elif result.status == "error":
             if file.exists():
                 if dst_processed.is_symlink():
-                    print(f"⚠️ Scrub failed; destination is a symlink ({dst_processed}), leaving original in place")
+                    print(f"⚠️ Scrub failed; destination is a symlink ({_format_path_with_host(dst_processed)}), leaving original in place")
                 else:
                     try:
                         shutil.move(file, dst_processed)
-                        print(f"⚠️ Scrub failed for {file.name}; moved original to {dst_processed} for inspection")
+                        print(
+                            f"⚠️ Scrub failed for {_format_path_with_host(file)}; "
+                            f"moved original to {_format_path_with_host(dst_processed)} for inspection"
+                        )
                     except Exception as exc:
-                        print(f"⚠️ Scrub failed for {file.name}; unable to move original: {exc}")
+                        print(f"⚠️ Scrub failed for {_format_path_with_host(file)}; unable to move original: {exc}")
             else:
-                print(f"⚠️ Scrub failed and source already missing: {file}")
+                print(f"⚠️ Scrub failed and source already missing: {_format_path_with_host(file)}")
 
         mark_seen(file, state)
 
@@ -686,25 +765,31 @@ def simple_scrub(summary: ScrubSummary,
                  max_files: int | None = None,
                  on_duplicate: str = "delete") -> ScrubSummary:
     """
-    Simple mode:
+    Default safe mode:
       - Scan /photos for JPEGs (non-recursive by default, -r respected)
       - Write scrubbed copies to /photos/output
       - Leave originals in place.
 
     Intended for the "one-liner" use case:
 
-        docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10 --simple
+        docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10
     """
-    print(f"🚀 Simple mode: Scrubbing JPEGs in {PHOTOS_ROOT}")
-    print(f"📁 Output directory: {OUTPUT_DIR}")
+    host_root = _resolve_mount_source(PHOTOS_ROOT)
+    print(f"🚀 Default safe mode: Scrubbing JPEGs in {_format_path_with_host(PHOTOS_ROOT)}")
+    print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
 
-    # Safety: /photos must exist and be usable, and we must be able to write to /photos/output
+    # Safety: /photos must exist and be usable
     check_dir_safety(PHOTOS_ROOT, "Photos root")
 
+    if OUTPUT_DIR.exists():
+        print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
+        print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
+        sys.exit(1)
+
     try:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
     except Exception as exc:
-        print(f"❌ Failed to create output directory {OUTPUT_DIR}: {exc}")
+        print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
         sys.exit(1)
 
     check_dir_safety(OUTPUT_DIR, "Output")
@@ -716,7 +801,7 @@ def simple_scrub(summary: ScrubSummary,
     for f in files:
         # Skip symlinks aggressively
         if f.is_symlink():
-            log.debug("Skipping symlink in simple mode: %s", f)
+            log.debug("Skipping symlink in default safe mode: %s", f)
             continue
 
         skip = False
@@ -734,7 +819,7 @@ def simple_scrub(summary: ScrubSummary,
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug(
-            "Simple mode: found %d JPEGs under %s (recursive=%s, after filtering=%d)",
+            "Default safe mode: found %d JPEGs under %s (recursive=%s, after filtering=%d)",
             len(files),
             PHOTOS_ROOT,
             recursive,
@@ -742,7 +827,7 @@ def simple_scrub(summary: ScrubSummary,
         )
 
     if not filtered:
-        print("⚠️ No eligible JPEGs found in simple mode.")
+        print("⚠️ No eligible JPEGs found in default safe mode.")
         return summary
 
     if max_files is not None:
@@ -756,7 +841,7 @@ def simple_scrub(summary: ScrubSummary,
                 print_tags(f, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-            print(f"🔍 [simple] Would scrub: {f} -> {dst}")
+            print(f"🔍 [default] Would scrub: {_format_path_with_host(f)} -> {_format_path_with_host(dst)}")
             summary.total += 1
             continue
 
@@ -869,7 +954,7 @@ def manual_scrub(files: list[Path],
                 print_tags(f, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-            print(f"🔍 Would scrub: {f}")
+            print(f"🔍 Would scrub: {_format_path_with_host(f)}")
             summary.total += 1
             continue
 
@@ -900,38 +985,26 @@ def require_force_for_root():
 # CLI
 # ----------------------------
 
-def main():
-    require_force_for_root()
-    parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
-    parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
-    parser.add_argument("--from-input", action="store_true", help="Use auto mode")
-    parser.add_argument("--simple", action="store_true", help="Simple mode: scrub <current dir> → <current>/output (non-destructive)")
-    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
-    parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
-    parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
-    parser.add_argument("--paranoia", action="store_true",
-                        help="Maximum metadata scrubbing — removes ICC profile")
-    parser.add_argument("--preview", action="store_true",
-                        help="Preview scrub effect on one file without modifying it")
-    parser.add_argument("--max-files", type=int, metavar="N",
-                        help="Limit number of files to scrub")
-    parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
-    parser.add_argument("--on-duplicate", choices=["delete", "move"],
-                        default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
-                        help="Duplicate handling in auto/simple modes. 'delete' or 'move' to /photos/errors/")
-    parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
-    parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info",
-                        help="Set log verbosity")
-    parser.add_argument("--stable-seconds", type=int,
-                        default=int(os.getenv("SCRUBEXIF_STABLE_SECONDS", "120")),
-                        help="Only process files whose mtime age ≥ this many seconds (default: 120)")
-    parser.add_argument("--state-file", metavar="PATH|disabled", default=None,
-                        help=("Override stability state file path. "
-                              "Use 'disabled' (or '-', 'none') to force mtime-only. "
-                              "If not provided, uses SCRUBEXIF_STATE or auto-detected writable path."))
-    parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
-    args = parser.parse_args()
+def _run(args: argparse.Namespace) -> int:
+    if args.quiet:
+        args.log_level = "crit"
+        args.debug = False
+        with contextlib.redirect_stdout(io.StringIO()) as stdout_buffer:
+            try:
+                return _run_inner(args)
+            except SystemExit as exc:
+                code = exc.code if isinstance(exc.code, int) else 1
+                if code != 0:
+                    sys.stderr.write(stdout_buffer.getvalue())
+                return code if isinstance(code, int) else 1
+            except Exception:
+                sys.stderr.write(stdout_buffer.getvalue())
+                raise
+    return _run_inner(args)
 
+
+def _run_inner(args: argparse.Namespace) -> int:
+    require_force_for_root()
     global log
     if args.debug:
         args.log_level = "debug"
@@ -956,6 +1029,8 @@ def main():
 
     # Resolve/override state-file from CLI
     global STATE_FILE, _warned_state_disabled
+    global SHOW_CONTAINER_PATHS
+    SHOW_CONTAINER_PATHS = args.show_container_paths
     if args.state_file is not None:
         choice = str(args.state_file).strip().lower()
         if choice in {"disabled", "none", "-"}:
@@ -976,11 +1051,11 @@ def main():
         sys.exit(0)
 
     # Mode sanity checks
-    if args.simple and args.from_input:
-        print("❌ --simple and --from-input cannot be used together.", file=sys.stderr)
+    if args.clean_inline and args.from_input:
+        print("❌ --clean-inline and --from-input cannot be used together.", file=sys.stderr)
         sys.exit(1)
-    if args.simple and args.files:
-        print("❌ --simple does not take positional file or directory arguments.", file=sys.stderr)
+    if args.files and not args.clean_inline:
+        print("❌ Positional file or directory arguments require --clean-inline.", file=sys.stderr)
         sys.exit(1)
 
     # Emit the *exact* banner lines tests expect
@@ -997,7 +1072,7 @@ def main():
             ERRORS_DIR.mkdir(parents=True, exist_ok=True)
             check_dir_safety(ERRORS_DIR, "Errors")
         except Exception as e:
-            print(f"❌ Failed to create errors directory: {ERRORS_DIR}\n{e}", file=sys.stderr)
+            print(f"❌ Failed to create errors directory: {_format_path_with_host(ERRORS_DIR)}\n{e}", file=sys.stderr)
             sys.exit(1)
 
     if args.preview:
@@ -1016,17 +1091,7 @@ def main():
             on_duplicate=args.on_duplicate,
             stable_seconds=args.stable_seconds,
         )
-    elif args.simple:
-        simple_scrub(
-            summary=summary,
-            recursive=args.recursive,
-            dry_run=args.dry_run,
-            show_tags_mode=args.show_tags,
-            paranoia=args.paranoia,
-            max_files=args.max_files,
-            on_duplicate=args.on_duplicate,
-        )
-    else:
+    elif args.clean_inline:
         if args.files:
             resolved_files = [resolve_cli_path(f) for f in args.files]
         else:
@@ -1042,10 +1107,59 @@ def main():
             max_files=args.max_files,
             preview=args.preview,
         )
+    else:
+        simple_scrub(
+            summary=summary,
+            recursive=args.recursive,
+            dry_run=args.dry_run,
+            show_tags_mode=args.show_tags,
+            paranoia=args.paranoia,
+            max_files=args.max_files,
+            on_duplicate=args.on_duplicate,
+        )
 
     summary.print()
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Scrub EXIF metadata from JPEGs.")
+    parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
+    parser.add_argument("--from-input", action="store_true", help="Use auto mode")
+    parser.add_argument("--clean-inline", action="store_true",
+                        help="Scrub in-place (destructive). Requires explicit flag to modify originals.")
+    parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
+    parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
+    parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
+    parser.add_argument("--paranoia", action="store_true",
+                        help="Maximum metadata scrubbing — removes ICC profile")
+    parser.add_argument("--preview", action="store_true",
+                        help="Preview scrub effect on one file without modifying it")
+    parser.add_argument("--show-container-paths", action="store_true",
+                        help="Include container paths alongside host paths in output")
+    parser.add_argument("-q", "--quiet", action="store_true",
+                        help="Suppress all output on success")
+    parser.add_argument("--max-files", type=int, metavar="N",
+                        help="Limit number of files to scrub")
+    parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
+    parser.add_argument("--on-duplicate", choices=["delete", "move"],
+                        default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
+                        help="Duplicate handling in auto/default modes. 'delete' or 'move' to /photos/errors/")
+    parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
+    parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info",
+                        help="Set log verbosity")
+    parser.add_argument("--stable-seconds", type=int,
+                        default=int(os.getenv("SCRUBEXIF_STABLE_SECONDS", "120")),
+                        help="Only process files whose mtime age ≥ this many seconds (default: 120)")
+    parser.add_argument("--state-file", metavar="PATH|disabled", default=None,
+                        help=("Override stability state file path. "
+                              "Use 'disabled' (or '-', 'none') to force mtime-only. "
+                              "If not provided, uses SCRUBEXIF_STATE or auto-detected writable path."))
+    parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
+    args = parser.parse_args(argv)
+
+    return _run(args)
 
 
 if __name__ == "__main__":
-    main()
-
+    raise SystemExit(main())
