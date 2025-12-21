@@ -9,12 +9,14 @@
       "label": "--simple added"
     },
     {
-      "date": "2025-12-04",
-      "label": "Reddit r/linuxmint"
-    },
-    {
       "date": "2025-12-03",
       "label": "Daily max: 180"
+    }
+  ],
+  "releases": [
+    {
+      "date": "2025-12-04",
+      "label": "Reddit r/linuxmint"
     }
   ],
   "total_clones": 1254,
