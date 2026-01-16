@@ -21,9 +21,9 @@ import time
 from pathlib import Path
 from typing import Optional
 
-sys.stdout.reconfigure(line_buffering=True)
+from .__about__ import __version__
 
-__version__ = "0.7.11"
+sys.stdout.reconfigure(line_buffering=True)
 
 __license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
 THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
