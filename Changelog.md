@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.12 - 2026-01-16
+
+- Image refreshed
+
 ## 0.7.11 - 2025-12-20
 
 ### Breaking
