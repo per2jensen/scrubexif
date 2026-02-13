@@ -43,11 +43,11 @@ If a scrub fails for any reason, **no output file is created** for that JPEG.
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
 `$PWD/output/`:
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.12
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.132
 
 To write scrubbed files to a different directory (created if missing):
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.12 -o /photos/scrubbed
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.132 -o /photos/scrubbed
 
 This:
 
@@ -76,7 +76,7 @@ Same idea, but with container hardening and in-place overwrite (destructive):
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.12 --clean-inline
+      per2jensen/scrubexif:0.7.132 --clean-inline
 
 ### Batch workflow (PhotoPrism / intake style)
 
@@ -90,7 +90,7 @@ Use auto mode with explicit input/output/processed directories:
       -v "$PWD/output:/photos/output" \
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.12 --from-input
+      per2jensen/scrubexif:0.7.132 --from-input
 
 Uploads → `input/`  
 Scrubbed → `output/`  
@@ -197,7 +197,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.12 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.132 --from-input --stable-seconds 10
 
 `/etc/systemd/system/scrubexif.timer`:
 
