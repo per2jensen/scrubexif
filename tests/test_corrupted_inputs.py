@@ -133,3 +133,34 @@ def test_corrupted_inputs_moved_to_processed(tmp_path):
     for damaged in damaged_files:
         expected_fragment = f"Scrub failed for {damaged.name}; moved original"
         assert expected_fragment in (cp.stdout or ""), f"Missing failure notice for {damaged.name}"
+
+
+@pytest.mark.smoke
+@pytest.mark.docker
+def test_corrupted_input_never_written_to_output(tmp_path: Path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+
+    for directory in (input_dir, output_dir, processed_dir):
+        directory.mkdir()
+
+    bad = input_dir / "bad.jpg"
+    bad.write_bytes(b"not-a-jpeg")
+
+    cp = run_container(
+        mounts=mk_mounts(input_dir, output_dir, processed_dir),
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    print(cp.stdout)
+    print(cp.stderr)
+
+    assert cp.returncode == 0, f"Container failed:\n{cp.stderr}\n{cp.stdout}"
+
+    assert not (output_dir / bad.name).exists(), "Corrupted input must not appear in output/"
+    assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir()), "Temp files leaked to output/"
+    assert (processed_dir / bad.name).exists(), "Corrupted input should be moved to processed/"
+    assert not bad.exists(), "Corrupted input should not remain in input/"
+    assert "Scrub failed" in (cp.stdout or ""), "Expected failure message in output"
+    assert bad.name in (cp.stdout or ""), "Expected filename in failure output"

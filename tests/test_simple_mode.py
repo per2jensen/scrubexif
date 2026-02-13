@@ -65,6 +65,9 @@ def test_simple_mode_creates_output_and_processes_all_jpeg_extensions(tmp_path, 
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         commands.append(cmd)
+        if "-o" in cmd:
+            target = Path(cmd[cmd.index("-o") + 1])
+            target.write_bytes(b"scrubbed")
         class R:
             returncode = 0
             stdout = ""
@@ -116,6 +119,9 @@ def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         # Simulate exiftool success without touching any files
+        if "-o" in cmd:
+            target = Path(cmd[cmd.index("-o") + 1])
+            target.write_bytes(b"scrubbed")
         class R:
             returncode = 0
             stdout = ""
@@ -164,3 +170,40 @@ def test_default_mode_warns_and_exits_when_output_exists(tmp_path, monkeypatch, 
     assert excinfo.value.code == 1
     captured = capsys.readouterr()
     assert "Output directory already exists" in captured.out
+
+
+def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+
+    custom_output = scrub.resolve_output_dir(Path("scrubbed"))
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", custom_output)
+
+    # Create a JPEG in the photos root
+    (photos_root / "one.jpg").write_bytes(b"jpeg")
+
+    def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
+        if "-o" in cmd:
+            target = Path(cmd[cmd.index("-o") + 1])
+            target.write_bytes(b"scrubbed")
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(
+        summary=summary,
+        recursive=False,
+        dry_run=False,
+        show_tags_mode=None,
+        paranoia=True,
+        max_files=None,
+        on_duplicate="delete",
+    )
+
+    assert custom_output.exists()
+    assert custom_output.is_dir()
+    assert summary.scrubbed == 1

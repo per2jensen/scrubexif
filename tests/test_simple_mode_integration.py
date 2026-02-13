@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import base64
+import json
+import subprocess
 
 import pytest
 
@@ -33,6 +35,30 @@ def _write_small_jpeg(path: Path) -> bytes:
     data = base64.b64decode(_SMALL_JPEG_BASE64)
     path.write_bytes(data)
     return data
+
+
+def _add_gps_tags(path: Path) -> None:
+    result = subprocess.run(
+        [
+            "exiftool",
+            "-overwrite_original",
+            "-GPSLatitude=55.6761",
+            "-GPSLatitudeRef=N",
+            "-GPSLongitude=12.5683",
+            "-GPSLongitudeRef=E",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, f"Failed to add GPS tags: {result.stderr}"
+
+
+def _exif_keys(path: Path) -> set[str]:
+    raw = subprocess.check_output(["exiftool", "-j", str(path)], text=True)
+    data = json.loads(raw)
+    return set(data[0].keys())
 
 
 @pytest.mark.integration
@@ -92,3 +118,45 @@ def test_simple_mode_scrubs_all_jpeg_variants_and_preserves_originals(tmp_path, 
         assert out_file.exists(), f"Missing scrubbed output file: {out_file}"
         out_bytes = out_file.read_bytes()
         assert len(out_bytes) > 0, f"Scrubbed output is empty: {out_file}"
+
+
+@pytest.mark.integration
+def test_simple_mode_removes_gps_metadata_in_output(tmp_path, monkeypatch):
+    photos_root = tmp_path / "photos"
+    photos_root.mkdir()
+
+    output_dir = photos_root / "output"
+    input_dir = photos_root / "input"
+    processed_dir = photos_root / "processed"
+    errors_dir = photos_root / "errors"
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", photos_root)
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(scrub, "INPUT_DIR", input_dir)
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_dir)
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
+
+    original = photos_root / "gps.jpg"
+    _write_small_jpeg(original)
+    _add_gps_tags(original)
+
+    original_keys = {k.lower() for k in _exif_keys(original)}
+    assert any("gps" in k for k in original_keys), "Expected GPS tags on original"
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(
+        summary=summary,
+        recursive=False,
+        dry_run=False,
+        show_tags_mode=None,
+        paranoia=True,
+        max_files=None,
+        on_duplicate="delete",
+    )
+
+    scrubbed = output_dir / original.name
+    assert scrubbed.exists(), "Scrubbed file missing from output directory"
+
+    scrubbed_keys = {k.lower() for k in _exif_keys(scrubbed)}
+    assert not any("gps" in k for k in scrubbed_keys), "GPS tags still present after scrub"
+    assert summary.scrubbed == 1

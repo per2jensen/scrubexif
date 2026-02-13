@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.13 - 2026-02-13
+
+### Added
+
+- `-o`, `--output` option in default safe mode to write scrubbed files to a custom directory (created if missing).
+- Output path safety guard: refuse to create output dirs under system paths and reject symlinks/escape attempts.
+- Hard promise: scrubbing now writes to a temp file and only moves into place on success.
+
+### Fixed
+
+- ExifTool failures/exceptions now clean up temp outputs and keep originals untouched.
+
+### Tests
+
+- Unit tests covering no-output-on-failure and in-place failure behavior.
+- Docker/integration test ensuring corrupted inputs never appear in output.
+- Simple mode unit stubs updated to account for temp output behavior.
+
+### Docs
+
+- README updated with the hard promise, failure handling, and `--output` examples.
+
 ## 0.7.12 - 2026-01-16
 
 - Image refreshed

@@ -141,6 +141,15 @@ def test_scrub_file_rejects_symlink_destination(tmp_path, monkeypatch):
     assert run_called is False, "ExifTool should not run when destination is a symlink"
 
 
+def test_output_option_rejects_system_dir_creation(tmp_path, monkeypatch):
+    root = tmp_path / "photos"
+    root.mkdir()
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+
+    with pytest.raises(SystemExit):
+        scrub.resolve_output_dir(Path("/usr/local/scrubbed"))
+
+
 def test_auto_scrub_delete_original_skips_move(tmp_path, monkeypatch):
     root = tmp_path / "photos"
     input_dir = root / "input"

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -236,6 +237,64 @@ def show_version():
 # ----------------------------
 # Safety checks
 # ----------------------------
+
+FORBIDDEN_OUTPUT_ROOTS = (
+    Path("/usr"),
+    Path("/var"),
+    Path("/boot"),
+    Path("/dev"),
+    Path("/etc"),
+    Path("/root"),
+    Path("/lib"),
+    Path("/lib32"),
+    Path("/lib64"),
+    Path("/libx32"),
+    Path("/libexec"),
+)
+
+
+def _is_path_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _is_forbidden_output_create_path(path: Path) -> bool:
+    resolved = path.resolve(strict=False)
+    for root in FORBIDDEN_OUTPUT_ROOTS:
+        if _is_path_within(resolved, root):
+            return True
+    return False
+
+
+def resolve_output_dir(raw: Path) -> Path:
+    if raw.is_absolute():
+        candidate = raw
+    else:
+        candidate = (PHOTOS_ROOT / raw).resolve(strict=False)
+        try:
+            candidate.relative_to(PHOTOS_ROOT)
+        except ValueError:
+            print(f"❌ Output path escapes allowed root {PHOTOS_ROOT}: {raw}", file=sys.stderr)
+            sys.exit(1)
+
+    if candidate.is_symlink():
+        print(f"❌ Output directory is a symlink (not allowed): {candidate}", file=sys.stderr)
+        sys.exit(1)
+    if candidate.exists() and not candidate.is_dir():
+        print(f"❌ Output path is not a directory: {candidate}", file=sys.stderr)
+        sys.exit(1)
+    if not candidate.exists() and _is_forbidden_output_create_path(candidate):
+        print(
+            f"❌ Refusing to create output directory under system path: {candidate}",
+            file=sys.stderr
+        )
+        sys.exit(1)
+
+    return candidate
+
 
 def check_dir_safety(path: Path, label: str):
     display_path = _format_path_with_host(path)
@@ -505,6 +564,20 @@ def print_tags(file: Path, label: str = ""):
 
 
 # ----------------------------
+# Temp output handling
+# ----------------------------
+
+def _create_temp_output(dir_path: Path, suffix: str) -> Path:
+    dir_path.mkdir(parents=True, exist_ok=True)
+    for _ in range(100):
+        name = f".scrubexif_tmp_{uuid.uuid4().hex}{suffix}"
+        candidate = dir_path / name
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError("Failed to generate unique temp output path")
+
+
+# ----------------------------
 # Scrub operations
 # ----------------------------
 
@@ -569,8 +642,22 @@ def scrub_file(
 
     # exiftool command
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
-    cmd = build_exiftool_cmd(input_path, output_path=None if in_place else output_file,
-                             overwrite=in_place, paranoia=paranoia)
+    try:
+        temp_output = _create_temp_output(
+            input_path.parent if in_place else output_file.parent,
+            input_path.suffix,
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=err_msg
+        )
+    cmd = build_exiftool_cmd(input_path, output_path=temp_output,
+                             overwrite=False, paranoia=paranoia)
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("Running ExifTool command: %s", " ".join(cmd))
@@ -578,15 +665,63 @@ def scrub_file(
     if show_tags_mode in {"before", "both"}:
         print_tags(input_path, label="before")
 
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception as exc:
+        temp_output.unlink(missing_ok=True)
+        err_msg = str(exc)
+        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=err_msg
+        )
     if result.returncode != 0:
+        temp_output.unlink(missing_ok=True)
         err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Unknown error"
+        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=err_msg
+        )
+
+    if not temp_output.exists():
+        err_msg = "Temp output missing after scrub"
+        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            status="error",
+            error_message=err_msg
+        )
+
+    try:
+        if in_place:
+            os.replace(temp_output, input_path)
+        else:
+            if output_file.exists() and input_path.resolve() != output_file.resolve():
+                temp_output.unlink(missing_ok=True)
+                err_msg = "Output file appeared during scrub; refusing to overwrite"
+                print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
+                return ScrubResult(
+                    input_path=input_path,
+                    output_path=output_file,
+                    status="error",
+                    error_message=err_msg
+                )
+            os.replace(temp_output, output_file)
+    except Exception as exc:
+        temp_output.unlink(missing_ok=True)
+        err_msg = str(exc)
         print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
         return ScrubResult(
             input_path=input_path,
@@ -1006,6 +1141,7 @@ def _run(args: argparse.Namespace) -> int:
 def _run_inner(args: argparse.Namespace) -> int:
     require_force_for_root()
     global log
+    global OUTPUT_DIR
     if args.debug:
         args.log_level = "debug"
 
@@ -1057,6 +1193,15 @@ def _run_inner(args: argparse.Namespace) -> int:
     if args.files and not args.clean_inline:
         print("❌ Positional file or directory arguments require --clean-inline.", file=sys.stderr)
         sys.exit(1)
+    if args.output and args.clean_inline:
+        print("❌ --output cannot be used with --clean-inline.", file=sys.stderr)
+        sys.exit(1)
+    if args.output and args.from_input:
+        print("❌ --output cannot be used with --from-input.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.output:
+        OUTPUT_DIR = resolve_output_dir(args.output)
 
     # Emit the *exact* banner lines tests expect
     if STATE_FILE is None:
@@ -1155,6 +1300,8 @@ def main(argv: list[str] | None = None) -> int:
                         help=("Override stability state file path. "
                               "Use 'disabled' (or '-', 'none') to force mtime-only. "
                               "If not provided, uses SCRUBEXIF_STATE or auto-detected writable path."))
+    parser.add_argument("-o", "--output", type=Path,
+                        help="Write scrubbed files to this directory (default safe mode)")
     parser.add_argument("-v", "--version", action="store_true", help="Show version and license")
     args = parser.parse_args(argv)
 

@@ -29,13 +29,12 @@
 
 **High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
 
->**Breaking change in 0.7.11**
->
->Default behaviour is now to NOT modify jpeg files, instead write modified files to >\<current_directory\>/output/
->
->
-> **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
-> This README is intentionally short for Docker Hub visibility.
+> **Promise:** scrubexif will **never** write an unscrubbed JPEG into an output  directory.  
+If a scrub fails for any reason, **no output file is created** for that JPEG.
+<sub>Scrubbing quality depends on `exiftool's` ability to remove exif data</sub>
+
+**Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
+ This README is intentionally short for Docker Hub visibility.
 
 ## Quick Start
 
@@ -46,13 +45,28 @@ Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies t
 
     docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.12
 
+To write scrubbed files to a different directory (created if missing):
+
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.12 -o /photos/scrubbed
+
 This:
 
 - scans **your current directory** (`$PWD`) for `*.jpg` / `*.jpeg` (also in capital letters)
-- writes scrubbed copies to **$PWD/output/**  
+- writes scrubbed copies to **$PWD/output/** (or a custom `--output` dir)  
 - leaves the originals untouched in **$PWD/**
-- refuses to run if **$PWD/output/** already exists
+- refuses to run if the output directory already exists
 - prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
+
+### Failure handling (important)
+
+scrubexif is designed to **never place an unscrubbed JPEG into an output directory**.
+If a scrub fails for any reason, **no output file is created for that JPEG** and the run continues for the rest.
+
+What happens on failures by mode:
+
+- **Default safe mode** (the one-liner): failed files stay in the original directory, and **no file is written to the output directory** for those failures.
+- **Auto mode** (`--from-input`): failed files are moved to `processed/` for inspection (if possible), and **no file is written to `output/`** for those failures.
+- **Manual in-place** (`--clean-inline`): a failure leaves the original unchanged; there is no output directory involved.
 
 ### Hardened in-place scrub (current directory)
 
@@ -157,6 +171,7 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
     --on-duplicate        delete | move
     --stable-seconds N    intake stability window
     --state-file PATH     override queue DB
+    -o, --output DIR      write scrubbed files to DIR (default safe mode)
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
