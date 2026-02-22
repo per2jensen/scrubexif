@@ -317,6 +317,43 @@ def check_dir_safety(path: Path, label: str):
         sys.exit(1)
 
 
+def _dirs_same(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except FileNotFoundError:
+        return False
+    except OSError:
+        try:
+            return a.resolve() == b.resolve()
+        except Exception:
+            return False
+
+
+def guard_auto_mode_dirs(on_duplicate: str):
+    pairs = [
+        (INPUT_DIR, "input", OUTPUT_DIR, "output"),
+        (INPUT_DIR, "input", PROCESSED_DIR, "processed"),
+        (OUTPUT_DIR, "output", PROCESSED_DIR, "processed"),
+    ]
+    if on_duplicate == "move":
+        pairs.extend([
+            (ERRORS_DIR, "errors", INPUT_DIR, "input"),
+            (ERRORS_DIR, "errors", OUTPUT_DIR, "output"),
+            (ERRORS_DIR, "errors", PROCESSED_DIR, "processed"),
+        ])
+
+    for left, left_label, right, right_label in pairs:
+        if _dirs_same(left, right):
+            left_path = _format_path_with_host(left)
+            right_path = _format_path_with_host(right)
+            print(
+                f"❌ Auto mode requires distinct directories; {left_label} and {right_label} "
+                f"resolve to the same path ({left_path} == {right_path}).",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+
 # ----------------------------
 # Stability state management
 # ----------------------------
@@ -1299,6 +1336,7 @@ def _run_inner(args: argparse.Namespace) -> int:
         args.max_files = 1
 
     if args.from_input:
+        guard_auto_mode_dirs(args.on_duplicate)
         auto_scrub(
             summary=summary,
             dry_run=args.dry_run,

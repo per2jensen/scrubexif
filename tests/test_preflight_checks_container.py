@@ -18,10 +18,12 @@ import pytest
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
 
-def run_container(mounts: list[str]) -> subprocess.CompletedProcess:
+def run_container(mounts: list[str], args: list[str] | None = None) -> subprocess.CompletedProcess:
     """Run container with mounts and current UID (unless root)."""
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
-    cmd = ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE, "--from-input"]
+    if args is None:
+        args = ["--from-input"]
+    cmd = ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE] + args
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
@@ -136,6 +138,55 @@ def test_all_directories_valid(tmp_path):
         "-v", f"{output_dir}:/photos/output",
         "-v", f"{processed_dir}:/photos/processed"
     ])
+
+    assert result.returncode == 0
+    assert "no jpegs found" in (result.stdout + result.stderr).lower()
+
+
+def test_input_and_processed_same_dir(tmp_path):
+    shared = tmp_path / "shared"
+    output_dir = tmp_path / "output"
+    shared.mkdir()
+    output_dir.mkdir()
+
+    result = run_container([
+        "-v", f"{shared}:/photos/input",
+        "-v", f"{output_dir}:/photos/output",
+        "-v", f"{shared}:/photos/processed",
+    ])
+
+    assert_failed_with_keywords(result, ["distinct", "input", "processed"])
+
+
+def test_output_and_processed_same_dir(tmp_path):
+    input_dir = tmp_path / "input"
+    shared = tmp_path / "shared"
+    input_dir.mkdir()
+    shared.mkdir()
+
+    result = run_container([
+        "-v", f"{input_dir}:/photos/input",
+        "-v", f"{shared}:/photos/output",
+        "-v", f"{shared}:/photos/processed",
+    ])
+
+    assert_failed_with_keywords(result, ["distinct", "output", "processed"])
+
+
+def test_all_directories_valid_with_errors_dir(tmp_path):
+    input_dir = tmp_path / "input"
+    output_dir = tmp_path / "output"
+    processed_dir = tmp_path / "processed"
+    errors_dir = tmp_path / "errors"
+    for d in (input_dir, output_dir, processed_dir, errors_dir):
+        d.mkdir()
+
+    result = run_container([
+        "-v", f"{input_dir}:/photos/input",
+        "-v", f"{output_dir}:/photos/output",
+        "-v", f"{processed_dir}:/photos/processed",
+        "-v", f"{errors_dir}:/photos/errors",
+    ], args=["--from-input", "--on-duplicate", "move"])
 
     assert result.returncode == 0
     assert "no jpegs found" in (result.stdout + result.stderr).lower()
