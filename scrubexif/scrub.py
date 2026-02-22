@@ -500,30 +500,74 @@ EXIF_TAGS_TO_KEEP = [
     "Orientation",
 ]
 
-EXIFTOOL_META_TAGS = ["ColorSpaceTags"]  # bundle
-TAG_GROUPS = ["", "XMP", "XMP-dc", "EXIF", "IPTC", "Makernotes", "Comment", "PhotoShop"]
+# ExifTool shortcut bundles we explicitly preserve (not tied to a single group).
+EXIFTOOL_SHORTCUTS = ["ColorSpaceTags"]
+
+# Restrict preserved tags to EXIF and XMP families only.
+TAG_GROUPS = ["EXIF", "XMP", "XMP-dc"]
+
+# Conservative limits (UTF-8 bytes) to avoid bloated EXIF/XMP segments.
+MAX_COPYRIGHT_BYTES = 1024
+MAX_COMMENT_BYTES = 4096
+
+
+def _truncate_utf8(label: str, value: str, max_bytes: int) -> str:
+    data = value.encode("utf-8")
+    if len(data) <= max_bytes:
+        return value
+    log.warning(
+        "%s too long (%d bytes); truncating to %d bytes.",
+        label,
+        len(data),
+        max_bytes,
+    )
+    truncated = data[:max_bytes]
+    # Trim to a valid UTF-8 boundary.
+    while truncated and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+    return truncated.decode("utf-8", errors="ignore")
+
+
+def build_stamp_args(copyright_text: str | None,
+                     comment_text: str | None) -> list[str]:
+    args: list[str] = []
+    if copyright_text is not None:
+        value = _truncate_utf8("Copyright notice", copyright_text, MAX_COPYRIGHT_BYTES)
+        args.append(f"-EXIF:Copyright={value}")
+        args.append(f"-XMP-dc:Rights={value}")
+    if comment_text is not None:
+        value = _truncate_utf8("Comment", comment_text, MAX_COMMENT_BYTES)
+        args.append(f"-EXIF:UserComment={value}")
+        args.append(f"-XMP-dc:Description={value}")
+    return args
 
 
 def build_preserve_args(paranoia: bool = False) -> list[str]:
     args = []
     seen = set()
     tags = EXIF_TAGS_TO_KEEP.copy()
-    if not paranoia:
-        tags += EXIFTOOL_META_TAGS
     for tag in tags:
         for group in TAG_GROUPS:
             key = f"{group}:{tag}" if group else tag
             if key not in seen:
                 args.append(f"-{key}")
                 seen.add(key)
+    if not paranoia:
+        for shortcut in EXIFTOOL_SHORTCUTS:
+            if shortcut not in seen:
+                args.append(f"-{shortcut}")
+                seen.add(shortcut)
     if log.isEnabledFor(logging.DEBUG):
         log.debug("Preserving tags: %s", " ".join(args))
     return args
 
 
-def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool) -> list[str]:
+def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool,
+                      copyright_text: str | None = None,
+                      comment_text: str | None = None) -> list[str]:
     cmd = ["exiftool", "-P", "-m", "-all=", "-gps:all=", "-tagsFromFile", "@"]
     cmd += build_preserve_args(paranoia=paranoia)
+    cmd += build_stamp_args(copyright_text, comment_text)
     if paranoia:
         cmd += ["-ICC_Profile:all="]
     cmd += ["-o", str(output_path), str(input_path.absolute())]   #  security advice on https://exiftool.org/
@@ -531,7 +575,9 @@ def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool) -> li
 
 
 def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
-                       overwrite: bool = False, paranoia: bool = False) -> list[str]:
+                       overwrite: bool = False, paranoia: bool = False,
+                       copyright_text: str | None = None,
+                       comment_text: str | None = None) -> list[str]:
     cmd = ["exiftool"]
     if overwrite:
         cmd.append("-overwrite_original")
@@ -544,6 +590,7 @@ def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
     if paranoia:
         cmd += ["-ICC_Profile:all="]
     cmd += build_preserve_args(paranoia=paranoia)
+    cmd += build_stamp_args(copyright_text, comment_text)
     if output_path:
         cmd += ["-o", str(output_path)]
 
@@ -589,6 +636,8 @@ def scrub_file(
     show_tags_mode: str | None = None,
     paranoia: bool = True,
     on_duplicate: str = "delete",
+    copyright_text: str | None = None,
+    comment_text: str | None = None,
 ) -> ScrubResult:
     print(f"scrub_file: input={_format_path_with_host(input_path)}, output={_format_path_with_host(output_path) if output_path else None}")
     output_file = output_path / input_path.name if output_path else input_path
@@ -656,8 +705,14 @@ def scrub_file(
             status="error",
             error_message=err_msg
         )
-    cmd = build_exiftool_cmd(input_path, output_path=temp_output,
-                             overwrite=False, paranoia=paranoia)
+    cmd = build_exiftool_cmd(
+        input_path,
+        output_path=temp_output,
+        overwrite=False,
+        paranoia=paranoia,
+        copyright_text=copyright_text,
+        comment_text=comment_text,
+    )
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug("Running ExifTool command: %s", " ".join(cmd))
@@ -766,7 +821,9 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                paranoia: bool = True,
                max_files: int | None = None,
                on_duplicate: str = "delete",
-               stable_seconds: int = 120) -> ScrubSummary:
+               stable_seconds: int = 120,
+               copyright_text: str | None = None,
+               comment_text: str | None = None) -> ScrubSummary:
     print(f"🚀 Auto mode: Scrubbing JPEGs in {_format_path_with_host(INPUT_DIR)}")
     print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
     print(f"📁 Processed directory: {_format_path_with_host(PROCESSED_DIR)}")
@@ -851,6 +908,8 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             show_tags_mode=show_tags_mode,
             paranoia=paranoia,
             on_duplicate=on_duplicate,
+            copyright_text=copyright_text,
+            comment_text=comment_text,
         )
 
         summary.update(result)
@@ -898,7 +957,9 @@ def simple_scrub(summary: ScrubSummary,
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
-                 on_duplicate: str = "delete") -> ScrubSummary:
+                 on_duplicate: str = "delete",
+                 copyright_text: str | None = None,
+                 comment_text: str | None = None) -> ScrubSummary:
     """
     Default safe mode:
       - Scan /photos for JPEGs (non-recursive by default, -r respected)
@@ -988,6 +1049,8 @@ def simple_scrub(summary: ScrubSummary,
             show_tags_mode=show_tags_mode,
             paranoia=paranoia,
             on_duplicate=on_duplicate,
+            copyright_text=copyright_text,
+            comment_text=comment_text,
         )
         summary.update(result)
 
@@ -1026,7 +1089,9 @@ def manual_scrub(files: list[Path],
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
-                 preview: bool = False) -> ScrubSummary:
+                 preview: bool = False,
+                 copyright_text: str | None = None,
+                 comment_text: str | None = None) -> ScrubSummary:
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return summary
@@ -1062,7 +1127,13 @@ def manual_scrub(files: list[Path],
         preview_input = temp_path
         preview_output = preview_input.with_suffix(".scrubbed.jpg")
 
-        cmd = build_preview_cmd(preview_input, preview_output, paranoia=paranoia)
+        cmd = build_preview_cmd(
+            preview_input,
+            preview_output,
+            paranoia=paranoia,
+            copyright_text=copyright_text,
+            comment_text=comment_text,
+        )
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Preview mode: %s", " ".join(cmd))
 
@@ -1099,7 +1170,9 @@ def manual_scrub(files: list[Path],
                             dry_run=False,
                             show_tags_mode=show_tags_mode,
                             paranoia=paranoia,
-                            on_duplicate=None)
+                            on_duplicate=None,
+                            copyright_text=copyright_text,
+                            comment_text=comment_text)
 
         summary.update(result)
 
@@ -1235,6 +1308,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             max_files=args.max_files,
             on_duplicate=args.on_duplicate,
             stable_seconds=args.stable_seconds,
+            copyright_text=args.copyright,
+            comment_text=args.comment,
         )
     elif args.clean_inline:
         if args.files:
@@ -1251,6 +1326,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             paranoia=args.paranoia,
             max_files=args.max_files,
             preview=args.preview,
+            copyright_text=args.copyright,
+            comment_text=args.comment,
         )
     else:
         simple_scrub(
@@ -1261,6 +1338,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             paranoia=args.paranoia,
             max_files=args.max_files,
             on_duplicate=args.on_duplicate,
+            copyright_text=args.copyright,
+            comment_text=args.comment,
         )
 
     summary.print()
@@ -1272,7 +1351,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("files", nargs="*", type=Path, help="Files or directories")
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
     parser.add_argument("--clean-inline", action="store_true",
-                        help="Scrub in-place (destructive). Requires explicit flag to modify originals.")
+                        help="Scrub (destructive) in-place. This flag is required to modify originals.")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
@@ -1291,6 +1370,10 @@ def main(argv: list[str] | None = None) -> int:
                         default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
                         help="Duplicate handling in auto/default modes. 'delete' or 'move' to /photos/errors/")
     parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
+    parser.add_argument("--copyright", metavar="TEXT",
+                        help="Stamp a copyright notice into EXIF and XMP metadata")
+    parser.add_argument("--comment", metavar="TEXT",
+                        help="Stamp a comment into EXIF and XMP metadata")
     parser.add_argument("--log-level", choices=["debug", "info", "warn", "error", "crit"], default="info",
                         help="Set log verbosity")
     parser.add_argument("--stable-seconds", type=int,

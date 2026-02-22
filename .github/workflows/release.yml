@@ -92,6 +92,14 @@ jobs:
     - name: Scan image with Grype (fail on high)
       run: grype per2jensen/scrubexif:${{ env.FINAL_VERSION }} --fail-on high -o sarif > grype-results-${{ env.FINAL_VERSION }}.sarif
 
+    - name: Upload Grype SARIF to release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: v${{ env.FINAL_VERSION }}
+        files: grype-results-${{ env.FINAL_VERSION }}.sarif
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Upload Grype SARIF report
       if: always()
       uses: actions/upload-artifact@v4
@@ -141,4 +149,3 @@ jobs:
         generate_release_notes: true
       env:
          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-

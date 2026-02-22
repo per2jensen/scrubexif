@@ -4,7 +4,7 @@
 
 <!-- 📦 Project Metadata -->
 <a href="https://github.com/per2jensen/scrubexif/releases"><img alt="Tag" src="https://img.shields.io/github/v/tag/per2jensen/scrubexif"/></a>
-<a href="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg"/></a>
+<a href="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg"/></a>
 <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"/>
 
 <!-- 🐳 Docker Hub Stats -->
@@ -29,11 +29,11 @@
 
 **High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
 
-> **Promise:** scrubexif will **never** write an unscrubbed JPEG into an output  directory.  
+> **Promise:** scrubexif will not write an unscrubbed JPEG into an output directory.  
 If a scrub fails for any reason, **no output file is created** for that JPEG.
-<sub>Scrubbing quality depends on `exiftool's` ability to remove exif data</sub>
+<sub>This is true when writing scrubbed JPEGS to an output directory, **not** if you scrub JPEGS inline. Scrubbing quality depends on `exiftool's` ability to remove exif data</sub>
 
-**Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)  
+**Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)  
  This README is intentionally short for Docker Hub visibility.
 
 ## Quick Start
@@ -43,18 +43,18 @@ If a scrub fails for any reason, **no output file is created** for that JPEG.
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
 `$PWD/output/`:
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.132
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.13
 
 To write scrubbed files to a different directory (created if missing):
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.132 -o /photos/scrubbed
+    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.13 -o /photos/scrubbed
 
 This:
 
 - scans **your current directory** (`$PWD`) for `*.jpg` / `*.jpeg` (also in capital letters)
 - writes scrubbed copies to **$PWD/output/** (or a custom `--output` dir)  
 - leaves the originals untouched in **$PWD/**
-- refuses to run if the output directory already exists
+- refuses to run if the `$PWD/output` directory already exists
 - prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
 
 ### Failure handling (important)
@@ -62,61 +62,66 @@ This:
 scrubexif is designed to **never place an unscrubbed JPEG into an output directory**.
 If a scrub fails for any reason, **no output file is created for that JPEG** and the run continues for the rest.
 
-What happens on failures by mode:
+What happens on failed scrubs depends on the mode `scrubexif` is run in:
 
 - **Default safe mode** (the one-liner): failed files stay in the original directory, and **no file is written to the output directory** for those failures.
-- **Auto mode** (`--from-input`): failed files are moved to `processed/` for inspection (if possible), and **no file is written to `output/`** for those failures.
-- **Manual in-place** (`--clean-inline`): a failure leaves the original unchanged; there is no output directory involved.
+- **Auto mode** (`--from-input`): failed files are moved to `processed/` for inspection, and **no file is written to `output/`** for those failures.
+- **Manual (destructive) in-place** (`--clean-inline`): a failure leaves the original unchanged; there is no output directory involved.
 
-### Hardened in-place scrub (current directory)
+### Hardened (destructive) in-line scrub (current directory)
 
-Same idea, but with container hardening and in-place overwrite (destructive):
+Same idea, but with container hardening and in-line (destructive) overwrite:
 
     docker run -it --rm \
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.132 --clean-inline
+      per2jensen/scrubexif:0.7.13 --clean-inline
 
 ### Batch workflow (PhotoPrism / intake style)
 
 Use auto mode with explicit input/output/processed directories:
 
-    mkdir input output processed errors
+    mkdir input scrubbed processed errors
     docker run -it --rm \
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD/input:/photos/input" \
-      -v "$PWD/output:/photos/output" \
+      -v "$PWD/scrubbed:/photos/output" \
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.132 --from-input
+      per2jensen/scrubexif:0.7.13 --from-input
 
-Uploads → `input/`  
-Scrubbed → `output/`  
-Originals → `processed/` (or deleted)  
-Duplicates → deleted or `errors/`  
-Corrupted → logged as failures, originals relocated to `processed/` for inspection
+These are the physical directories used on your file system:
+
+Uploads → `$PWD/input/`  
+Scrubbed → `$PWD/scrubbed/`  
+Originals → `$PWD/processed/` (or deleted with `--delete-original`)  
+Duplicates → deleted by default; use `--on-duplicate move` to move them into `$PWD/errors/`  
+Failed scrubs (e.g., corrupted files) → logged as failures; originals are moved to `$PWD/processed/` for inspection  
+`errors/` is a misnomer today; it is only used for duplicates when `--on-duplicate move` is set. Will be fixed in a later version.
 
 ### Data flow overview (auto mode: `--from-input`)
 
 This flow diagram describes what happens **only in auto mode** (`--from-input`),
 where four directories (`input/`, `output/`, `processed/`, `errors/`) are used.
 
+Please observe these directories are named like this **inside the container**. Your physical directories in your file system are mapped when you run the `docker run ...` command. See the `-v ....` options in the above example.
+
 ```
-[input/]  --scrub-->  [output/]
-     |
-     +-->  [processed/]   (original JPEGs moved here after successful scrub,
-                           unless --delete-original is used)
-     |
-     +-->  [errors/]      (duplicates or corrupted files — only used when
-                           --on-duplicate move)
+[input/]  -->  <scrubexif> runs  -->  [output/]
+                 |
+                 +-->  [processed/]   (original JPEGs moved here after successful scrub,
+                                       unless --delete-original is used)
+                 |
+                 +-->  [errors/]      (duplicates only — only used when
+                                       --on-duplicate move)
 ```
 
 Meaning:
 
 - `input/`
-    New JPEGs arrive here (e.g. from uploads or PhotoSync).
+    New JPEGs arrive here (e.g. from uploads, for example PhotoSync).
 
 - `output/`
     Scrubbed JPEGs with safe EXIF metadata.
@@ -147,18 +152,20 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 ## Key Features
 
-- Removes GPS and personal data
-- Keeps camera + exposure metadata
-- Default run uses read-only + no-new-privileges hardening
-- Duplicate handling: delete or move
-- Optional state-file for high-volume pipelines
-- `--preview`, `--paranoia`, `--stable-seconds N`
+- Allowlist-based scrubbing: preserves a small set of technical tags (exposure, ISO, focal length, orientation, image size)
+- Removes GPS, serial numbers, and other private metadata
+- Preserves color profiles by default (use `--paranoia` to remove ICC data)
+- Auto mode with duplicate handling (`--on-duplicate delete|move`)
+- Optional stability gate for hot upload directories (`--stable-seconds`, `--state-file`)
+- Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
+- Optional stamping of copyright and comment into EXIF/XMP (`--copyright`, `--comment`)
+- Hardened container defaults in examples (read-only + no-new-privileges)
 
 ## Supply Chain Transparency
 
-- Every release is produced by a public GitHub Actions workflow that builds the Docker image, runs Syft to publish an SPDX SBOM, and scans the image with Grype (failing on high/critical CVEs).
-- The vulnerability results (`grype-results-<version>.sarif`) and SBOM (`sbom-v<version>.spdx.json`) are attached to each GitHub Release → see the **[Releases tab](https://github.com/per2jensen/scrubexif/releases)** for the latest artifacts.
-- `doc/build-history.json` tracks every tag with the Git commit, image digest, and (when available) the Grype severity counts, giving downstream users a verifiable audit trail.
+- Releases are produced by the public **Release** GitHub Actions workflow (`.github/workflows/release.yml`), which builds the Docker image, runs Syft to generate an SPDX SBOM, and scans the image with Grype (failing on high/critical CVEs). CI (`.github/workflows/CI.yml`) runs tests only.
+- Release assets include the SBOM (`sbom-v<version>.spdx.json`) and the Grype SARIF report (`grype-results-<version>.sarif`). The SARIF is also uploaded to the GitHub Security tab and kept as an Actions artifact → see the **[Releases tab](https://github.com/per2jensen/scrubexif/releases)** for release assets.
+- `doc/build-history.json` tracks each tag with the Git commit, image digest, and (when available) the Grype severity counts, giving downstream users a verifiable audit trail.
 
 ## Common Options
 
@@ -168,6 +175,8 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
     -q, --quiet           no output on success
     --preview             no write, view only
     --paranoia            maximum scrub, removes ICC
+    --comment             stamp comment into EXIF/XMP
+    --copyright           stamp copyright into EXIF/XMP
     --on-duplicate        delete | move
     --stable-seconds N    intake stability window
     --state-file PATH     override queue DB
@@ -183,7 +192,7 @@ One use case is to quickly show dog owners photos at exhibitions.
 | Host filesystem path     | Container path       | Purpose                                                     |
 | ------------------------ | -------------------- | ----------------------------------------------------------- |
 | `/some/directory/`       | `/photos/input/`     | Location for new JPEG uploads on the server                 |
-| `/photoprism/sooc/`      | `/photos/output/`    | Destination for scrubbed JPEG versions, for Photoprim import|
+| `/photoprism/sooc/`      | `/photos/output/`    | Destination for scrubbed JPEG versions, for PhotoPrism import|
 | `/photoprism/processed/` | `/photos/processed/` | Holding area for already-imported files.                    |
 
 ### Systemd
@@ -197,7 +206,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.132 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.13 --from-input --stable-seconds 10
 
 `/etc/systemd/system/scrubexif.timer`:
 
@@ -239,4 +248,4 @@ See section 15 and section 16 in the supplied "LICENSE" file.
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-Full docs → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc//DETAILS.md)
+Full docs → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)

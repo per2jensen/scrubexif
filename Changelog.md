@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.7.14 - 2026-02-22
+
+### Added
+
+- New `--comment` option to stamp comments into EXIF and XMP metadata (replaces existing values; truncates long input with warning).
+- New `--copyright` option to stamp copyright notices into EXIF and XMP metadata (replaces existing values; truncates long input with warning).
+- Release workflow now attaches Grype SARIF reports to GitHub Releases in addition to SBOMs.
+
+### Changed
+
+- Metadata preservation restricted to EXIF + XMP tag groups while still preserving `ColorSpaceTags` for accurate color.
+- Updated README and DETAILS with corrected behavior, examples, and option lists; supply chain transparency text now matches actual artifacts.
+
+### Tests
+
+- Integration coverage for comment/copyright stamping, truncation warnings, and removal of disallowed metadata sections/tags.
+
+### Docs
+
+- README: fixed CI badge link, example version typo, auto-mode flow notes, and clarified release artifacts.
+- DETAILS: corrected examples to require `--clean-inline` where needed; full CLI reference added and alphabetized.
+
 ## 0.7.13 - 2026-02-13
 
 ### Added

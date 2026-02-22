@@ -2,7 +2,7 @@
 [project]
 name = "scrubexif"
 dynamic = ["version"]
-description = "CLI tool to scrub JPEG EXIF metadata"
+description = "CLI tool to scrub JPEG metadata and preserve a few technical tags."
 authors = [{ name = "Per Jensen", email = "per2jensen@gmail.com" }]
 dependencies = [
     "Pillow>=10.0.0",

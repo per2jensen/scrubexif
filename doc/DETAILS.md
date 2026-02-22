@@ -36,7 +36,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 - [scrubexif](#scrubexif)
   - [Table of Contents](#table-of-contents)
   - [Quick Start](#quick-start)
-    - [Build & Run Locally](#build--run-locally)
+    - [Build \& Run Locally](#build--run-locally)
     - [Default safe mode (copy)](#default-safe-mode-copy)
     - [Clean-inline mode (`--clean-inline`)](#clean-inline-mode---clean-inline)
     - [Auto mode (`--from-input`)](#auto-mode---from-input)
@@ -54,12 +54,13 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
     - [Stability gate](#stability-gate)
     - [State tracking](#state-tracking)
     - [Temp/partial file filter](#temppartial-file-filter)
+      - [Scope](#scope)
     - [Configuration](#configuration)
   - [Integration (optional)](#integration-optional)
     - [Integration script](#integration-script)
     - [Example systemd service and timer](#example-systemd-service-and-timer)
   - [User Privileges and Running as Root](#user-privileges-and-running-as-root)
-  - [Hardening & Recommendations](#hardening--recommendations)
+  - [Hardening \& Recommendations](#hardening--recommendations)
   - [Known limitations](#known-limitations)
   - [Docker Images](#docker-images)
   - [Viewing Metadata](#viewing-metadata)
@@ -70,6 +71,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Related Tools](#related-tools)
   - [Feedback](#feedback)
   - [Project Homepage](#project-homepage)
+  - [Reference](#reference)
 
 ## Quick Start
 
@@ -190,6 +192,7 @@ docker run --read-only --security-opt no-new-privileges \
 
 - `--delete-original` — delete originals instead of moving them
 - `--clean-inline` — scrub in-place (destructive). Required for positional file/dir arguments
+- `--output PATH` — override output directory in default safe mode (not allowed with `--from-input` or `--clean-inline`)
 - `-q`, `--quiet` — suppress all output on success
 - `--on-duplicate {delete|move}` - delete or move a duplicate
 - `--dry-run` - show what would be scrubbed, but don’t write files
@@ -198,6 +201,8 @@ docker run --read-only --security-opt no-new-privileges \
 - `--max-files` - limit number of files to scrub (useful for testing or safe inspection)
 - `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
+- `--copyright` - stamp a copyright notice into EXIF and XMP (replaces existing values)
+- `--comment` - stamp a comment into EXIF and XMP (replaces existing values)
 - `--show-container-paths` - include container paths alongside host paths in output
 - `-r`, `--recursive` - Recurse into directories
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
@@ -205,7 +210,6 @@ docker run --read-only --security-opt no-new-privileges \
 - `--state-file PATH|disabled` — Override stability tracking path or disable persistence entirely
 - positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); requires `--clean-inline`
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
-- `--max-files N` — Limit the number of eligible files scrubbed in the current run
 - `-v`, `--version` - show version and license
 
 ## Environment variables
@@ -268,7 +272,6 @@ VERSION=0.7.13; docker run -it --rm \
 - Case insensitive, works on .jpg, .JPG, .jpeg & .JPEG
 - Removes most EXIF, IPTC, and XMP metadata
 - **Preserves** useful photography tags:
-  - `Title`
   - `ExposureTime`, `FNumber`, `ISO`
   - `ImageSize`, `Orientation`
   - `FocalLength`
@@ -282,7 +285,7 @@ VERSION=0.7.13; docker run -it --rm \
 
 ### Metadata Preservation Strategy
 
-By default, `scrubexif` preserves important non-private metadata such as **exposure**, **lens**, **ISO**, and **color profile** information. This ensures that images look correct in color-managed environments (e.g. Apple Photos, Lightroom, web browsers with ICC support).
+By default, `scrubexif` preserves important non-private metadata such as **exposure settings**, **ISO**, **focal length**, **image size/orientation**, and **color profile** information. This ensures that images look correct in color-managed environments (e.g. Apple Photos, Lightroom, web browsers with ICC support).
 
 For users who require maximum privacy, an optional `--paranoia` mode is available.
 
@@ -301,28 +304,22 @@ The `--show-tags` option lets you inspect metadata **before**, **after**, or **b
 
 - Auditing what data is present in your photos
 - Verifying that scrubbed output removes private metadata
-- Confirming what remains (e.g. lens info, exposure, etc.)
+- Confirming what remains (e.g. focal length, exposure settings, etc.)
 
-If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run`.
+If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run` and use `--clean-inline` when targeting specific files.
 
 ```bash
-# See tags BEFORE scrub (scrub still happens)
+# See tags BEFORE scrub (no modifications)
 docker run --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev image.jpg --show-tags before
+  scrubexif:dev --clean-inline image.jpg --show-tags before --dry-run
 
 # See both BEFORE and AFTER (scrub still happens)
 docker run --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev image.jpg --show-tags both
-
-# Just show metadata, DO NOT scrub
-docker run --read-only --security-opt no-new-privileges \
-  --tmpfs /tmp \
-  -v "$PWD:/photos" \
-  scrubexif:dev image.jpg --show-tags before --dry-run
+  scrubexif:dev --clean-inline image.jpg --show-tags both
 ```
 
 ### Preview Mode (`--preview`)
@@ -332,7 +329,7 @@ The `--preview` option lets you **safely simulate** the scrubbing process on a *
 This mode:
 
 - Copies the original image to a temporary file
-- Scrubs the copy in memory
+- Scrubs the copy to a temporary output file
 - Shows metadata **before and/or after** scrubbing
 - Deletes the temp files automatically
 - Never alters the original image
@@ -341,7 +338,7 @@ This mode:
 docker run --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev test.jpg --preview
+  scrubexif:dev --clean-inline test.jpg --preview
 ```
 
 🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed.
@@ -657,3 +654,38 @@ Source code, issues, and Dockerfile available on GitHub:
 👉 [https://github.com/per2jensen/scrubexif](https://github.com/per2jensen/scrubexif)
 
 📦 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
+
+## Reference
+
+### CLI Options (`scrubexif.py`)
+
+All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
+
+| Option | Description |
+|---|---|
+| `--clean-inline` | Destructive, in-place scrubbing. Required when passing positional file/dir arguments. |
+| `--comment TEXT` | Stamp a comment into EXIF and XMP (replaces existing values). |
+| `--copyright TEXT` | Stamp a copyright notice into EXIF and XMP (replaces existing values). |
+| `--debug` | Shortcut for `--log-level debug`; enables extra diagnostic logging. |
+| `--delete-original` | Auto mode only. Delete originals instead of moving them to `/photos/processed`. |
+| `--dry-run` | Print planned actions without modifying files. |
+| `files...` | Positional files/dirs (relative to `/photos` in Docker). Requires `--clean-inline`. |
+| `--from-input` | Auto mode. Reads `/photos/input`, writes to `/photos/output`, and moves originals to `/photos/processed` (or deletes with `--delete-original`). |
+| `--log-level {debug,info,warn,error,crit}` | Set log verbosity (default: `info`). |
+| `--max-files N` | Limit number of eligible files scrubbed in the current run. |
+| `--on-duplicate {delete,move}` | Auto/default mode duplicate handling. `delete` removes input; `move` sends duplicates to `/photos/errors`. |
+| `--output PATH` | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
+| `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |
+| `--preview` | Preview scrub effect on one file without modifying it (implies `--dry-run` + `--show-tags both`). |
+| `-q`, `--quiet` | Suppress all output on success. |
+| `-r`, `--recursive` | Recurse into directories when scanning. |
+| `--show-container-paths` | Include container paths alongside host paths in output. |
+| `--show-tags {before,after,both}` | Print metadata before/after scrub for each file. |
+| `--stable-seconds SECS` | Only process files whose mtime age is at least this many seconds (default: 120). |
+| `--state-file PATH\|disabled` | Override stability tracking path or disable persistence (`disabled`, `none`, or `-`). |
+| `-v`, `--version` | Show version and license. |
+
+**Constraints**
+
+- `--from-input` cannot be used with `--clean-inline` or `--output`.
+- Positional `files...` require `--clean-inline`.
