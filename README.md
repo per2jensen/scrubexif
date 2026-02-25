@@ -43,11 +43,11 @@ If a scrub fails for any reason, **no output file is created** for that JPEG.
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
 `$PWD/output/`:
 
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.14
-
-To write scrubbed files to a different directory (created if missing):
-
-    docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.14 -o /photos/scrubbed
+````bash
+docker run --rm \
+-v "$PWD:/photos" \
+per2jensen/scrubexif:0.7.14
+````
 
 This:
 
@@ -56,6 +56,16 @@ This:
 - leaves the originals untouched in **$PWD/**
 - refuses to run if the `$PWD/output` directory already exists
 - prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
+
+To write scrubbed files to a different directory, use the `-o` option (created if missing):
+
+````bash
+docker run --rm \
+    -v "$PWD:/photos" \
+    -v "$PWD/some/other/directory:/photos/scrubbed" \
+    per2jensen/scrubexif:0.7.14 \
+    -o /photos/scrubbed
+````
 
 ### Failure handling (important)
 

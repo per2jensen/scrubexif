@@ -10,7 +10,7 @@ concurrency:
 
 on:
   schedule:
-    - cron: '23 2 * * *'  # Run daily at 02:17 UTC
+    - cron: '23 4 * * *'  # Run daily at 04:17 UTC
   workflow_dispatch:
 
 jobs:
