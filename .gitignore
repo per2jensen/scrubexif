@@ -13,6 +13,8 @@ Thumbs.db
 *.bak
 *.patch
 
+# private test assets with real EXIF data (if any)
+tests/private-assets/
 
 # Docker-related files (optional)
 *.container

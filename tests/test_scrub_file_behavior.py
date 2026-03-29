@@ -7,7 +7,7 @@ from scrubexif import scrub
 
 
 def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
-    """Ensure exiftool gets the resolved output filename when writing to a directory."""
+    """Ensure jpegtran receives the resolved temp output path when writing to a directory."""
     input_file = tmp_path / "sample.jpg"
     input_file.write_bytes(b"jpeg-data")
     output_dir = tmp_path / "output"
@@ -17,6 +17,9 @@ def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
 
     def fake_run(cmd, *_, **__):
         commands.append(cmd)
+        # Simulate jpegtran creating the output file so the pipeline proceeds.
+        if "-outfile" in cmd:
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
 
         class Proc:
             returncode = 0
@@ -30,10 +33,10 @@ def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
     result = scrub.scrub_file(input_file, output_path=output_dir)
 
     assert result.output_path == output_dir / input_file.name
-    assert commands, "Expected exiftool command to be invoked"
+    assert commands, "Expected jpegtran command to be invoked"
     cmd = commands[0]
-    assert "-o" in cmd, "Expected exiftool to receive an output argument"
-    target = Path(cmd[cmd.index("-o") + 1])
+    assert "-outfile" in cmd, "Expected jpegtran to receive -outfile argument"
+    target = Path(cmd[cmd.index("-outfile") + 1])
     assert target.parent == output_dir
     assert target != result.output_path
 
@@ -59,14 +62,11 @@ def test_scrub_file_failure_does_not_create_output(tmp_path, monkeypatch):
     output_dir.mkdir()
 
     def fake_run(cmd, *_, **__):
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"partial")
-
+        # Simulate jpegtran returning an error without creating output.
         class Proc:
             returncode = 1
             stdout = ""
-            stderr = "exiftool failed"
+            stderr = "jpegtran: not a JPEG file"
 
         return Proc()
 
@@ -80,16 +80,15 @@ def test_scrub_file_failure_does_not_create_output(tmp_path, monkeypatch):
 
 
 def test_scrub_file_exception_does_not_create_output(tmp_path, monkeypatch):
+    """Simulate jpegtran binary missing; scrub_file must clean up and return error."""
     input_file = tmp_path / "error.jpg"
     input_file.write_bytes(b"jpeg-data")
     output_dir = tmp_path / "output"
     output_dir.mkdir()
 
     def fake_run(cmd, *_, **__):
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"partial")
-        raise FileNotFoundError("exiftool missing")
+        # Simulate the OS being unable to find jpegtran.
+        raise FileNotFoundError("jpegtran not found")
 
     monkeypatch.setattr(scrub.subprocess, "run", fake_run)
 
@@ -106,14 +105,11 @@ def test_in_place_failure_keeps_original(tmp_path, monkeypatch):
     input_file.write_bytes(original)
 
     def fake_run(cmd, *_, **__):
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"partial")
-
+        # Simulate jpegtran failure without creating any output.
         class Proc:
             returncode = 1
             stdout = ""
-            stderr = "exiftool failed"
+            stderr = "jpegtran: not a JPEG file"
 
         return Proc()
 

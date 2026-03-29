@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-import base64
 import os
+import shutil
 import subprocess
 from pathlib import Path
 import pytest
@@ -10,9 +10,8 @@ from scrubexif.scrub import ScrubResult
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
 
-MINIMAL_JPEG = base64.b64decode(
-    "/9j/4AAQSkZJRgABAQAAAQABAAD/2wCEAAkGBxISEhUTEhIVFhUVFRUVFRUVFRUVFRUWFRUXFhUYHSggGBolHRUVITEhJSkrLi4uFx8zODMsNygtLisBCgoKDg0OFxAQFy0dHR0tKy0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLS0tLf/AABEIAKgBLAMBIgACEQEDEQH/xAAZAAEBAQEBAQAAAAAAAAAAAAAAAgEDBAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAFHp//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAQUC3//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQMBAT8BP//EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQIBAT8BP//EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEABj8Cf//Z"
-)
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+SAMPLE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 
 
 def _run_security_container(args: list[str], mounts: list[str] | None = None) -> subprocess.CompletedProcess:
@@ -241,7 +240,7 @@ def test_auto_mode_scrubs_with_hardening_flags(tmp_path):
         path.mkdir(parents=True, exist_ok=True)
 
     sample = input_dir / "sample.jpg"
-    sample.write_bytes(MINIMAL_JPEG)
+    shutil.copy(SAMPLE_IMAGE, sample)
 
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
     cmd = [

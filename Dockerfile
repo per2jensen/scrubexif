@@ -51,10 +51,15 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --no-install-suggests \
         python3 \
         python3-pip \
-        libimage-exiftool-perl && \
+        libimage-exiftool-perl \
+        libjpeg-turbo-progs && \
     \
     # Install the wheel from the builder stage and clean up in the same layer
     python3 -m pip install --no-cache-dir --break-system-packages /wheels/*.whl && \
+    \
+    # Verify required tools are present before finalising the image
+    which exiftool && \
+    which jpegtran && \
     \
     # Clean up apt and other unnecessary files to reduce image size
     apt-get purge -y --auto-remove python3-pip && \

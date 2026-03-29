@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.15 - not released
+
+### Added
+
+- More paranoia (!), `jpegtran` now used to strip JPEGS of metadata. This ensures all APP segmenst are removed, including those `exiftool` does not "know".
+
+- New pipeline for scrubbing. Save some metadata tags using `exiftool`, strip everything using `jpegtran`,  add the saved metadata using `exiftool`.
+
+- --paranoia cannot be used with --copyright and --comment,  `scrubexif` fails immediately.
+
 ## 0.7.14 - 2026-02-22
 
 ### Added

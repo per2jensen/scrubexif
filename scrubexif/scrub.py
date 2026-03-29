@@ -528,20 +528,16 @@ def is_file_stable(path: Path, state: dict, stable_seconds: int) -> bool:
 # EXIF config
 # ----------------------------
 
-EXIF_TAGS_TO_KEEP = [
+# Camera tags to extract from the source JPEG and restore after stripping.
+# ImageSize is a composite tag derived from the JPEG SOF segment, which
+# jpegtran preserves intact — no need to round-trip it through EXIF.
+TAGS_TO_EXTRACT: list[str] = [
     "ExposureTime",
     "FNumber",
-    "ImageSize",
     "FocalLength",
     "ISO",
     "Orientation",
 ]
-
-# ExifTool shortcut bundles we explicitly preserve (not tied to a single group).
-EXIFTOOL_SHORTCUTS = ["ColorSpaceTags"]
-
-# Restrict preserved tags to EXIF and XMP families only.
-TAG_GROUPS = ["EXIF", "XMP", "XMP-dc"]
 
 # Conservative limits (UTF-8 bytes) to avoid bloated EXIF/XMP segments.
 MAX_COPYRIGHT_BYTES = 1024
@@ -549,6 +545,17 @@ MAX_COMMENT_BYTES = 4096
 
 
 def _truncate_utf8(label: str, value: str, max_bytes: int) -> str:
+    """
+    Truncate a string to at most max_bytes UTF-8 bytes.
+
+    Args:
+        label: Human-readable name used in the warning log message.
+        value: String to truncate.
+        max_bytes: Maximum byte length of the result.
+
+    Returns:
+        The original string if it fits, otherwise a valid UTF-8 truncation.
+    """
     data = value.encode("utf-8")
     if len(data) <= max_bytes:
         return value
@@ -567,6 +574,16 @@ def _truncate_utf8(label: str, value: str, max_bytes: int) -> str:
 
 def build_stamp_args(copyright_text: str | None,
                      comment_text: str | None) -> list[str]:
+    """
+    Build exiftool arguments to stamp copyright and/or comment into a JPEG.
+
+    Args:
+        copyright_text: Copyright notice, or None to skip.
+        comment_text: Comment string, or None to skip.
+
+    Returns:
+        List of exiftool tag-assignment arguments.
+    """
     args: list[str] = []
     if copyright_text is not None:
         value = _truncate_utf8("Copyright notice", copyright_text, MAX_COPYRIGHT_BYTES)
@@ -579,60 +596,232 @@ def build_stamp_args(copyright_text: str | None,
     return args
 
 
-def build_preserve_args(paranoia: bool = False) -> list[str]:
-    args = []
-    seen = set()
-    tags = EXIF_TAGS_TO_KEEP.copy()
-    for tag in tags:
-        for group in TAG_GROUPS:
-            key = f"{group}:{tag}" if group else tag
-            if key not in seen:
-                args.append(f"-{key}")
-                seen.add(key)
-    if not paranoia:
-        for shortcut in EXIFTOOL_SHORTCUTS:
-            if shortcut not in seen:
-                args.append(f"-{shortcut}")
-                seen.add(shortcut)
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("Preserving tags: %s", " ".join(args))
-    return args
+# ----------------------------
+# jpegtran-based pipeline
+# ----------------------------
+
+def check_jpegtran() -> None:
+    """
+    Verify that jpegtran is available on PATH.
+
+    Exits with a clear error message if not found.
+    Install via: apt-get install libjpeg-turbo-progs
+    """
+    if not shutil.which("jpegtran"):
+        print(
+            "❌ jpegtran not found on PATH. "
+            "Install libjpeg-turbo-progs (Debian/Ubuntu) or equivalent.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
-def build_preview_cmd(input_path: Path, output_path: Path, paranoia: bool,
-                      copyright_text: str | None = None,
-                      comment_text: str | None = None) -> list[str]:
-    cmd = ["exiftool", "-P", "-m", "-all=", "-gps:all=", "-tagsFromFile", "@"]
-    cmd += build_preserve_args(paranoia=paranoia)
-    cmd += build_stamp_args(copyright_text, comment_text)
-    if paranoia:
-        cmd += ["-ICC_Profile:all="]
-    cmd += ["-o", str(output_path), str(input_path.absolute())]   #  security advice on https://exiftool.org/
-    return cmd
+def extract_wanted_tags(input_path: Path) -> dict[str, object]:
+    """
+    Extract the whitelist of EXIF tag values from a JPEG.
+
+    Uses exiftool with -n to obtain raw numeric values suitable for
+    round-tripping back into a clean JPEG via explicit tag assignments.
+    Tags absent from the source are silently omitted from the result.
+
+    Args:
+        input_path: Path to the source JPEG.
+
+    Returns:
+        Dict mapping tag name to raw value (str, int, or float).
+
+    Raises:
+        RuntimeError: If exiftool exits non-zero.
+    """
+    tag_args = [f"-{tag}" for tag in TAGS_TO_EXTRACT]
+    cmd = ["exiftool", "-j", "-n"] + tag_args + [str(input_path.absolute())]
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"exiftool tag extraction failed: {result.stderr.strip()}"
+        )
+    data = json.loads(result.stdout)
+    if not data:
+        return {}
+    return {k: v for k, v in data[0].items() if k != "SourceFile"}
 
 
-def build_exiftool_cmd(input_path: Path, output_path: Path | None = None,
-                       overwrite: bool = False, paranoia: bool = False,
-                       copyright_text: str | None = None,
-                       comment_text: str | None = None) -> list[str]:
-    cmd = ["exiftool"]
-    if overwrite:
-        cmd.append("-overwrite_original")
-    cmd += [
-        "-P",
-        "-all=",
-        "-gps:all=",
-        "-tagsFromFile", "@"
+def extract_icc_profile(input_path: Path, icc_path: Path) -> bool:
+    """
+    Extract the ICC colour profile from a JPEG to a binary file.
+
+    Args:
+        input_path: Source JPEG.
+        icc_path: Destination path for the raw ICC profile bytes.
+
+    Returns:
+        True if an ICC profile was found and written; False if none present.
+
+    Raises:
+        RuntimeError: If exiftool fails or the output file cannot be written.
+    """
+    cmd = ["exiftool", "-b", "-ICC_Profile", str(input_path.absolute())]
+    try:
+        with open(icc_path, "wb") as f:
+            result = subprocess.run(cmd, stdout=f, stderr=subprocess.PIPE)
+    except OSError as e:
+        raise RuntimeError(
+            f"Failed to write ICC profile to {icc_path}: {e}"
+        ) from e
+    if result.returncode != 0:
+        icc_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"exiftool ICC extraction failed: "
+            f"{result.stderr.decode(errors='replace').strip()}"
+        )
+    if not icc_path.exists() or icc_path.stat().st_size == 0:
+        icc_path.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def run_jpegtran(input_path: Path, output_path: Path) -> None:
+    """
+    Strip all JPEG APP segments with jpegtran -copy none.
+
+    Removes all metadata (EXIF, XMP, IPTC, ICC profile, and any unknown
+    proprietary APP segments) while preserving the image data losslessly.
+    The JPEG SOF segment — which carries image dimensions — is retained.
+
+    Args:
+        input_path: Source JPEG (not modified).
+        output_path: Destination path for the stripped JPEG.
+
+    Raises:
+        RuntimeError: If jpegtran exits non-zero or produces no output.
+    """
+    cmd = [
+        "jpegtran", "-copy", "none",
+        "-outfile", str(output_path.absolute()),
+        str(input_path.absolute()),
     ]
-    if paranoia:
-        cmd += ["-ICC_Profile:all="]
-    cmd += build_preserve_args(paranoia=paranoia)
-    cmd += build_stamp_args(copyright_text, comment_text)
-    if output_path:
-        cmd += ["-o", str(output_path)]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError as exc:
+        raise RuntimeError(f"Failed to run jpegtran: {exc}") from exc
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"jpegtran failed: {result.stderr.strip() or 'unknown error'}"
+        )
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise RuntimeError("jpegtran produced no output file")
 
-    cmd.append(str(input_path.absolute()))  # security advice on https://exiftool.org/
+
+def build_tag_writeback_cmd(
+    output_path: Path,
+    tags: dict[str, object],
+    icc_path: Optional[Path],
+    copyright_text: Optional[str],
+    comment_text: Optional[str],
+) -> list[str]:
+    """
+    Build an exiftool command to write back preserved tags and ICC profile.
+
+    The command modifies the file at output_path in-place using
+    -overwrite_original.
+
+    Args:
+        output_path: JPEG to write into.
+        tags: Dict of tag name to raw value as returned by extract_wanted_tags.
+        icc_path: Path to a raw ICC profile binary, or None to skip.
+        copyright_text: Optional copyright string to stamp.
+        comment_text: Optional comment string to stamp.
+
+    Returns:
+        argv list ready for subprocess.run.
+    """
+    # -n: write raw numeric values; without it exiftool mis-applies inverse
+    # print-conversion on integer tags (e.g. Orientation=1 stores as 3).
+    cmd = ["exiftool", "-overwrite_original", "-P", "-m", "-n"]
+    if icc_path is not None:
+        cmd.append(f"-icc_profile<={icc_path.absolute()}")
+    for tag, value in tags.items():
+        if value is None:
+            continue
+        cmd.append(f"-EXIF:{tag}={value}")
+    cmd += build_stamp_args(copyright_text, comment_text)
+    cmd.append(str(output_path.absolute()))
     return cmd
+
+
+def _do_scrub_pipeline(
+    input_path: Path,
+    output_path: Path,
+    paranoia: bool,
+    copyright_text: Optional[str],
+    comment_text: Optional[str],
+) -> None:
+    """
+    Core scrub pipeline — shared by scrub_file and preview mode.
+
+    Paranoia mode:
+        jpegtran -copy none only.  Zero metadata in the output.
+
+    Normal mode (three steps):
+        1. exiftool extracts the tag whitelist and ICC profile from the source.
+        2. jpegtran -copy none strips all APP segments.
+        3. exiftool writes the whitelist tags and ICC profile back.
+
+    Args:
+        input_path: Source JPEG (never modified).
+        output_path: Destination for the scrubbed JPEG.
+        paranoia: True for zero-metadata output.
+        copyright_text: Copyright notice to stamp (normal mode only).
+        comment_text: Comment to stamp (normal mode only).
+
+    Raises:
+        RuntimeError: On any subprocess failure.
+    """
+    if paranoia:
+        run_jpegtran(input_path, output_path)
+        return
+
+    # Step 1 — extract tag values and ICC profile from the original.
+    tags = extract_wanted_tags(input_path)
+    log.debug("Extracted tags from %s: %s", input_path.name, tags)
+
+    icc_fd, icc_tmp_str = tempfile.mkstemp(
+        suffix=".icc", dir=output_path.parent, prefix=".scrubexif_icc_"
+    )
+    os.close(icc_fd)
+    icc_tmp = Path(icc_tmp_str)
+
+    try:
+        has_icc = extract_icc_profile(input_path, icc_tmp)
+        if not has_icc:
+            icc_tmp.unlink(missing_ok=True)
+            icc_tmp = None
+            log.debug("No ICC profile found in %s", input_path.name)
+
+        # Step 2 — strip everything with jpegtran.
+        run_jpegtran(input_path, output_path)
+
+        # Step 3 — write back the whitelist (skip if nothing to restore).
+        if tags or icc_tmp or copyright_text or comment_text:
+            writeback_cmd = build_tag_writeback_cmd(
+                output_path, tags, icc_tmp, copyright_text, comment_text
+            )
+            if log.isEnabledFor(logging.DEBUG):
+                log.debug("Tag write-back command: %s", " ".join(writeback_cmd))
+            wb_result = subprocess.run(
+                writeback_cmd,
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace",
+            )
+            if wb_result.returncode != 0:
+                raise RuntimeError(
+                    f"exiftool write-back failed: {wb_result.stderr.strip()}"
+                )
+    finally:
+        if icc_tmp is not None:
+            icc_tmp.unlink(missing_ok=True)
 
 
 def print_tags(file: Path, label: str = ""):
@@ -742,30 +931,18 @@ def scrub_file(
             status="error",
             error_message=err_msg
         )
-    cmd = build_exiftool_cmd(
-        input_path,
-        output_path=temp_output,
-        overwrite=False,
-        paranoia=paranoia,
-        copyright_text=copyright_text,
-        comment_text=comment_text,
-    )
-
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("Running ExifTool command: %s", " ".join(cmd))
-
     if show_tags_mode in {"before", "both"}:
         print_tags(input_path, label="before")
 
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
+        _do_scrub_pipeline(
+            input_path,
+            temp_output,
+            paranoia=paranoia,
+            copyright_text=copyright_text,
+            comment_text=comment_text,
         )
-    except Exception as exc:
+    except RuntimeError as exc:
         temp_output.unlink(missing_ok=True)
         err_msg = str(exc)
         print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
@@ -773,17 +950,7 @@ def scrub_file(
             input_path=input_path,
             output_path=output_file,
             status="error",
-            error_message=err_msg
-        )
-    if result.returncode != 0:
-        temp_output.unlink(missing_ok=True)
-        err_msg = result.stderr.strip().splitlines()[0] if result.stderr else "Unknown error"
-        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
-        return ScrubResult(
-            input_path=input_path,
-            output_path=output_file,
-            status="error",
-            error_message=err_msg
+            error_message=err_msg,
         )
 
     if not temp_output.exists():
@@ -1156,34 +1323,28 @@ def manual_scrub(files: list[Path],
 
     if preview or (dry_run and show_tags_mode in {"after", "both"} and len(targets) == 1):
         f = targets[0]
-        from tempfile import NamedTemporaryFile
-        temp = NamedTemporaryFile(suffix=".jpg", delete=False)
-        temp_path = Path(temp.name)
-        temp.close()
-        shutil.copy(f, temp_path)
-        preview_input = temp_path
+        preview_fd, preview_tmp_str = tempfile.mkstemp(suffix=".jpg")
+        os.close(preview_fd)
+        preview_input = Path(preview_tmp_str)
+        shutil.copy(f, preview_input)
         preview_output = preview_input.with_suffix(".scrubbed.jpg")
 
-        cmd = build_preview_cmd(
-            preview_input,
-            preview_output,
-            paranoia=paranoia,
-            copyright_text=copyright_text,
-            comment_text=comment_text,
-        )
-        if log.isEnabledFor(logging.DEBUG):
-            log.debug("Preview mode: %s", " ".join(cmd))
-
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"❌ Preview scrub failed: {result.stderr.strip()}")
-        else:
+        try:
+            _do_scrub_pipeline(
+                preview_input,
+                preview_output,
+                paranoia=paranoia,
+                copyright_text=copyright_text,
+                comment_text=comment_text,
+            )
             if show_tags_mode in {"before", "both"}:
                 print_tags(f, label="before")
             print_tags(preview_output, label="after")
-
-        preview_input.unlink(missing_ok=True)
-        preview_output.unlink(missing_ok=True)
+        except RuntimeError as exc:
+            print(f"❌ Preview scrub failed: {exc}")
+        finally:
+            preview_input.unlink(missing_ok=True)
+            preview_output.unlink(missing_ok=True)
 
         print("📊 Preview complete — original file was not modified.")
         return summary
@@ -1296,6 +1457,17 @@ def _run_inner(args: argparse.Namespace) -> int:
         show_version()
         sys.exit(0)
 
+    check_jpegtran()
+
+    # --paranoia removes all metadata; --copyright and --comment are incompatible.
+    if args.paranoia and (args.copyright or args.comment):
+        print(
+            "❌ --paranoia removes all metadata. "
+            "--copyright and --comment cannot be combined with --paranoia.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # Mode sanity checks
     if args.clean_inline and args.from_input:
         print("❌ --clean-inline and --from-input cannot be used together.", file=sys.stderr)
@@ -1394,7 +1566,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
     parser.add_argument("--paranoia", action="store_true",
-                        help="Maximum metadata scrubbing — removes ICC profile")
+                        help="Maximum scrubbing: jpegtran -copy none only — zero metadata output. "
+                             "Incompatible with --copyright and --comment.")
     parser.add_argument("--preview", action="store_true",
                         help="Preview scrub effect on one file without modifying it")
     parser.add_argument("--show-container-paths", action="store_true",

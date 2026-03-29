@@ -27,11 +27,11 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-**High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. The most excellent [Exiftool](https://exiftool.org/) is used to process the JPEGs.
+**High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. Uses [jpegtran](https://ijg.org/) for a byte-level APP segment wipe, then [ExifTool](https://exiftool.org/) to write back a small allowlist of technical tags — closing the gap that parser-based tools leave open for unknown or proprietary segments.
 
 > **Promise:** scrubexif will not write an unscrubbed JPEG into an output directory.  
 If a scrub fails for any reason, **no output file is created** for that JPEG.
-<sub>This is true when writing scrubbed JPEGS to an output directory, **not** if you scrub JPEGS inline. Scrubbing quality depends on `exiftool's` ability to remove exif data</sub>
+<sub>This is true when writing scrubbed JPEGs to an output directory, **not** if you scrub JPEGs inline. The jpegtran byte-level strip ensures removal of all APP segments, including unknown or proprietary ones that parser-based tools cannot see.</sub>
 
 **Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)  
  This README is intentionally short for Docker Hub visibility.
@@ -162,14 +162,19 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 ## Key Features
 
-- Allowlist-based scrubbing: preserves a small set of technical tags (exposure, ISO, focal length, orientation, image size)
-- Removes GPS, serial numbers, and other private metadata
-- Preserves color profiles by default (use `--paranoia` to remove ICC data)
+- Allowlist-based scrubbing: jpegtran strips all JPEG APP segments at the byte level (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation)
+- Removes GPS, serial numbers, maker notes, and all other private metadata — including segments invisible to parser-based tools
+- Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the jpegtran strip
 - Auto mode with duplicate handling (`--on-duplicate delete|move`)
 - Optional stability gate for hot upload directories (`--stable-seconds`, `--state-file`)
 - Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
 - Optional stamping of copyright and comment into EXIF/XMP (`--copyright`, `--comment`)
 - Hardened container defaults in examples (read-only + no-new-privileges)
+
+## Acknowledgements
+
+- [ExifTool](https://exiftool.org/) by Phil Harvey — used for metadata extraction and selective tag write-back (GPL-1.0-or-later / Artistic License)
+- [jpegtran](https://ijg.org/) from libjpeg-turbo — used for lossless byte-level JPEG transformation (IJG / BSD licence)
 
 ## Supply Chain Transparency
 
@@ -184,7 +189,7 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             no write, view only
-    --paranoia            maximum scrub, removes ICC
+    --paranoia            byte-level wipe via jpegtran only — zero metadata survives (no EXIF, no ICC)
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP
     --on-duplicate        delete | move

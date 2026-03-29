@@ -16,7 +16,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from scrubexif.scrub import EXIF_TAGS_TO_KEEP as REQUIRED_TAGS
+from scrubexif.scrub import TAGS_TO_EXTRACT as REQUIRED_TAGS
 
 # Centralized docker helpers (tmpfs + envs + user flag)
 from tests._docker import mk_mounts, run_container

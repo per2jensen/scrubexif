@@ -65,9 +65,8 @@ def test_simple_mode_creates_output_and_processes_all_jpeg_extensions(tmp_path, 
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         commands.append(cmd)
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"scrubbed")
+        if "-outfile" in cmd:
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
         class R:
             returncode = 0
             stdout = ""
@@ -118,10 +117,8 @@ def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
         original_bytes[p] = data
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
-        # Simulate exiftool success without touching any files
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"scrubbed")
+        if "-outfile" in cmd:
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
         class R:
             returncode = 0
             stdout = ""
@@ -182,9 +179,8 @@ def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
     (photos_root / "one.jpg").write_bytes(b"jpeg")
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
-        if "-o" in cmd:
-            target = Path(cmd[cmd.index("-o") + 1])
-            target.write_bytes(b"scrubbed")
+        if "-outfile" in cmd:
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
         class R:
             returncode = 0
             stdout = ""
