@@ -8,6 +8,9 @@ on:
     - cron: "7 1 * * *"  # every night at 01:07 UTC
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   update-pulls:
     runs-on: ubuntu-24.04
