@@ -26,6 +26,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y exiftool libjpeg-turbo-progs
+
       - name: Install pytest & tools
         run: |
           python -m pip install --upgrade pip

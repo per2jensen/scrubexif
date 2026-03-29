@@ -25,7 +25,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y exiftool
+        run: sudo apt-get update && sudo apt-get install -y exiftool libjpeg-turbo-progs
 
       - name: Install Python dependencies
         run: |
