@@ -48,6 +48,12 @@ jobs:
           make dev-clean
           make test
 
+      - name: Dry-run release
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          make FINAL_VERSION=${{ env.FINAL_VERSION }} dry-run-release
+
       - name: Make final version
         run: |
           make FINAL_VERSION=${{ env.FINAL_VERSION }} final
@@ -147,6 +153,19 @@ jobs:
           echo "rekor_index=${REKOR_INDEX}" >> $GITHUB_OUTPUT
           echo "Rekor entry: ${REKOR_URL}"
 
+      # --- cosign: write failure badge if signing failed ---
+      - name: Write cosign failure badge
+        if: failure() && steps.cosign_sign.outcome == 'failure'
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          python3 scripts/write_cosign_badge.py --failed
+          git add doc/cosign_badge.json
+          if ! git diff --quiet doc/cosign_badge.json; then
+            git commit -m "cosign badge: signing failed for ${{ env.FINAL_VERSION }}"
+            git push origin HEAD
+          fi
+
       # --- cosign: attach the SBOM as a signed in-toto attestation ---
       - name: Attach SBOM attestation with cosign
         env:
@@ -177,6 +196,10 @@ jobs:
           export SBOM_RELEASE_ASSET_URL="https://github.com/${{ github.repository }}/releases/download/v${{ env.FINAL_VERSION }}/sbom-${{ env.FINAL_VERSION }}.spdx.json"
 
           make FINAL_VERSION=${{ env.FINAL_VERSION }} log-build-json
+
+          # Update cosign badge to reflect successful signing.
+          python3 scripts/write_cosign_badge.py
+          git add doc/cosign_badge.json
 
           # Add clonepulse annotation: "Rel. <version>"
           python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"

@@ -19,6 +19,10 @@
   <img alt="Milestone" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/milestone_badge.json"/>
 </a>
 
+<a href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification">
+  <img alt="cosign verified" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/doc/cosign_badge.json"/>
+</a>
+
 <sub>🎯 Stats powered by <a href="https://github.com/per2jensen/clonepulse">ClonePulse</a></sub>
 
 </div>
@@ -178,9 +182,24 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 ## Supply Chain Transparency
 
-- Releases are produced by the public **Release** GitHub Actions workflow (`.github/workflows/release.yml`), which builds the Docker image, runs Syft to generate an SPDX SBOM, and scans the image with Grype (failing on high/critical CVEs). CI (`.github/workflows/CI.yml`) runs tests only.
-- Release assets include the SBOM (`sbom-v<version>.spdx.json`) and the Grype SARIF report (`grype-results-<version>.sarif`). The SARIF is also uploaded to the GitHub Security tab and kept as an Actions artifact → see the **[Releases tab](https://github.com/per2jensen/scrubexif/releases)** for release assets.
-- `doc/build-history.json` tracks each tag with the Git commit, image digest, and (when available) the Grype severity counts, giving downstream users a verifiable audit trail.
+Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied to the exact GitHub Actions run that built the image — no long-lived signing keys exist anywhere. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
+
+**Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
+
+```bash
+cosign verify per2jensen/scrubexif:0.7.16 \
+  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+```
+
+A successful verification prints the signing certificate, which includes the exact workflow URL, the Git commit SHA, and the GitHub Actions run URL — proving provenance down to the individual CI run.
+
+Full details on installation, verification, and what the certificate fields mean → [`doc/DETAILS.md#image-signing-and-supply-chain-verification`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification)
+
+**Additional supply chain artefacts per release:**
+- SPDX SBOM (`sbom-<version>.spdx.json`) — attached to each GitHub Release and as a signed in-toto attestation on the image itself
+- Grype vulnerability scan (`grype-results-<version>.sarif`) — attached to the release, uploaded to the GitHub Security tab; releases are blocked on any high or critical CVE
+- `doc/build-history.json` — tracks every release with Git commit, image digest, Grype counts, cosign Rekor log entry, and CI run URL
 
 ## Common Options
 

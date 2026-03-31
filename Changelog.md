@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.17 - not released
+
+## 0.7.16 - 2026-03-31
+
+### Added
+
+- `cosign` of released image and SBOM. See more at [DETAILS.md](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification)
+
 ## 0.7.15 - 2026-03-29
 
 ### Added

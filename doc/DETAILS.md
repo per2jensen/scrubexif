@@ -65,6 +65,15 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Docker Images](#docker-images)
   - [Viewing Metadata](#viewing-metadata)
   - [Inspecting the Image Itself](#inspecting-the-image-itself)
+  - [Image Signing and Supply Chain Verification](#image-signing-and-supply-chain-verification)
+    - [The problem cosign solves](#the-problem-cosign-solves)
+    - [Installing cosign](#installing-cosign)
+    - [Verifying a release image](#verifying-a-release-image)
+    - [Verifying the SBOM attestation](#verifying-the-sbom-attestation)
+    - [Checking the Rekor transparency log entry](#checking-the-rekor-transparency-log-entry)
+    - [What a verified certificate looks like](#what-a-verified-certificate-looks-like)
+    - [Why sign by digest, not tag?](#why-sign-by-digest-not-tag)
+    - [Supply chain artefacts in build-history.json](#supply-chain-artefacts-in-build-historyjson)
   - [Dev setup](#dev-setup)
   - [Test Image](#test-image)
   - [License](#license)
@@ -72,6 +81,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Feedback](#feedback)
   - [Project Homepage](#project-homepage)
   - [Reference](#reference)
+    - [CLI Options (`scrubexif.py`)](#cli-options-scrubexifpy)
 
 ## Quick Start
 
@@ -594,6 +604,137 @@ You can also check the digest and ID:
 ```bash
 VERSION=0.7.16; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
+
+## Image Signing and Supply Chain Verification
+
+### The problem cosign solves
+
+When you pull a Docker image you are trusting that the bytes you download are exactly what the author intended. Without a signature, three things can go wrong without you knowing: the image could be tampered with on Docker Hub, a compromised build machine could have injected malicious layers, or someone could push a rogue image to the same repository name. A signed image closes all three gaps.
+
+`scrubexif` uses [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. Every release image (starting with 0.7.16) is signed by the GitHub Actions runner that built it, using a short-lived certificate issued by Sigstore's certificate authority and anchored to a GitHub OIDC token. The signature and certificate are recorded permanently in the [Rekor](https://rekor.sigstore.dev) transparency log — a public, append-only audit ledger. No long-lived private key exists anywhere; there is nothing to leak, rotate, or protect.
+
+When you verify an image, cosign checks three things simultaneously:
+
+1. The cryptographic signature matches the image digest — confirming the image was not modified after signing
+2. The signing certificate was issued to the exact GitHub Actions workflow in this repository — confirming it was not signed by some other party
+3. The certificate and signature are present in the Rekor transparency log — confirming the signature was made publicly and cannot be silently revoked
+
+### Installing cosign
+
+**Linux (amd64):**
+```bash
+curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 \
+  -o /usr/local/bin/cosign
+chmod +x /usr/local/bin/cosign
+```
+
+**macOS (Homebrew):**
+```bash
+brew install cosign
+```
+
+**Windows:**
+```powershell
+winget install sigstore.cosign
+```
+
+Or download a binary directly from the [cosign releases page](https://github.com/sigstore/cosign/releases).
+
+### Verifying a release image
+
+Replace `0.7.16` with the version you pulled:
+
+```bash
+cosign verify per2jensen/scrubexif:0.7.16 \
+  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+```
+
+A successful result prints a JSON array containing the signing certificate details, followed by a confirmation line. The key fields to look at in the certificate:
+
+| Field | What it proves |
+|---|---|
+| `Build Signer URI` | The exact workflow file that performed the signing |
+| `GitHub Workflow SHA` | The Git commit the image was built from |
+| `Run Invocation URI` | A direct link to the GitHub Actions run |
+| `Runner Environment` | `github-hosted` — signed on GitHub's own infrastructure |
+| `OIDC Issuer` | `token.actions.githubusercontent.com` — GitHub issued the identity token |
+| `Source Repository URI` | `https://github.com/per2jensen/scrubexif` — your expected repository |
+
+If any of these fields are wrong or missing, the verification fails. You cannot spoof them — they are bound into the certificate by Sigstore at signing time.
+
+### Verifying the SBOM attestation
+
+Each release also attaches the SPDX SBOM as a signed [in-toto attestation](https://in-toto.io/) directly to the image in the registry. You can retrieve and verify it:
+
+```bash
+cosign verify-attestation per2jensen/scrubexif:0.7.16 \
+  --type spdxjson \
+  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+  | jq '.payload | @base64d | fromjson | .predicate.name'
+```
+
+This confirms that the SBOM was produced by the same workflow that built the image, not added separately after the fact.
+
+### Checking the Rekor transparency log entry
+
+Every release's `doc/build-history.json` records the Rekor log URL for that release. You can also look it up directly:
+
+```bash
+# Get the image digest
+DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
+  per2jensen/scrubexif:0.7.16 | cut -d'@' -f2)
+
+# Search Rekor for entries matching this digest
+rekor-cli search --sha "$DIGEST"
+```
+
+Or simply visit the URL recorded in `build-history.json` under `cosign.rekor_log_entry` for that release — for example, the 0.7.16 entry is at `https://search.sigstore.dev/?logIndex=1203521350`.
+
+### What a verified certificate looks like
+
+Here is the actual certificate from the `0.7.16` release for reference:
+
+```
+Build Signer URI:          https://github.com/per2jensen/scrubexif/.github/workflows/release.yml@refs/heads/main
+Build Signer Digest:       df28a7e75b33da47830aefe715a53dad738fc5fa
+GitHub Workflow Trigger:   workflow_dispatch
+GitHub Workflow Name:      Manual Docker Release
+GitHub Workflow Repository: per2jensen/scrubexif
+Runner Environment:        github-hosted
+Source Repository URI:     https://github.com/per2jensen/scrubexif
+Source Repository Ref:     refs/heads/main
+OIDC Issuer:               https://token.actions.githubusercontent.com
+Run Invocation URI:        https://github.com/per2jensen/scrubexif/actions/runs/23804852692/attempts/1
+```
+
+### Why sign by digest, not tag?
+
+Docker tags are mutable — the same tag can point to a different image at any time. `scrubexif` signs the image by its immutable `sha256` digest, so the signature is permanently bound to a specific set of bytes. Even if someone pushed a different image under the same tag, the signature would not match and verification would fail.
+
+### Supply chain artefacts in build-history.json
+
+From release `0.7.16` onwards, each entry in `doc/build-history.json` includes:
+
+```json
+"cosign": {
+  "signed": true,
+  "rekor_log_entry": "https://search.sigstore.dev/?logIndex=1203521350",
+  "image_digest": "per2jensen/scrubexif@sha256:b48daee1..."
+},
+"sbom": {
+  "file": "sbom-0.7.16.spdx.json",
+  "release_asset_url": "https://github.com/per2jensen/scrubexif/releases/download/v0.7.16/sbom-0.7.16.spdx.json"
+},
+"build": {
+  "runner": "Linux-X64",
+  "github_run_id": "23804852692",
+  "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/23804852692"
+}
+```
+
+This gives every release a permanent, human-readable audit trail linking the Docker image digest to the exact source commit, the CI run that built it, the Sigstore transparency log entry, and the SBOM.
 
 ## Dev setup
 
