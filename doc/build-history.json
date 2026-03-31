@@ -413,5 +413,21 @@
         "unknown": 0
       }
     }
+  },
+  {
+    "build_number": 28,
+    "tag": "dev",
+    "base_image": "scrubexif-base:24.04-dev",
+    "git_revision": "df28a7e",
+    "created": "2026-03-31T15:15:36Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/dev",
+    "digest": "",
+    "image_id": "sha256:5357ee4a512efe0560efb778e63d8f72c7b22a1e4c3bb50071f9f9195e921dfa",
+    "sbom": {
+      "file": "sbom-dev.spdx.json"
+    },
+    "build": {
+      "github_run_id": "23804852692"
+    }
   }
 ]
