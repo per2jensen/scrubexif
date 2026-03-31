@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+.dryrun/
+
 # OS files
 .DS_Store
 Thumbs.db

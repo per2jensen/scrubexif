@@ -13,6 +13,11 @@ def test_exiftool_available():
     assert cp.returncode == 0
 
 
+def test_jpegtran_available():
+    cp = run_container(entrypoint="jpegtran", args=["-version"])
+    assert cp.returncode == 0
+
+
 def test_scrubexif_invokable():
     cp = run_container(args=["--version"])
     assert cp.returncode == 0
