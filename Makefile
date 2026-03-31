@@ -157,9 +157,13 @@ _dryrun-release-internal: check_version
 release: check_version update-scrub-version final verify-cli-version verify-labels test-release update-details-version login push log-build-json
 	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
 
-
+	@if [ "$(FINAL_VERSION)" = "dev" ]; then \
+		echo "ℹ️ Skipping build log for dev build"; \
+		exit 0; \
+	fi
 
 log-build-json: check_version
+
 	@mkdir -p $(BUILD_LOG_DIR)
 	@test -f $(BUILD_LOG_PATH) || echo "[]" > $(BUILD_LOG_PATH)
 
