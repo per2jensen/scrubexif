@@ -177,7 +177,7 @@ log-build-json: check_version
 		fi; \
 	fi
 
-	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION)))
+	$(eval IMAGE_ID := $(shell docker inspect --format '{{ .Id }}' $(FINAL_IMAGE_NAME):$(FINAL_VERSION) 2>/dev/null || echo ""))
 	@if [ -z "$(IMAGE_ID)" ]; then \
 		echo "❌ Image ID not found. Did you build the final image?"; \
 		exit 1; \
@@ -187,10 +187,16 @@ log-build-json: check_version
 	$(eval BUILD_NUMBER := $(shell test -f $(BUILD_LOG_PATH) && jq length $(BUILD_LOG_PATH) || echo 0))
 
 	@GRYPE_SARIF="grype-results-$(FINAL_VERSION).sarif"; \
+	SBOM_FILE="sbom-$(FINAL_VERSION).spdx.json"; \
 	if [ -f "$$GRYPE_SARIF" ]; then \
 	  echo "ℹ️ Including Grype scan summary from $$GRYPE_SARIF"; \
 	else \
 	  echo "ℹ️ No Grype SARIF file found at $$GRYPE_SARIF; skipping vulnerability summary."; \
+	fi; \
+	if [ -f "$$SBOM_FILE" ]; then \
+	  echo "ℹ️ Including SBOM reference: $$SBOM_FILE"; \
+	else \
+	  echo "ℹ️ No SBOM file found at $$SBOM_FILE; skipping SBOM metadata."; \
 	fi; \
 	python3 scripts/update_build_log.py \
 	  --log "$(BUILD_LOG_PATH)" \
@@ -202,7 +208,15 @@ log-build-json: check_version
 	  --url "https://hub.docker.com/r/$(DOCKERHUB_REPO)/tags/$(FINAL_VERSION)" \
 	  --digest "$(DIGEST_ONLY)" \
 	  --image-id "$(IMAGE_ID)" \
-	  --grype-sarif "$$GRYPE_SARIF"
+	  --grype-sarif "$$GRYPE_SARIF" \
+	  --sbom-file "$$SBOM_FILE" \
+	  --sbom-release-asset-url "$${SBOM_RELEASE_ASSET_URL:-}" \
+	  --cosign-signed "$${COSIGN_SIGNED:-false}" \
+	  --cosign-rekor-url "$${COSIGN_REKOR_URL:-}" \
+	  --cosign-image-digest "$${COSIGN_IMAGE_DIGEST:-}" \
+	  --build-runner "$${BUILD_RUNNER:-}" \
+	  --github-run-id "$${GITHUB_RUN_ID:-}" \
+	  --github-run-url "$${GITHUB_RUN_URL:-}"
 
 	@echo "🔄 Checking if $(BUILD_LOG_PATH) changed"
 	@if ! git diff --quiet $(BUILD_LOG_PATH); then \
