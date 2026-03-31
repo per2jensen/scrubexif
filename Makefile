@@ -150,7 +150,7 @@ dry-run-release:
 
 _dryrun-release-internal: check_version
 	@echo "🔧 Building image scrubexif:$(FINAL_VERSION) (dry-run, no push to Docker Hub)"
-	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-details-version log-build-json
+	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-details-version
 	@make FINAL_VERSION=$(FINAL_VERSION) verify-cli-version --no-print-directory
 
 
