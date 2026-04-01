@@ -99,6 +99,24 @@ def test_scrub_file_exception_does_not_create_output(tmp_path, monkeypatch):
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir())
 
 
+def test_scrub_file_skip_leaves_original_untouched(tmp_path):
+    """on_duplicate='skip': when the output already exists scrub_file must return
+    status='skipped' and leave the original byte-for-byte intact."""
+    original_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    input_file = tmp_path / "photo.jpg"
+    input_file.write_bytes(original_bytes)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    existing_output = output_dir / input_file.name
+    existing_output.write_bytes(b"previously-scrubbed")
+
+    result = scrub.scrub_file(input_file, output_path=output_dir, on_duplicate="skip")
+
+    assert result.status == "skipped", "Expected status='skipped' when output exists"
+    assert input_file.read_bytes() == original_bytes, "Original must not be modified"
+    assert existing_output.read_bytes() == b"previously-scrubbed", "Existing output must not be overwritten"
+
+
 def test_in_place_failure_keeps_original(tmp_path, monkeypatch):
     input_file = tmp_path / "inplace.jpg"
     original = b"original"

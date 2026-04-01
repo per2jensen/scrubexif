@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.18 - 2026-04-01
+
+### Fixed
+
+- `simple_scrub` no longer deletes originals on a second run: duplicates are now skipped (output preserved, original untouched) instead of being deleted.
+- Removed `on_duplicate` parameter from `simple_scrub`; safe mode always uses `skip` policy.
+
+### Tests
+
+- `test_scrub_file_skip_leaves_original_untouched`: verifies `on_duplicate="skip"` returns `status="skipped"` and leaves original byte-identical.
+- `test_simple_scrub_second_run_skips_and_preserves_originals`: verifies a second run skips already-scrubbed files without touching originals.
+- `test_simple_scrub_on_duplicate_delete_ignored_originals_safe`: verifies `--on-duplicate delete` is never forwarded to `simple_scrub`.
+
 ## 0.7.17 - 2026-04-01
 
 ### Added

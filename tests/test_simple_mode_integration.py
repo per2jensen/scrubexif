@@ -96,7 +96,6 @@ def test_simple_mode_scrubs_all_jpeg_variants_and_preserves_originals(tmp_path, 
         show_tags_mode=None,
         paranoia=True,
         max_files=None,
-        on_duplicate="delete",
     )
 
     # 1) Output directory is automatically created
@@ -150,7 +149,6 @@ def test_simple_mode_removes_gps_metadata_in_output(tmp_path, monkeypatch):
         show_tags_mode=None,
         paranoia=True,
         max_files=None,
-        on_duplicate="delete",
     )
 
     scrubbed = output_dir / original.name

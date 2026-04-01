@@ -904,7 +904,11 @@ def scrub_file(
             print(f"🚫 [dry-run] Would detect duplicate: {_format_path_with_host(output_file)}")
             return ScrubResult(input_path, output_file, status="duplicate")
 
-        if on_duplicate == "delete":
+        if on_duplicate == "skip":
+            print(f"⏭️  Output already exists — skipping (original untouched): {_format_path_with_host(input_path)}")
+            return ScrubResult(input_path, output_file, status="skipped")
+
+        elif on_duplicate == "delete":
             print(f"🗑️  Duplicate detected — deleting {_format_path_with_host(input_path)}")
             input_path.unlink(missing_ok=True)
             return ScrubResult(input_path, output_file, status="duplicate")
@@ -1174,7 +1178,6 @@ def simple_scrub(summary: ScrubSummary,
                  show_tags_mode: str | None = None,
                  paranoia: bool = True,
                  max_files: int | None = None,
-                 on_duplicate: str = "delete",
                  output_explicit: bool = False,
                  copyright_text: str | None = None,
                  comment_text: str | None = None) -> ScrubSummary:
@@ -1182,7 +1185,12 @@ def simple_scrub(summary: ScrubSummary,
     Default safe mode:
       - Scan /photos for JPEGs (non-recursive by default, -r respected)
       - Write scrubbed copies to /photos/output
-      - Leave originals in place.
+      - Leave originals untouched in place — always.
+
+    If the output file already exists (e.g. on a second run into the same
+    output directory), the input is skipped and the original is never touched.
+    on_duplicate is intentionally not exposed here; "skip" is hardcoded to
+    preserve the safe-mode guarantee.
 
     Intended for the "one-liner" use case:
 
@@ -1274,7 +1282,7 @@ def simple_scrub(summary: ScrubSummary,
             dry_run=False,
             show_tags_mode=show_tags_mode,
             paranoia=paranoia,
-            on_duplicate=on_duplicate,
+            on_duplicate="skip",  # safe mode: never delete or move originals
             copyright_text=copyright_text,
             comment_text=comment_text,
         )
@@ -1569,7 +1577,6 @@ def _run_inner(args: argparse.Namespace) -> int:
             show_tags_mode=args.show_tags,
             paranoia=args.paranoia,
             max_files=args.max_files,
-            on_duplicate=args.on_duplicate,
             output_explicit=bool(args.output),
             copyright_text=args.copyright,
             comment_text=args.comment,

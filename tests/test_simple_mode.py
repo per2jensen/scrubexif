@@ -83,7 +83,6 @@ def test_simple_mode_creates_output_and_processes_all_jpeg_extensions(tmp_path, 
         show_tags_mode=None,
         paranoia=True,
         max_files=None,
-        on_duplicate="delete",
     )
 
     # Output directory must have been created
@@ -135,7 +134,6 @@ def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
         show_tags_mode=None,
         paranoia=True,
         max_files=None,
-        on_duplicate="delete",
     )
 
     # Sanity: the run actually processed the files
@@ -161,7 +159,6 @@ def test_default_mode_warns_and_exits_when_output_exists(tmp_path, monkeypatch, 
             show_tags_mode=None,
             paranoia=True,
             max_files=None,
-            on_duplicate="delete",
         )
 
     assert excinfo.value.code == 1
@@ -234,8 +231,78 @@ def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
         show_tags_mode=None,
         paranoia=True,
         max_files=None,
-        on_duplicate="delete",
     )
 
     assert custom_output.is_dir()
     assert summary.scrubbed == 1
+
+
+def test_simple_scrub_second_run_skips_and_preserves_originals(tmp_path, monkeypatch):
+    """On a second run into the same output directory, simple_scrub must skip files
+    whose output already exists and leave originals byte-for-byte intact."""
+    photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
+    output_dir.mkdir(parents=True)
+
+    original_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    photo = photos_root / "photo.jpg"
+    photo.write_bytes(original_bytes)
+    # Simulate a previous run: output already exists
+    (output_dir / photo.name).write_bytes(b"previously-scrubbed")
+
+    scrub_called = False
+
+    def fake_run(*_a, **_kw):
+        nonlocal scrub_called
+        scrub_called = True
+
+    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary, output_explicit=True)
+
+    assert not scrub_called, "Subprocess (jpegtran/exiftool) must not run when output already exists"
+    assert photo.read_bytes() == original_bytes, "Original must be byte-identical after skipping"
+    assert (output_dir / photo.name).read_bytes() == b"previously-scrubbed", \
+        "Existing output must not be overwritten"
+    assert summary.scrubbed == 0
+    assert summary.skipped == 1
+
+
+def test_simple_scrub_on_duplicate_delete_ignored_originals_safe(tmp_path, monkeypatch, capsys):
+    """Even if --on-duplicate delete is passed at CLI level, simple_scrub must
+    never delete originals — the on_duplicate parameter is not forwarded to simple_scrub."""
+    import sys
+    dirs = {
+        "root": tmp_path / "photos",
+        "output": tmp_path / "photos" / "output",
+    }
+    dirs["root"].mkdir()
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", dirs["root"])
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", dirs["output"])
+    monkeypatch.setattr(scrub, "INPUT_DIR", dirs["root"] / "input")
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", dirs["root"] / "processed")
+    monkeypatch.setattr(scrub, "ERRORS_DIR", dirs["root"] / "errors")
+    monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
+    monkeypatch.setattr(scrub, "_resolve_state_path_from_env", lambda: None)
+
+    original_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    photo = dirs["root"] / "photo.jpg"
+    photo.write_bytes(original_bytes)
+
+    simple_calls: list[dict] = []
+
+    def fake_simple_scrub(summary, **kwargs):
+        # Verify on_duplicate is NOT in kwargs (was not forwarded)
+        simple_calls.append(kwargs)
+        return summary
+
+    monkeypatch.setattr(scrub, "simple_scrub", fake_simple_scrub)
+    monkeypatch.setattr(sys, "argv", ["scrub", "--on-duplicate", "delete"])
+
+    scrub.main()
+
+    assert len(simple_calls) == 1
+    assert "on_duplicate" not in simple_calls[0], \
+        "--on-duplicate must not be forwarded to simple_scrub"
+    assert photo.read_bytes() == original_bytes, "Original must be untouched"
