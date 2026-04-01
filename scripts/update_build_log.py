@@ -93,6 +93,11 @@ def _truthy(value: str) -> bool:
 
 def main() -> None:
     args = parse_args()
+
+    if args.version == "dev":
+        print("ℹ️  Skipping build log for dev build")
+        return
+
     log_path = pathlib.Path(args.log)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 

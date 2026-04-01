@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.19 - 2026-04-01
+
+### Fixed
+
+- `log-build-json` Makefile target and `update_build_log.py` now skip writing to `build-history.json` when `FINAL_VERSION=dev`, preventing dev builds from polluting the release history. Previously, the guard in the `release` target was dead code (dependency ran before the check); fixed with a Make-level `ifeq` in `log-build-json` and an early return in the Python script.
+
 ## 0.7.18 - 2026-04-01
 
 ### Fixed
