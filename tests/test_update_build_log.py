@@ -203,7 +203,9 @@ class TestCoreFields:
         with _stub_grype(return_value=None), \
              patch.object(sys, "argv", argv):
             runpy.run_path(str(SCRIPT), run_name="__main__")
-        assert log.exists()
+        history = json.loads(log.read_text())
+        assert len(history) == 1
+        assert history[0]["tag"] == "1.2.3"
 
 
 # ---------------------------------------------------------------------------

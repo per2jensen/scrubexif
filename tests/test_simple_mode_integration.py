@@ -115,9 +115,8 @@ def test_simple_mode_scrubs_all_jpeg_variants_and_preserves_originals(tmp_path, 
     # Sanity: each corresponding output file exists and is non-empty
     for ext in exts:
         out_file = output_dir / f"file.{ext}"
-        assert out_file.exists(), f"Missing scrubbed output file: {out_file}"
         out_bytes = out_file.read_bytes()
-        assert len(out_bytes) > 0, f"Scrubbed output is empty: {out_file}"
+        assert out_bytes[:2] == b"\xff\xd8", f"Output is not a valid JPEG: {out_file}"
 
 
 @pytest.mark.integration

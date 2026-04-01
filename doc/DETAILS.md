@@ -607,12 +607,6 @@ VERSION=0.7.16; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.
 
 ## Image Signing and Supply Chain Verification
 
->*Note*: Docker Hub's tag list shows two extra entries prefixed with sha256-… 
->
-> one ending in .sig (the cosign signature) and one in .att (the signed SBOM attestation).
-> These are created automatically by cosign and stored directly in the registry alongside the >image. 
-> They are not real tags and can be ignored.
-
 
 ### The problem cosign solves
 

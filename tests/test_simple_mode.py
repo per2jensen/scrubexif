@@ -169,6 +169,43 @@ def test_default_mode_warns_and_exits_when_output_exists(tmp_path, monkeypatch, 
     assert "Output directory already exists" in captured.out
 
 
+def test_default_mode_refuses_preexisting_output_when_not_explicit(tmp_path, monkeypatch, capsys):
+    """output_explicit=False (default): pre-existing output dir must be refused."""
+    photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
+    output_dir.mkdir(parents=True)
+
+    summary = scrub.ScrubSummary()
+    with pytest.raises(SystemExit) as excinfo:
+        scrub.simple_scrub(summary=summary, output_explicit=False)
+
+    assert excinfo.value.code == 1
+    assert "Output directory already exists" in capsys.readouterr().out
+
+
+def test_explicit_output_accepts_preexisting_directory(tmp_path, monkeypatch):
+    """output_explicit=True: pre-existing output dir must be accepted (e.g. bind-mount use case)."""
+    photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
+    output_dir.mkdir(parents=True)
+    (photos_root / "photo.jpg").write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 100)
+
+    def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
+        if "-outfile" in cmd:
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+        class R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+        return R()
+
+    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary, output_explicit=True)
+
+    assert summary.scrubbed == 1
+    assert (output_dir / "photo.jpg").read_bytes() == b"scrubbed"
+
+
 def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
     photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
 
@@ -200,6 +237,5 @@ def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
         on_duplicate="delete",
     )
 
-    assert custom_output.exists()
     assert custom_output.is_dir()
     assert summary.scrubbed == 1

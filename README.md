@@ -61,15 +61,43 @@ This:
 - refuses to run if the `$PWD/output` directory already exists
 - prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
 
-To write scrubbed files to a different directory, use the `-o` option (created if missing):
+### Write to specific directory
+
+Use `-o` to control where scrubbed files are written.
+
+**Output to a subdirectory of `$PWD`** — `scrubexif` creates it if it does not exist:
 
 ````bash
 docker run --rm \
     -v "$PWD:/photos" \
-    -v "$PWD/some/other/directory:/photos/scrubbed" \
     per2jensen/scrubexif:0.7.16 \
-    -o /photos/scrubbed
+    -o scrubbed
 ````
+
+Scrubbed files are written to `$PWD/scrubbed/`. The run is refused if `scrubbed/` already exists
+(safety guard — use `-o` with a bind-mount instead if you need to reuse a directory).
+
+**Output to an arbitrary host directory** — mount it independently and pass the container path to `-o`:
+
+````bash
+docker run --rm \
+    -v "$PWD:/photos" \
+    -v "/tmp/scrub-test:/scrubbed" \
+    per2jensen/scrubexif:0.7.16 \
+    -o /scrubbed
+````
+
+`-v "/tmp/scrub-test:/scrubbed"` maps `/tmp/scrub-test` on the host to `/scrubbed` inside the
+container. `-o /scrubbed` tells `scrubexif` to write there. Because `-o` was explicitly supplied,
+`scrubexif` accepts the directory even though it already exists (created by Docker as the mount point).
+
+Scrubbed photos end up in `/tmp/scrub-test/` on the host.
+
+> **Note:** mount the output directory at a top-level container path (e.g. `/scrubbed`) rather
+> than nested under `/photos` (e.g. `/photos/scrubbed`). Nesting requires `$PWD` to be writable
+> so Docker can create the mount point there.
+
+
 
 ### Failure handling (important)
 

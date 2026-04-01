@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.7.17 - not released
+## 0.7.17 - 2026-04-01
+
+### Added
+
+- Tests: expanded symlink security coverage, strengthened assertions to verify file content/metadata instead of existence, and added positive+negative tests for all documented CLI argument constraints (`--clean-inline`, `--from-input`, `--output`, positional files).
+- Tests: positive+negative tests proving `--paranoia` is incompatible with `--copyright`/`--comment`, and that each flag is correctly forwarded to the scrubbing layer.
+- Tests: positive+negative tests for the `-o` pre-existing directory behaviour.
+- `_format_path_with_host` and `_format_relative_path_with_host` now correctly resolve the physical host path for output directories mounted outside `/photos` (e.g. `-v "/tmp/scrub-test:/scrubbed" -o /scrubbed`).
+- Tests: path display tests covering output directories outside `PHOTOS_ROOT`, with and without `SHOW_CONTAINER_PATHS`.
+- README: updated `-o` examples to use a top-level independent bind-mount (`-v "/tmp/scrub-test:/scrubbed"`) with a note explaining why nesting under `/photos` should be avoided.
+
+### Fixed
+
+- `-o <dir>` now accepts a pre-existing directory when the user explicitly supplies the flag (e.g. via a bind-mount), while still refusing a pre-existing default output directory as a safety guard.
+- Output directory banner showed the container path instead of the host path when `-o` pointed outside `/photos`.
 
 ## 0.7.16 - 2026-03-31
 

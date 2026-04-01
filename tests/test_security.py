@@ -225,8 +225,117 @@ def test_auto_scrub_skips_symlink_destination(tmp_path, monkeypatch):
     scrub.auto_scrub(summary=summary, delete_original=False, stable_seconds=0)
 
     assert moves == []
-    assert file_path.exists()
+    assert file_path.read_bytes() == b"jpeg", "Original file content must be unchanged"
     assert summary.scrubbed == 1
+
+
+def test_resolve_output_dir_rejects_symlink(tmp_path):
+    """resolve_output_dir must reject an absolute path that is itself a symlink."""
+    real_dir = tmp_path / "real"
+    real_dir.mkdir()
+    link_dir = tmp_path / "link"
+    link_dir.symlink_to(real_dir)
+
+    with pytest.raises(SystemExit):
+        scrub.resolve_output_dir(link_dir)
+
+
+def test_auto_scrub_error_branch_skips_symlink_destination(tmp_path, monkeypatch):
+    """When scrub_file returns an error, auto_scrub must not move the original if
+    the processed-dir destination is a symlink (line 1138 guard)."""
+    root = tmp_path / "photos"
+    input_dir = root / "input"
+    output_dir = root / "output"
+    processed_dir = root / "processed"
+    errors_dir = root / "errors"
+    for d in (input_dir, output_dir, processed_dir, errors_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    file_path = input_dir / "one.jpg"
+    file_path.write_bytes(b"jpeg")
+    # processed-dir destination is a symlink — the error-branch guard must catch this
+    processed_target = processed_dir / file_path.name
+    processed_target.symlink_to(file_path)
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+    monkeypatch.setattr(scrub, "INPUT_DIR", input_dir)
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_dir)
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
+    monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
+
+    moves: list[tuple[Path, Path]] = []
+
+    def fake_move(src, dst):
+        moves.append((Path(src), Path(dst)))
+
+    def fake_scrub_file(path, output_path, **kwargs):
+        return ScrubResult(path, output_path, status="error", error_message="simulated failure")
+
+    monkeypatch.setattr(scrub.shutil, "move", fake_move)
+    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
+
+    summary = scrub.ScrubSummary()
+    scrub.auto_scrub(summary=summary, delete_original=False, stable_seconds=0)
+
+    assert moves == [], "shutil.move must not be called when processed-dir dest is a symlink"
+    assert file_path.read_bytes() == b"jpeg", "Original file content must be unchanged"
+
+
+def test_simple_scrub_skips_symlinks(tmp_path, monkeypatch):
+    """simple_scrub must skip any symlinked JPEG even if find_jpegs_in_dir returns one."""
+    root = tmp_path / "photos"
+    root.mkdir()
+    output_dir = root / "output"  # must not exist so simple_scrub can create it
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", root)
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", output_dir)
+    monkeypatch.setattr(scrub, "INPUT_DIR", root / "input")
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", root / "processed")
+    monkeypatch.setattr(scrub, "ERRORS_DIR", root / "errors")
+
+    real = root / "real.jpg"
+    real.write_bytes(b"jpeg")
+    link = root / "link.jpg"
+    link.symlink_to(real)
+
+    # Bypass find_jpegs_in_dir's own filter so the line-1203 guard is exercised
+    monkeypatch.setattr(scrub, "find_jpegs_in_dir", lambda *_a, **_kw: [link])
+
+    scrub_called_with: list[Path] = []
+
+    def fake_scrub_file(path, **kwargs):
+        scrub_called_with.append(path)
+        return ScrubResult(path, output_dir / path.name, status="scrubbed")
+
+    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary, recursive=False)
+
+    assert scrub_called_with == [], "scrub_file must not be called for a symlinked JPEG"
+
+
+def test_manual_scrub_skips_symlink_input(tmp_path, monkeypatch):
+    """manual_scrub must skip a symlink passed directly as an input path."""
+    real = tmp_path / "real.jpg"
+    real.write_bytes(b"jpeg")
+    link = tmp_path / "link.jpg"
+    link.symlink_to(real)
+
+    scrub_called_with: list[Path] = []
+
+    def fake_scrub_file(path, **kwargs):
+        scrub_called_with.append(path)
+        return ScrubResult(path, None, status="scrubbed")
+
+    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
+
+    summary = scrub.ScrubSummary()
+    scrub.manual_scrub([link], summary=summary, recursive=False)
+
+    assert scrub_called_with == [], "scrub_file must not be called for a symlink input"
+    assert summary.scrubbed == 0
 
 
 @pytest.mark.smoke

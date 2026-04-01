@@ -170,6 +170,13 @@ def _format_path_with_host(path: Path) -> str:
     try:
         rel = path.relative_to(PHOTOS_ROOT)
     except ValueError:
+        # path is outside PHOTOS_ROOT (e.g. -o /scrubbed with a separate bind-mount).
+        # Try resolving the mount for that path directly so the user sees the host path.
+        own_host = _resolve_mount_source(path)
+        if own_host:
+            if SHOW_CONTAINER_PATHS:
+                return f"{path} (host: {own_host})"
+            return own_host
         return str(path)
     host_path = Path(host_root) / rel
     if SHOW_CONTAINER_PATHS:
@@ -184,6 +191,12 @@ def _format_relative_path_with_host(path: Path) -> str:
     try:
         rel = path.relative_to(PHOTOS_ROOT)
     except ValueError:
+        # path is outside PHOTOS_ROOT — resolve its own mount for a meaningful host path.
+        own_host = _resolve_mount_source(path)
+        if own_host:
+            if SHOW_CONTAINER_PATHS:
+                return f"{path} (host: {own_host})"
+            return own_host
         return str(path)
     host_path = Path(host_root) / rel
     if SHOW_CONTAINER_PATHS:
@@ -1162,6 +1175,7 @@ def simple_scrub(summary: ScrubSummary,
                  paranoia: bool = True,
                  max_files: int | None = None,
                  on_duplicate: str = "delete",
+                 output_explicit: bool = False,
                  copyright_text: str | None = None,
                  comment_text: str | None = None) -> ScrubSummary:
     """
@@ -1173,6 +1187,12 @@ def simple_scrub(summary: ScrubSummary,
     Intended for the "one-liner" use case:
 
         docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10
+
+    Args:
+        output_explicit: True when the caller supplied -o on the CLI. A
+            pre-existing output directory is accepted in that case because the
+            user stated intent (e.g. via a bind-mount). When False (default)
+            a pre-existing directory is refused to prevent accidental clobbering.
     """
     host_root = _resolve_mount_source(PHOTOS_ROOT)
     print(f"🚀 Default safe mode: Scrubbing JPEGs in {_format_path_with_host(PHOTOS_ROOT)}")
@@ -1182,15 +1202,17 @@ def simple_scrub(summary: ScrubSummary,
     check_dir_safety(PHOTOS_ROOT, "Photos root")
 
     if OUTPUT_DIR.exists():
-        print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
-        print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
-        sys.exit(1)
-
-    try:
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
-    except Exception as exc:
-        print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
-        sys.exit(1)
+        if not output_explicit:
+            print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
+            print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
+            sys.exit(1)
+        # output_explicit=True: user passed -o, pre-existing directory is intentional
+    else:
+        try:
+            OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
+        except Exception as exc:
+            print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
+            sys.exit(1)
 
     check_dir_safety(OUTPUT_DIR, "Output")
 
@@ -1548,6 +1570,7 @@ def _run_inner(args: argparse.Namespace) -> int:
             paranoia=args.paranoia,
             max_files=args.max_files,
             on_duplicate=args.on_duplicate,
+            output_explicit=bool(args.output),
             copyright_text=args.copyright,
             comment_text=args.comment,
         )
