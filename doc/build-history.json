@@ -653,5 +653,18 @@
     "sbom": {
       "file": "sbom-dev.spdx.json"
     }
+  },
+  {
+    "build_number": 41,
+    "tag": "dev",
+    "base_image": "scrubexif-base:24.04-dev",
+    "git_revision": "d53d3a7",
+    "created": "2026-04-01T16:42:07Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/dev",
+    "digest": "",
+    "image_id": "sha256:2211739b5a6226c1328eb51f58341632e0006098c1a59200d80e3da042f0cc62",
+    "sbom": {
+      "file": "sbom-dev.spdx.json"
+    }
   }
 ]
