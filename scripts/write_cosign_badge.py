@@ -5,8 +5,8 @@ Write doc/cosign_badge.json for the shields.io endpoint badge in README.md.
 Usage:
     python3 scripts/write_cosign_badge.py [--failed]
 
-Without --failed: badge shows "cosign / verified" in red.
-With    --failed: badge shows "cosign / signing failed" in orange.
+Without --failed: badge shows "cosign / ok" in bright pink.
+With    --failed: badge shows "cosign / failed" in dull gray.
 
 The badge JSON has no 'url' field — the click target is controlled by the
 <a href="..."> wrapper in README.md, which points to the verification docs.
@@ -39,16 +39,25 @@ def main() -> None:
         badge = {
             "schemaVersion": 1,
             "label": "cosign",
-            "message": "signing failed",
-            "color": "orange",
+            "message": "failed",
+            "color": "9e9e9e",
         }
     else:
         badge = {
             "schemaVersion": 1,
             "label": "cosign",
-            "message": "verified",
-            "color": "red",
+            "message": "ok",
+            "color": "ff69b4",
         }
+
+    if BADGE_PATH.exists():
+        try:
+            existing = json.loads(BADGE_PATH.read_text(encoding="utf-8"))
+            if existing == badge:
+                print(f"ℹ️  Badge already correct ('{badge['message']}') — skipping write")
+                return
+        except json.JSONDecodeError:
+            pass  # Corrupted file — overwrite it
 
     BADGE_PATH.parent.mkdir(parents=True, exist_ok=True)
     BADGE_PATH.write_text(json.dumps(badge, indent=2) + "\n", encoding="utf-8")

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.19 - not released
+
+### Fixed
+
+- `write_cosign_badge.py`: success badge color changed to bright pink (`ff69b4`) with message "ok"; failure badge color changed to dull gray (`9e9e9e`) with message "failed".
+- `write_cosign_badge.py`: script is now idempotent — reads existing badge and skips the write if all fields already match, preventing spurious git diffs.
+- `release.yml`: SBOM attestation step (`cosign attest`) now runs before the failure badge and rollback steps so its outcome is available to both. Rollback and failure badge now trigger on either image signing failure (`cosign_sign`) or SBOM attestation failure (`cosign_attest`), removing the image from Docker Hub in both cases to prevent a partially-attested release from remaining publicly available.
+
+### Deleted
+
+- `make release` target removed from Makefile — superseded by the `release.yml` GitHub Actions workflow and dangerous to run locally (no cosign, no SBOM, no Grype).
+
 ## 0.7.18 - 2026-04-01
 
 ### Fixed

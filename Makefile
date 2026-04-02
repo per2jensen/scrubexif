@@ -4,7 +4,7 @@
 # ---------------
 # make dev-clean dev
 # make FINAL_VERSION=1.0.0 final
-# make FINAL_VERSION=1.0.0 release
+
 
 # ================================
 # Configuration
@@ -36,7 +36,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 # Declare phony targets (they don't correspond to files)
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
-  test-release dry-run-release _dryrun-release-internal release \
+  test-release dry-run-release _dryrun-release-internal \
   log-build-json update-readme-version update-scrub-version update-details-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
   show-labels show-tags help
@@ -153,9 +153,6 @@ _dryrun-release-internal: check_version
 	@make FINAL_VERSION=$(FINAL_VERSION) update-scrub-version final verify-labels test-release update-details-version
 	@make FINAL_VERSION=$(FINAL_VERSION) verify-cli-version --no-print-directory
 
-
-release: check_version update-scrub-version final verify-cli-version verify-labels test-release update-details-version login push log-build-json
-	@echo "✅ Release complete for: $(DOCKERHUB_REPO):$(FINAL_VERSION)"
 
 log-build-json: check_version
 ifeq ($(FINAL_VERSION),dev)

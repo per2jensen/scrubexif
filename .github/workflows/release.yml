@@ -147,9 +147,20 @@ jobs:
           echo "rekor_index=${REKOR_INDEX}" >> $GITHUB_OUTPUT
           echo "Rekor entry: ${REKOR_URL}"
 
-      # --- cosign: write failure badge if signing failed ---
+      # --- cosign: attach the SBOM as a signed in-toto attestation ---
+      - name: Attach SBOM attestation with cosign
+        id: cosign_attest
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          cosign attest --yes \
+            --predicate sbom-${{ env.FINAL_VERSION }}.spdx.json \
+            --type spdxjson \
+            "${{ steps.image_digest.outputs.digest }}"
+
+      # --- cosign: write failure badge if signing or attestation failed ---
       - name: Write cosign failure badge
-        if: failure() && steps.cosign_sign.outcome == 'failure'
+        if: failure() && (steps.cosign_sign.outcome == 'failure' || steps.cosign_attest.outcome == 'failure')
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
@@ -160,15 +171,27 @@ jobs:
             git push origin HEAD
           fi
 
-      # --- cosign: attach the SBOM as a signed in-toto attestation ---
-      - name: Attach SBOM attestation with cosign
+      # --- cosign: remove image from Docker Hub if signing or attestation failed ---
+      - name: Rollback - remove image from Docker Hub (cosign failed)
+        if: failure() && (steps.cosign_sign.outcome == 'failure' || steps.cosign_attest.outcome == 'failure')
         env:
-          COSIGN_EXPERIMENTAL: "1"
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          cosign attest --yes \
-            --predicate sbom-${{ env.FINAL_VERSION }}.spdx.json \
-            --type spdxjson \
-            "${{ steps.image_digest.outputs.digest }}"
+          echo "⚠️ Cosign signing/attestation failed — removing per2jensen/scrubexif:${{ env.FINAL_VERSION }} from Docker Hub"
+          TOKEN=$(curl -s -X POST \
+            -H "Content-Type: application/json" \
+            -d "{\"username\": \"${DOCKERHUB_USER}\", \"password\": \"${DOCKERHUB_TOKEN}\"}" \
+            https://hub.docker.com/v2/users/login/ | jq -r .token)
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: JWT ${TOKEN}" \
+            "https://hub.docker.com/v2/repositories/per2jensen/scrubexif/tags/${{ env.FINAL_VERSION }}/")
+          if [ "${HTTP_STATUS}" = "204" ]; then
+            echo "✅ Removed tag ${{ env.FINAL_VERSION }} from Docker Hub"
+          else
+            echo "❌ Failed to remove tag (HTTP ${HTTP_STATUS})"
+            exit 1
+          fi
 
       - name: Housekeeping - update details, clonepulse, and build log
         run: |
