@@ -207,7 +207,11 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 - [ExifTool](https://exiftool.org/) by Phil Harvey — used for metadata extraction and selective tag write-back (GPL-1.0-or-later / Artistic License)
 - [jpegtran](https://ijg.org/) from libjpeg-turbo — used for lossless byte-level JPEG transformation (IJG / BSD licence)
-
+- [sigstore/cosign](https://github.com/sigstore/cosign) used to sign/upload artifacts 
+- [Syft](https://github.com/anchore/syft) used to generate a Software Bill Of Materials
+- [Grype](https://github.com/anchore/grype) used for image vulnerability scanning
+- [Ubuntu](https://ubuntu.com/) for the base image Scrubexif is based on
+  
 ## Supply Chain Transparency
 
 Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied to the exact GitHub Actions run that built the image — no long-lived signing keys exist anywhere. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
