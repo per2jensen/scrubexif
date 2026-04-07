@@ -9,16 +9,16 @@
       "label": "Reddit r/linuxmint"
     },
     {
-      "date": "2025-12-03",
-      "label": "Daily max: 180"
-    },
-    {
       "date": "2026-04-06",
       "label": "r/photoprism post"
+    },
+    {
+      "date": "2025-12-03",
+      "label": "Daily max: 180"
     }
   ],
-  "total_clones": 4140,
-  "unique_clones": 2179,
+  "total_clones": 4154,
+  "unique_clones": 2190,
   "daily": [
     {
       "timestamp": "2025-06-29T00:00:00Z",
@@ -1414,6 +1414,11 @@
       "timestamp": "2026-04-04T00:00:00Z",
       "count": 24,
       "uniques": 15
+    },
+    {
+      "timestamp": "2026-04-05T00:00:00Z",
+      "count": 14,
+      "uniques": 11
     }
   ]
 }
