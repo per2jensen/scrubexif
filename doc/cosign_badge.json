@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "cosign",
-  "message": "verified",
-  "color": "red"
+  "message": "ok",
+  "color": "ff69b4"
 }
