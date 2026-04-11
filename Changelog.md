@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.20 - not released
+
+### Changed
+
+- wording in README modified
+
 ## 0.7.19 - 2026-04-11
 
 ### Fixed
@@ -12,7 +18,7 @@
 
 - `make release` target removed from Makefile — superseded by the `release.yml` GitHub Actions workflow and dangerous to run locally (no cosign, no SBOM, no Grype).
 
-## 0.7.18 - 2026-04-01
+## 0.7.19 - 2026-04-01
 
 ### Fixed
 

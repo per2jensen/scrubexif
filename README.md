@@ -31,7 +31,9 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-**High-trust JPEG scrubbing.** Removes location, serial and private camera tags while preserving photographic context. Uses [jpegtran](https://ijg.org/) for a byte-level APP segment wipe, then [ExifTool](https://exiftool.org/) to write back a small allowlist of technical tags — closing the gap that parser-based tools leave open for unknown or proprietary segments.
+**High‑trust EXIF removal with a transparent supply chain.**
+
+Removes GPS, serial numbers, maker notes, and all private metadata using a two‑stage process: a byte‑level APP wipe via `jpegtran`, followed by an allowlisted EXIF rebuild via `ExifTool`. This closes the gap parser‑based tools leave open for unknown or proprietary segments and makes `scrubexif` ideal for privacy‑safe publishing and automated pipelines.
 
 > **Promise:** scrubexif will not write an unscrubbed JPEG into an output directory.  
 If a scrub fails for any reason, **no output file is created** for that JPEG.
@@ -194,11 +196,12 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 ## Key Features
 
+- Scrubexif is JPEG‑only by design. This avoids format‑specific edge cases and ensures predictable behavior.
 - Allowlist-based scrubbing: jpegtran strips all JPEG APP segments at the byte level (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation)
 - Removes GPS, serial numbers, maker notes, and all other private metadata — including segments invisible to parser-based tools
 - Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the jpegtran strip
 - Auto mode with duplicate handling (`--on-duplicate delete|move`)
-- Optional stability gate for hot upload directories (`--stable-seconds`, `--state-file`)
+- Optional stability gate for hot upload directories  (e.g., PhotoSync, rclone, FTP uploads) (`--stable-seconds`, `--state-file`)
 - Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
 - Optional stamping of copyright and comment into EXIF/XMP (`--copyright`, `--comment`)
 - Hardened container defaults in examples (read-only + no-new-privileges)
