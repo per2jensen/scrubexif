@@ -6,7 +6,7 @@
 <a href="https://github.com/per2jensen/scrubexif/releases"><img alt="Tag" src="https://img.shields.io/github/v/tag/per2jensen/scrubexif"/></a>
 <a href="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg"/></a>
 <a href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification">
-  <img alt="cosign verified" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/doc/cosign_badge.json"/>
+  <img alt="cosign badge" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/doc/cosign_badge.json"/>
 </a>
 <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"/>
 

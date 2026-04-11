@@ -211,6 +211,8 @@ jobs:
           python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"
 
           git status
+          git add doc/cosign_badge.json clonepulse/fetch_clones.json
+          git commit -m "release v${{ env.FINAL_VERSION }}: cosign badge ok, add release annotation"
           git push origin HEAD
 
       - name: Post summary
