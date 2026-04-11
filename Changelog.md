@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.19 - not released
+## 0.7.19 - 2026-04-11
 
 ### Fixed
 
