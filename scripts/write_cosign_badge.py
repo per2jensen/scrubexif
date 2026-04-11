@@ -47,7 +47,7 @@ def main() -> None:
             "schemaVersion": 1,
             "label": "cosign",
             "message": "ok",
-            "color": "ff69b4",
+            "color": "f77f00",
         }
 
     if BADGE_PATH.exists():
