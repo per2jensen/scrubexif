@@ -530,5 +530,44 @@
       "github_run_id": "23861610090",
       "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/23861610090"
     }
+  },
+  {
+    "build_number": 31,
+    "tag": "0.7.19",
+    "base_image": "scrubexif-base:24.04-0.7.19",
+    "git_revision": "8a27ef8",
+    "created": "2026-04-11T07:37:56Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.7.19",
+    "digest": "sha256:d49d20edcfbfc65208a91f7a70dd74f9c01f8ba2f35d94e36be766498cbe4a4d",
+    "image_id": "sha256:6d38bddd319b4c73200c63e48a445e9b35c9a9e320367a27fe5dedc6b3e106f3",
+    "grype_scan": {
+      "file": "grype-results-0.7.19.sarif",
+      "total": 96,
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 0,
+        "low": 0,
+        "negligible": 0,
+        "warning": 71,
+        "note": 25,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    "sbom": {
+      "file": "sbom-0.7.19.spdx.json",
+      "release_asset_url": "https://github.com/per2jensen/scrubexif/releases/download/v0.7.19/sbom-0.7.19.spdx.json"
+    },
+    "cosign": {
+      "signed": true,
+      "rekor_log_entry": "https://search.sigstore.dev/?logIndex=1277684062",
+      "image_digest": "per2jensen/scrubexif@sha256:d49d20edcfbfc65208a91f7a70dd74f9c01f8ba2f35d94e36be766498cbe4a4d"
+    },
+    "build": {
+      "runner": "Linux-X64",
+      "github_run_id": "24277758586",
+      "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/24277758586"
+    }
   }
 ]
