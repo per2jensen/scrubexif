@@ -165,11 +165,7 @@ jobs:
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
           python3 scripts/write_cosign_badge.py --failed
-          git add doc/cosign_badge.json
-          if ! git diff --quiet doc/cosign_badge.json; then
-            git commit -m "cosign badge: signing failed for ${{ env.FINAL_VERSION }}"
-            git push origin HEAD
-          fi
+          scripts/git_commit_if_changed.sh doc/cosign_badge.json "cosign badge: signing failed for ${{ env.FINAL_VERSION }}"
 
       # --- cosign: remove image from Docker Hub if signing or attestation failed ---
       - name: Rollback - remove image from Docker Hub (cosign failed)
@@ -182,7 +178,7 @@ jobs:
             --repo per2jensen/scrubexif \
             --tag ${{ env.FINAL_VERSION }}
 
-      - name: Housekeeping - update details, clonepulse, and build log
+      - name: Housekeeping - update readme & details, clonepulse, and build log
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
@@ -205,14 +201,13 @@ jobs:
 
           # Update cosign badge to reflect successful signing.
           python3 scripts/write_cosign_badge.py
-          git add doc/cosign_badge.json
-
+          scripts/git_commit_if_changed.sh doc/cosign_badge.json "cosign badge: signing successful for ${{ env.FINAL_VERSION }}"
+ 
           # Add clonepulse annotation: "Rel. <version>"
           python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"
+          scripts/git_commit_if_changed.sh clonepulse/fetch_clones.json "Add release annotation: ${{ env.FINAL_VERSION }}"
 
           git status
-          git add doc/cosign_badge.json clonepulse/fetch_clones.json
-          git commit -m "release v${{ env.FINAL_VERSION }}: cosign badge ok, add release annotation"
           git push origin HEAD
 
       - name: Post summary
