@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from .__about__ import __version__
+from .renaming import resolve_rename, validate_rename_format
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -877,9 +878,21 @@ def scrub_file(
     on_duplicate: str = "delete",
     copyright_text: str | None = None,
     comment_text: str | None = None,
+    rename_format: str | None = None,
+    rename_counter: dict[str, int] | None = None,
 ) -> ScrubResult:
     print(f"scrub_file: input={_format_path_with_host(input_path)}, output={_format_path_with_host(output_path) if output_path else None}")
-    output_file = output_path / input_path.name if output_path else input_path
+
+    # Resolve rename stem before the scrub pipeline runs so that EXIF tags
+    # (%Y, %m) are still present in the source file when exiftool reads them.
+    rename_stem: str | None = None
+    if rename_format:
+        rename_stem = resolve_rename(rename_format, input_path, rename_counter or {"n": 0})
+
+    if rename_stem and output_path:
+        output_file = output_path / (rename_stem + input_path.suffix)
+    else:
+        output_file = output_path / input_path.name if output_path else input_path
     print("Output file will be:", _format_path_with_host(output_file))
 
     if output_path and output_file.is_symlink():
@@ -929,7 +942,11 @@ def scrub_file(
             print_tags(input_path, label="before")
         if show_tags_mode in {"after", "both"}:
             print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
-        print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
+        if rename_stem:
+            proposed_name = rename_stem + input_path.suffix
+            print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)} → {proposed_name}")
+        else:
+            print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
         return ScrubResult(input_path, output_file, status="scrubbed")
 
     # exiftool command
@@ -1006,6 +1023,24 @@ def scrub_file(
             error_message=err_msg
         )
 
+    # For --clean-inline + --rename: scrub wrote over the original in-place;
+    # now rename it to the resolved stem within the same directory.
+    if output_path is None and rename_stem:
+        new_path = input_path.parent / (rename_stem + input_path.suffix)
+        if new_path != input_path:
+            try:
+                os.rename(input_path, new_path)
+                output_file = new_path
+            except OSError as exc:
+                err_msg = f"Scrub succeeded but rename to {new_path.name!r} failed: {exc}"
+                print(f"❌ {err_msg}")
+                return ScrubResult(
+                    input_path=input_path,
+                    output_path=input_path,
+                    status="error",
+                    error_message=err_msg,
+                )
+
     if show_tags_mode in {"after", "both"}:
         print_tags(output_file, label="after")
 
@@ -1044,7 +1079,9 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                on_duplicate: str = "delete",
                stable_seconds: int = 120,
                copyright_text: str | None = None,
-               comment_text: str | None = None) -> ScrubSummary:
+               comment_text: str | None = None,
+               rename_format: str | None = None,
+               rename_counter: dict[str, int] | None = None) -> ScrubSummary:
     print(f"🚀 Auto mode: Scrubbing JPEGs in {_format_path_with_host(INPUT_DIR)}")
     print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
     print(f"📁 Processed directory: {_format_path_with_host(PROCESSED_DIR)}")
@@ -1131,6 +1168,8 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             on_duplicate=on_duplicate,
             copyright_text=copyright_text,
             comment_text=comment_text,
+            rename_format=rename_format,
+            rename_counter=rename_counter,
         )
 
         summary.update(result)
@@ -1180,7 +1219,9 @@ def simple_scrub(summary: ScrubSummary,
                  max_files: int | None = None,
                  output_explicit: bool = False,
                  copyright_text: str | None = None,
-                 comment_text: str | None = None) -> ScrubSummary:
+                 comment_text: str | None = None,
+                 rename_format: str | None = None,
+                 rename_counter: dict[str, int] | None = None) -> ScrubSummary:
     """
     Default safe mode:
       - Scan /photos for JPEGs (non-recursive by default, -r respected)
@@ -1285,6 +1326,8 @@ def simple_scrub(summary: ScrubSummary,
             on_duplicate="skip",  # safe mode: never delete or move originals
             copyright_text=copyright_text,
             comment_text=comment_text,
+            rename_format=rename_format,
+            rename_counter=rename_counter,
         )
         summary.update(result)
 
@@ -1325,7 +1368,9 @@ def manual_scrub(files: list[Path],
                  max_files: int | None = None,
                  preview: bool = False,
                  copyright_text: str | None = None,
-                 comment_text: str | None = None) -> ScrubSummary:
+                 comment_text: str | None = None,
+                 rename_format: str | None = None,
+                 rename_counter: dict[str, int] | None = None) -> ScrubSummary:
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return summary
@@ -1400,7 +1445,9 @@ def manual_scrub(files: list[Path],
                             paranoia=paranoia,
                             on_duplicate=None,
                             copyright_text=copyright_text,
-                            comment_text=comment_text)
+                            comment_text=comment_text,
+                            rename_format=rename_format,
+                            rename_counter=rename_counter)
 
         summary.update(result)
 
@@ -1489,6 +1536,14 @@ def _run_inner(args: argparse.Namespace) -> int:
 
     check_jpegtran()
 
+    # Resolve effective rename format: explicit --rename beats --paranoia default.
+    rename_format: str | None = args.rename
+    if rename_format is None and args.paranoia:
+        rename_format = "%r8"
+    if rename_format is not None:
+        validate_rename_format(rename_format)  # raises SystemExit on any violation
+    rename_counter: dict[str, int] = {"n": 0}
+
     # --paranoia removes all metadata; --copyright and --comment are incompatible.
     if args.paranoia and (args.copyright or args.comment):
         print(
@@ -1550,6 +1605,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             stable_seconds=args.stable_seconds,
             copyright_text=args.copyright,
             comment_text=args.comment,
+            rename_format=rename_format,
+            rename_counter=rename_counter,
         )
     elif args.clean_inline:
         if args.files:
@@ -1568,6 +1625,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             preview=args.preview,
             copyright_text=args.copyright,
             comment_text=args.comment,
+            rename_format=rename_format,
+            rename_counter=rename_counter,
         )
     else:
         simple_scrub(
@@ -1580,6 +1639,8 @@ def _run_inner(args: argparse.Namespace) -> int:
             output_explicit=bool(args.output),
             copyright_text=args.copyright,
             comment_text=args.comment,
+            rename_format=rename_format,
+            rename_counter=rename_counter,
         )
 
     summary.print()
@@ -1592,6 +1653,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--from-input", action="store_true", help="Use auto mode")
     parser.add_argument("--clean-inline", action="store_true",
                         help="Scrub (destructive) in-place. This flag is required to modify originals.")
+    parser.add_argument("--rename", metavar="FORMAT", default=None,
+                        help="Format string for output filename (e.g. '%%r8', '850_%%r6', '%%Y%%m_%%r6'). "
+                             "Implied '%%r8' when --paranoia is set. "
+                             "With --clean-inline, the file is scrubbed then renamed in the same directory.")
     parser.add_argument("--debug", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")

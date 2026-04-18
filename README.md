@@ -122,6 +122,34 @@ Same idea, but with container hardening and in-line (destructive) overwrite:
       -v "$PWD:/photos" \
       per2jensen/scrubexif:0.7.19 --clean-inline
 
+### Filename sanitisation (`--rename`)
+
+Filenames can leak as much as EXIF. A name like `2026-04-07_11-13-45.jpeg`
+reveals the exact capture time, and prefixes like `D80_` identify the camera
+body. `--rename` replaces the output filename with a format string of your
+choice so nothing identifying survives.
+
+```bash
+# Fully anonymous — 8-character random hex name
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.19 --clean-inline --rename "%r8" --recursive
+
+# Keep your camera prefix, remove the timestamp
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.19 --clean-inline --rename "D80_%r6" --recursive
+```
+
+`--paranoia` implies `--rename "%r8"` when no `--rename` is given.  
+Common tokens: `%r` (random hex), `%u` (UUID), `%n` (sequential counter), `%Y` (year from EXIF), `%m` (month from EXIF).
+
+Full specification → [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
+
 ### Batch workflow (PhotoPrism / intake style)
 
 Use auto mode with explicit input/output/processed directories:
@@ -240,6 +268,7 @@ Full details on installation, verification, and what the certificate fields mean
 
     --from-input          auto mode
     --clean-inline        in-place scrub (destructive)
+    --rename FORMAT       rename output files using a format string (see doc/rename-spec.md)
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             no write, view only

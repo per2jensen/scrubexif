@@ -2,9 +2,26 @@
 
 ## 0.7.20 - not released
 
+### Breaking
+
+- `--paranoia` now implies `--rename "%r8"` when no `--rename` is given.
+  Output files are renamed to an 8-character random hex name. An explicit
+  `--rename` always takes precedence.
+
+### Added
+
+- `--rename FORMAT` — rename output files using a format string. Tokens: `%r`
+  (random hex), `%u` (UUID), `%n` (sequential counter per invocation), `%Y`
+  (year from EXIF DateTimeOriginal), `%m` (month from EXIF DateTimeOriginal).
+  Deliberate omissions: `%d`, `%H`, `%M`, `%S` are not supported — allowing
+  day or time-of-day in the output filename defeats the purpose of the tool.
+  If `%Y` or `%m` is used and a file has no EXIF DateTimeOriginal, the file is
+  fully scrubbed and the filename falls back to a UUID v4 with a warning.
+  Full specification: [doc/rename-spec.md](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
+
 ### Changed
 
-- wording in README modified
+- README and DETAILS updated with `--rename` examples and flag reference.
 
 ## 0.7.19 - 2026-04-11
 
