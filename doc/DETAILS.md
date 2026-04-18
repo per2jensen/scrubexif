@@ -49,6 +49,12 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
     - [`--paranoia` Mode](#--paranoia-mode)
     - [Inspecting Metadata with `--show-tags`](#inspecting-metadata-with---show-tags)
     - [Preview Mode (`--preview`)](#preview-mode---preview)
+    - [Filename sanitisation (`--rename`)](#filename-sanitisation---rename)
+      - [Format string tokens](#format-string-tokens)
+      - [Examples](#examples)
+      - [Integration with existing flags](#integration-with-existing-flags)
+      - [Missing EXIF DateTimeOriginal](#missing-exif-datetimeoriginal)
+      - [Limits and validation](#limits-and-validation)
   - [What It Cleans](#what-it-cleans)
   - [Work on stable files](#work-on-stable-files)
     - [Stability gate](#stability-gate)
@@ -203,6 +209,7 @@ docker run --read-only --security-opt no-new-privileges \
 - `--delete-original` — delete originals instead of moving them
 - `--clean-inline` — scrub in-place (destructive). Required for positional file/dir arguments
 - `--output PATH` — override output directory in default safe mode (not allowed with `--from-input` or `--clean-inline`)
+- `--rename FORMAT` — rename output files using a format string; see [Filename sanitisation](#filename-sanitisation---rename) and [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
 - `-q`, `--quiet` — suppress all output on success
 - `--on-duplicate {delete|move}` - delete or move a duplicate
 - `--dry-run` - show what would be scrubbed, but don’t write files
@@ -352,6 +359,89 @@ docker run --read-only --security-opt no-new-privileges \
 ```
 
 🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed.
+
+### Filename sanitisation (`--rename`)
+
+Filenames are a privacy vector that EXIF scrubbing alone does not address. A
+filename like `2026-04-07_11-13-45.jpeg` reveals the exact capture time.
+Camera-derived prefixes such as `D80_` or `Z50_` identify the device model.
+`--rename` replaces the output filename with a format string you control, so
+the original name never appears in the output.
+
+**Design principle:** there is no auto-detection of prefixes or timestamps from
+the original filename. If you want a prefix in the output, write it literally
+in the format string. This makes behaviour explicit and predictable regardless
+of what the camera named the file.
+
+#### Format string tokens
+
+| Token | Description |
+|-------|-------------|
+| `%r`  | Random hex string. Default length 8. Configure with `%r6`, `%r12`, etc. Maximum: 32. |
+| `%u`  | RFC 4122 UUID v4 (e.g. `f47ac10b-58cc-4372-a567-0e02b2c3d479`). |
+| `%n`  | Sequential counter per invocation. Zero-padded to 4 digits by default. Configure with `%n6`. Maximum: 12 digits. |
+| `%Y`  | 4-digit year from EXIF `DateTimeOriginal` (e.g. `2026`). |
+| `%m`  | 2-digit month from EXIF `DateTimeOriginal` (e.g. `04`). |
+| `%%`  | Literal percent sign. |
+
+Tokens `%d`, `%H`, `%M`, and `%S` are deliberately not supported — allowing
+day or time-of-day in the output filename would undermine the purpose of the
+tool. Using them produces an immediate error before any files are touched.
+
+#### Examples
+
+```bash
+# Fully anonymous — 8-character random hex
+--rename "%r8"                   # → d4e7b1a9.jpg
+
+# Keep your camera prefix, remove the timestamp
+--rename "D80_%r6"               # → D80_f3a91c.jpg
+
+# Retain year and month only (sourced from EXIF DateTimeOriginal)
+--rename "%Y%m_%r6"              # → 202604_f3a91c.jpg
+
+# UUID — formally unique, visually unambiguous
+--rename "%u"                    # → f47ac10b-58cc-4372-a567-0e02b2c3d479.jpg
+
+# Sequential counter — one camera body at a time
+--rename "D80_%n4"               # → D80_0001.jpg  D80_0002.jpg ...
+```
+
+#### Integration with existing flags
+
+- `--paranoia` implies `--rename "%r8"` if no `--rename` is given. An explicit `--rename` always takes precedence.
+- `--dry-run` prints proposed new filenames without modifying any files.
+- `--clean-inline --rename` scrubs the file in place and renames it in the same directory. The original path disappears — this is intentional, since the user has explicitly opted into destructive in-place modification.
+- Without `--rename`, original filenames are preserved (existing behaviour).
+
+#### Missing EXIF DateTimeOriginal
+
+If `%Y` or `%m` is used and a file has no `EXIF DateTimeOriginal`, the file is
+fully scrubbed as normal but the filename falls back to a UUID v4. A clear
+warning is printed. The exit code is not affected — this is a handled fallback,
+not an error.
+
+```
+WARNING: IMG_0042.jpeg — EXIF DateTimeOriginal absent,
+         renamed to f47ac10b-58cc-4372-a567-0e02b2c3d479.jpg
+```
+
+#### Limits and validation
+
+| Constraint | Limit |
+|------------|-------|
+| Prefix (literal chars before first token) | 16 chars |
+| Postfix (literal chars after last token) | 16 chars |
+| `%r` length | max 32 |
+| `%n` digits | max 12 |
+| Total expanded filename (before extension) | 64 chars |
+
+Allowed literal characters: uppercase and lowercase letters, digits, hyphen
+(`-`), underscore (`_`), space (` `). Dots, slashes, URL-encoded sequences, and
+any other character produce an immediate error.
+
+Full specification including validation order, collision handling, and
+implementation notes → [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
 
 ## What It Cleans
 
@@ -821,6 +911,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--preview` | Preview scrub effect on one file without modifying it (implies `--dry-run` + `--show-tags both`). |
 | `-q`, `--quiet` | Suppress all output on success. |
 | `-r`, `--recursive` | Recurse into directories when scanning. |
+| `--rename FORMAT` | Rename output files using a format string. Tokens: `%r` (hex), `%u` (UUID), `%n` (counter), `%Y` (year from EXIF), `%m` (month from EXIF). See [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md). |
 | `--show-container-paths` | Include container paths alongside host paths in output. |
 | `--show-tags {before,after,both}` | Print metadata before/after scrub for each file. |
 | `--stable-seconds SECS` | Only process files whose mtime age is at least this many seconds (default: 120). |
