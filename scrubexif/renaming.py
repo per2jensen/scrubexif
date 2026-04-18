@@ -40,6 +40,9 @@ _ALLOWED_LITERAL_RE = re.compile(r"^[A-Za-z0-9 \-_]*$")
 # Token pattern: %<letter> optionally followed by digits.
 _TOKEN_RE = re.compile(r"%([A-Za-z%])(\d*)")
 
+# Expected format from exiftool: 'YYYY:MM:DD HH:MM:SS'
+_DATETIME_ORIGINAL_RE = re.compile(r"^(\d{4}):(\d{2}):\d{2} \d{2}:\d{2}:\d{2}$")
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -236,7 +239,19 @@ def validate_rename_format(fmt: str) -> None:
                 )
                 raise SystemExit(1)
 
-    # Step 7: Whitelist check on literal characters.
+    # Step 7: No dot anywhere in literal text — checked before the general
+    # whitelist so the user gets a specific "extension confusion" message
+    # rather than the generic "disallowed character" message.
+    for _, raw, _, _ in literals:
+        if "." in raw:
+            print(
+                "❌ --rename format string must not contain '.' — "
+                "it risks confusion with the file extension.",
+                flush=True,
+            )
+            raise SystemExit(1)
+
+    # Step 8: Whitelist check on literal characters.
     for _, raw, _, _ in literals:
         if not _ALLOWED_LITERAL_RE.match(raw):
             for ch in raw:
@@ -247,16 +262,6 @@ def validate_rename_format(fmt: str) -> None:
                         flush=True,
                     )
                     raise SystemExit(1)
-
-    # Step 8: No dot anywhere in literal text.
-    for _, raw, _, _ in literals:
-        if "." in raw:
-            print(
-                "❌ --rename format string must not contain '.' — "
-                "it risks confusion with the file extension.",
-                flush=True,
-            )
-            raise SystemExit(1)
 
     # Step 9: Total expanded length (worst-case).
     token_expansion = sum(_worst_case_expansion(raw) for _, raw, _, _ in tokens)
@@ -334,6 +339,8 @@ def resolve_rename(
     Returns:
         The expanded filename stem (no extension, no leading/trailing whitespace).
     """
+    counter.setdefault("n", 0)
+
     parts = _parse_tokens(fmt)
     needs_exif = any(
         _token_letter(raw) in {"Y", "m"}
@@ -342,9 +349,17 @@ def resolve_rename(
     )
 
     datetime_original: Optional[str] = None
+    datetime_match: Optional[re.Match[str]] = None
     if needs_exif:
         datetime_original = _read_datetime_original(input_path)
-        if datetime_original is None:
+        if datetime_original is not None:
+            datetime_match = _DATETIME_ORIGINAL_RE.match(datetime_original)
+        if datetime_original is None or datetime_match is None:
+            if datetime_original is not None:
+                log.warning(
+                    "Unrecognised DateTimeOriginal format %r in %s — falling back to UUID",
+                    datetime_original, input_path.name,
+                )
             fallback = str(uuid.uuid4())
             print(
                 f"WARNING: {input_path.name} — EXIF DateTimeOriginal absent, "
@@ -365,26 +380,22 @@ def resolve_rename(
             result_parts.append("%")
 
         elif letter == "r":
-            n = _token_digits(raw) or _DEFAULT_RANDOM_LEN
+            n = _token_digits(raw) if _token_digits(raw) is not None else _DEFAULT_RANDOM_LEN
             result_parts.append(_random_hex(n))
 
         elif letter == "u":
             result_parts.append(str(uuid.uuid4()))
 
         elif letter == "n":
-            digits = _token_digits(raw) or _DEFAULT_COUNTER_DIGITS
+            digits = _token_digits(raw) if _token_digits(raw) is not None else _DEFAULT_COUNTER_DIGITS
             counter["n"] += 1
             result_parts.append(str(counter["n"]).zfill(digits))
 
         elif letter == "Y":
-            # datetime_original is guaranteed non-None here (checked above)
-            year = datetime_original[:4]  # type: ignore[index]
-            result_parts.append(year)
+            result_parts.append(datetime_match.group(1))  # type: ignore[union-attr]
 
         elif letter == "m":
-            # Format: 'YYYY:MM:DD HH:MM:SS'
-            month = datetime_original[5:7]  # type: ignore[index]
-            result_parts.append(month)
+            result_parts.append(datetime_match.group(2))  # type: ignore[union-attr]
 
     return "".join(result_parts)
 

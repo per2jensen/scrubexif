@@ -120,6 +120,75 @@ class TestValidateRejected:
 
 
 # ---------------------------------------------------------------------------
+# Hostile input rejection — must be caught before any file is touched
+# ---------------------------------------------------------------------------
+
+
+class TestHostileInputRejection:
+    """
+    Prove that dangerous format strings are rejected by validate_rename_format
+    before the CLI reaches any file processing.
+
+    The whitelist (^[A-Za-z0-9 \\-_]*$) is the primary defence; these tests
+    document each attack vector explicitly so regressions are immediately visible.
+    """
+
+    def _expect_exit(self, fmt: str) -> None:
+        with pytest.raises(SystemExit) as exc_info:
+            validate_rename_format(fmt)
+        assert exc_info.value.code != 0
+
+    @pytest.mark.parametrize("fmt", [
+        # Null byte injection — C library functions treat \x00 as end-of-string;
+        # the validated prefix could differ from what the OS sees.
+        "prefix\x00_%r8",
+        "_%r8\x00",
+    ])
+    def test_null_byte_injection_rejected(self, fmt: str) -> None:
+        self._expect_exit(fmt)
+
+    @pytest.mark.parametrize("fmt, description", [
+        # Unicode lookalikes for path separators — could enable traversal if
+        # the whitelist only checked for ASCII slash/dot.
+        ("foo\u2025_%r6", "TWO DOT LEADER (‥) — slash lookalike"),
+        ("foo\u2215_%r6", "DIVISION SLASH (∕) — slash lookalike"),
+        ("foo\u2044_%r6", "FRACTION SLASH (⁄) — slash lookalike"),
+    ])
+    def test_path_traversal_unicode_lookalikes_rejected(self, fmt: str, description: str) -> None:
+        self._expect_exit(fmt)
+
+    @pytest.mark.parametrize("fmt, description", [
+        # Fullwidth Latin letters normalise to ASCII under NFKC — if validation
+        # were applied post-normalisation an attacker could bypass length limits
+        # or inject characters that look safe but expand unexpectedly.
+        ("\uff21\uff22\uff23_%r6", "fullwidth ABC (ＡＢＣ)"),
+        ("\uff10\uff11\uff12_%r6", "fullwidth digits (０１２)"),
+    ])
+    def test_fullwidth_unicode_normalisation_rejected(self, fmt: str, description: str) -> None:
+        self._expect_exit(fmt)
+
+    @pytest.mark.parametrize("fmt, description", [
+        # Right-to-left override makes filenames display reversed in terminals,
+        # e.g. "evil.jpg" can appear as "gpj.live" — a cosmetic deception attack.
+        ("\u202ephoto_%r8", "RTL override at start"),
+        ("photo\u202e_%r8", "RTL override in middle"),
+    ])
+    def test_rtl_override_rejected(self, fmt: str, description: str) -> None:
+        self._expect_exit(fmt)
+
+    @pytest.mark.parametrize("fmt, description", [
+        # Zero-width characters make two filenames look identical in a terminal
+        # while being different on disk — enables silent collision/confusion.
+        ("photo\u200b_%r8", "zero-width space (U+200B)"),
+        ("photo\u200c_%r8", "zero-width non-joiner (U+200C)"),
+        ("photo\u200d_%r8", "zero-width joiner (U+200D)"),
+        ("photo\u2060_%r8", "word joiner / zero-width no-break (U+2060)"),
+    ])
+    def test_zero_width_characters_rejected(self, fmt: str, description: str) -> None:
+        self._expect_exit(fmt)
+
+
+# ---------------------------------------------------------------------------
 # resolve_rename — token expansion
 # ---------------------------------------------------------------------------
 
