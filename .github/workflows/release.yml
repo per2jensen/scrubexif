@@ -241,11 +241,43 @@ jobs:
           echo '  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ env.FINAL_VERSION }}
           name: Scrubexif Release v${{ env.FINAL_VERSION }}
-          generate_release_notes: true
+          generate_release_notes: false
+          body: |
+            ## Documentation
+            - [What's changed](https://github.com/${{ github.repository }}/blob/main/Changelog.md)
+            - [Full documentation](https://github.com/${{ github.repository }}/blob/main/doc/DETAILS.md)
+            - [Filename rename spec](https://github.com/${{ github.repository }}/blob/main/doc/rename-spec.md)
+            - [Project page](https://per2jensen.github.io/scrubexif/)
+
+            ## Supply chain
+            | Artifact | Link |
+            |----------|------|
+            | SPDX SBOM | attached as release asset |
+            | Grype vulnerability scan | attached as release asset + GitHub Security tab |
+            | Rekor transparency log | ${{ steps.cosign_sign.outputs.rekor_url }} |
+
+            ## Verify the image signature
+            ```bash
+                        cosign verify per2jensen/scrubexif:${{ env.FINAL_VERSION }} \
+                          --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+                          --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+            ```
+          files: |
+            sbom-${{ env.FINAL_VERSION }}.spdx.json
+            grype-results-${{ env.FINAL_VERSION }}.sarif
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+      - name: Trigger dockerhub-readme workflow
+        run: |
+          gh workflow run dockerhub-readme.yml \
+            --ref ${{ github.ref_name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
