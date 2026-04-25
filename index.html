@@ -1,788 +1,469 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>scrubexif — High-trust EXIF removal</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <meta name="description" content="High-trust JPEG EXIF removal with a transparent supply chain. Two-stage pipeline: jpegtran byte-level wipe + ExifTool allowlist rebuild." />
   <style>
     :root {
-      --bg: #0d0f0e;
-      --bg2: #131614;
-      --bg3: #1a1d1b;
-      --border: #2a2e2c;
-      --accent: #3dffa0;
-      --accent2: #00cc77;
-      --accent-dim: rgba(61,255,160,0.12);
-      --text: #e8ede9;
-      --text2: #9aab9e;
-      --text3: #5c6b5f;
-      --red: #ff5f5f;
-      --yellow: #ffd166;
-      --mono: 'IBM Plex Mono', monospace;
-      --sans: 'IBM Plex Sans', sans-serif;
+      --bg:        #0d0d0d;
+      --surface:   #141414;
+      --border:    #222;
+      --accent:    #00e5ff;
+      --accent2:   #7c3aed;
+      --text:      #e8e8e8;
+      --muted:     #666;
+      --code-bg:   #0a0a0a;
+      --success:   #22c55e;
+      --warn:      #f59e0b;
     }
-
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
     html { scroll-behavior: smooth; }
-
     body {
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
       background: var(--bg);
       color: var(--text);
-      font-family: var(--sans);
-      font-size: 16px;
-      line-height: 1.6;
-      overflow-x: hidden;
+      line-height: 1.7;
+      font-size: 15px;
     }
 
-    /* ── GRID LINES BACKGROUND ── */
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image:
-        linear-gradient(rgba(61,255,160,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(61,255,160,0.03) 1px, transparent 1px);
-      background-size: 40px 40px;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* ── NAV ── */
+    /* NAV */
     nav {
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      background: rgba(13,15,14,0.85);
-      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,13,13,0.95);
+      backdrop-filter: blur(8px);
       border-bottom: 1px solid var(--border);
-      padding: 0 2rem;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      height: 56px;
+      padding: 0.75rem 2rem;
+      display: flex; align-items: center; gap: 2rem;
     }
-
-    .nav-logo {
-      font-family: var(--mono);
-      font-weight: 600;
-      font-size: 1rem;
-      color: var(--accent);
-      text-decoration: none;
-      letter-spacing: -0.02em;
-    }
-
-    .nav-logo span { color: var(--text3); }
-
-    .nav-links {
-      display: flex;
-      gap: 2rem;
-      list-style: none;
-    }
-
-    .nav-links a {
-      font-family: var(--mono);
-      font-size: 0.8rem;
-      color: var(--text2);
-      text-decoration: none;
-      letter-spacing: 0.05em;
-      transition: color 0.2s;
-    }
-
+    .nav-brand { color: var(--accent); font-weight: 700; font-size: 0.95rem; text-decoration: none; }
+    .nav-links { display: flex; gap: 1.5rem; margin-left: auto; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.8rem; transition: color .2s; }
     .nav-links a:hover { color: var(--accent); }
 
-    /* ── HERO ── */
+    /* HERO */
     .hero {
-      position: relative;
-      z-index: 1;
-      padding: 7rem 2rem 5rem;
-      max-width: 900px;
-      margin: 0 auto;
+      max-width: 860px; margin: 0 auto;
+      padding: 5rem 2rem 4rem;
+      text-align: center;
     }
-
-    .hero-eyebrow {
-      font-family: var(--mono);
-      font-size: 0.75rem;
-      letter-spacing: 0.15em;
-      color: var(--accent);
-      text-transform: uppercase;
-      margin-bottom: 1.5rem;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-    }
-
-    .hero-eyebrow::before {
-      content: '';
+    .hero-tag {
       display: inline-block;
-      width: 32px;
-      height: 1px;
-      background: var(--accent);
+      border: 1px solid var(--border);
+      color: var(--muted); font-size: 0.75rem;
+      padding: 0.25rem 0.75rem; border-radius: 2px;
+      margin-bottom: 2rem; letter-spacing: .08em;
     }
-
-    h1 {
-      font-family: var(--mono);
-      font-size: clamp(3rem, 8vw, 6rem);
-      font-weight: 600;
-      line-height: 0.95;
-      letter-spacing: -0.04em;
-      color: var(--text);
-      margin-bottom: 1rem;
+    .hero h1 {
+      font-size: clamp(2.2rem, 6vw, 3.8rem);
+      font-weight: 800; line-height: 1.1;
+      margin-bottom: 1.25rem;
+      letter-spacing: -0.02em;
     }
-
-    h1 em {
-      font-style: normal;
-      color: var(--accent);
-    }
-
+    .hero h1 em { color: var(--accent); font-style: normal; }
     .hero-sub {
-      font-size: 1.2rem;
-      font-weight: 300;
-      color: var(--text2);
-      max-width: 600px;
-      margin-bottom: 2.5rem;
-      line-height: 1.7;
+      color: var(--muted); font-size: 0.95rem;
+      max-width: 560px; margin: 0 auto 2rem;
     }
-
-    .hero-promise {
-      display: inline-flex;
-      align-items: flex-start;
-      gap: 0.75rem;
-      background: var(--accent-dim);
-      border: 1px solid rgba(61,255,160,0.25);
+    .promise {
+      background: rgba(0,229,255,0.04);
+      border: 1px solid rgba(0,229,255,0.15);
       border-radius: 4px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 2.5rem;
-      max-width: 600px;
-    }
-
-    .hero-promise .icon { color: var(--accent); font-size: 1.1rem; flex-shrink: 0; margin-top: 2px; }
-
-    .hero-promise p {
-      font-size: 0.9rem;
-      color: var(--text);
-      line-height: 1.5;
-    }
-
-    .hero-promise strong { color: var(--accent); }
-
-    .cta-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      align-items: center;
-    }
-
-    .btn {
-      font-family: var(--mono);
+      padding: 1rem 1.5rem;
+      margin: 2rem auto;
+      max-width: 640px;
       font-size: 0.85rem;
-      font-weight: 500;
-      letter-spacing: 0.03em;
-      padding: 0.7rem 1.5rem;
-      border-radius: 3px;
-      text-decoration: none;
-      transition: all 0.2s;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
+      color: var(--muted);
+      text-align: left;
     }
-
-    .btn-primary {
-      background: var(--accent);
-      color: var(--bg);
-      border: 1px solid var(--accent);
-    }
-
-    .btn-primary:hover {
-      background: #5affb4;
-      box-shadow: 0 0 20px rgba(61,255,160,0.3);
-    }
-
-    .btn-ghost {
-      background: transparent;
-      color: var(--text2);
-      border: 1px solid var(--border);
-    }
-
-    .btn-ghost:hover {
-      color: var(--text);
-      border-color: var(--text3);
-    }
-
-    /* ── BADGES ── */
-    .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      padding: 2rem;
-      max-width: 900px;
-      margin: 0 auto;
-      position: relative;
-      z-index: 1;
-    }
-
+    .promise strong { color: var(--accent); }
+    .badges { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin: 1.5rem 0; }
     .badges img { height: 20px; }
-
-    /* ── SECTION WRAPPER ── */
-    section {
-      position: relative;
-      z-index: 1;
-      padding: 5rem 2rem;
-      max-width: 900px;
-      margin: 0 auto;
+    .cta-row { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-top: 2rem; }
+    .btn {
+      display: inline-block; padding: 0.6rem 1.4rem;
+      border-radius: 3px; font-size: 0.85rem;
+      text-decoration: none; font-family: inherit;
+      transition: all .2s;
     }
+    .btn-primary { background: var(--accent); color: #000; font-weight: 700; }
+    .btn-primary:hover { background: #00b8cc; }
+    .btn-outline { border: 1px solid var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
 
-    .section-label {
-      font-family: var(--mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--text3);
-      margin-bottom: 0.5rem;
+    /* SECTIONS */
+    section { max-width: 900px; margin: 0 auto; padding: 4rem 2rem; }
+    .section-tag {
+      font-size: 0.7rem; letter-spacing: .15em; text-transform: uppercase;
+      color: var(--muted); margin-bottom: 0.75rem;
     }
-
     h2 {
-      font-family: var(--mono);
-      font-size: clamp(1.6rem, 3vw, 2.2rem);
-      font-weight: 600;
-      letter-spacing: -0.03em;
-      color: var(--text);
-      margin-bottom: 2rem;
+      font-size: clamp(1.4rem, 3vw, 2rem);
+      font-weight: 700; margin-bottom: 2rem;
+      letter-spacing: -0.01em;
     }
+    h2 em { color: var(--accent); font-style: normal; }
+    hr.divider { border: none; border-top: 1px solid var(--border); }
 
-    h2 em { font-style: normal; color: var(--accent); }
-
-    /* ── DIVIDER ── */
-    .divider {
-      border: none;
-      border-top: 1px solid var(--border);
-      max-width: 900px;
-      margin: 0 auto;
-    }
-
-    /* ── HOW IT WORKS ── */
+    /* PIPELINE */
     .pipeline {
-      display: grid;
-      grid-template-columns: 1fr auto 1fr auto 1fr;
-      align-items: center;
-      gap: 0.5rem;
-      margin: 2.5rem 0;
+      display: flex; align-items: stretch; gap: 0;
+      margin: 2rem 0; flex-wrap: wrap;
     }
-
-    .pipeline-step {
-      background: var(--bg2);
+    .pipe-stage {
+      flex: 1; min-width: 180px;
+      background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 1.25rem;
-      text-align: center;
+      padding: 1.5rem;
     }
-
-    .pipeline-step .step-num {
-      font-family: var(--mono);
-      font-size: 0.7rem;
-      color: var(--text3);
-      letter-spacing: 0.1em;
-      margin-bottom: 0.5rem;
+    .pipe-stage:first-child { border-radius: 4px 0 0 4px; }
+    .pipe-stage:last-child  { border-radius: 0 4px 4px 0; }
+    .pipe-label { font-size: 0.65rem; letter-spacing: .15em; color: var(--muted); margin-bottom: 0.4rem; }
+    .pipe-name { font-size: 1rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem; }
+    .pipe-desc { font-size: 0.8rem; color: var(--muted); }
+    .pipe-arrow {
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 0.5rem; color: var(--border); font-size: 1.2rem;
+      align-self: center;
     }
+    .pipeline-note { font-size: 0.82rem; color: var(--muted); margin-top: 1rem; }
 
-    .pipeline-step .step-name {
-      font-family: var(--mono);
-      font-size: 0.95rem;
-      font-weight: 600;
-      color: var(--accent);
-      margin-bottom: 0.4rem;
-    }
-
-    .pipeline-step .step-desc {
-      font-size: 0.8rem;
-      color: var(--text2);
-      line-height: 1.4;
-    }
-
-    .pipeline-arrow {
-      color: var(--text3);
-      font-size: 1.2rem;
-      text-align: center;
-    }
-
-    .pipeline-note {
-      font-size: 0.85rem;
-      color: var(--text2);
-      line-height: 1.6;
-      max-width: 620px;
-    }
-
-    /* ── FEATURES ── */
-    .features-grid {
+    /* FEATURES */
+    .feature-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
       gap: 1px;
       background: var(--border);
       border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 4px;
       overflow: hidden;
-      margin-top: 2rem;
     }
-
-    .feature-card {
-      background: var(--bg);
+    .feature {
+      background: var(--surface);
       padding: 1.5rem;
-      transition: background 0.2s;
     }
+    .feature-icon { font-size: 1.4rem; margin-bottom: 0.75rem; }
+    .feature-title { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.4rem; color: var(--text); }
+    .feature-desc { font-size: 0.8rem; color: var(--muted); }
 
-    .feature-card:hover { background: var(--bg2); }
-
-    .feature-icon {
-      font-size: 1.5rem;
-      margin-bottom: 0.75rem;
-    }
-
-    .feature-title {
-      font-family: var(--mono);
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 0.4rem;
-    }
-
-    .feature-desc {
-      font-size: 0.82rem;
-      color: var(--text2);
-      line-height: 1.5;
-    }
-
-    /* ── QUICK START ── */
-    .quickstart-tabs {
+    /* IN THE WILD */
+    .wild-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2rem;
       display: flex;
-      gap: 0;
-      margin-bottom: 0;
-      border-bottom: 1px solid var(--border);
+      gap: 2rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
     }
-
-    .tab-btn {
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      letter-spacing: 0.05em;
-      padding: 0.6rem 1.2rem;
-      background: transparent;
-      border: none;
-      border-bottom: 2px solid transparent;
-      color: var(--text3);
-      cursor: pointer;
-      transition: all 0.2s;
-      margin-bottom: -1px;
+    .wild-icon {
+      font-size: 2.5rem;
+      line-height: 1;
+      flex-shrink: 0;
     }
-
-    .tab-btn.active {
+    .wild-body { flex: 1; min-width: 220px; }
+    .wild-title {
+      font-size: 1rem; font-weight: 700;
+      color: var(--text); margin-bottom: 0.5rem;
+    }
+    .wild-title a { color: var(--accent); text-decoration: none; }
+    .wild-title a:hover { text-decoration: underline; }
+    .wild-desc { font-size: 0.83rem; color: var(--muted); margin-bottom: 1rem; line-height: 1.6; }
+    .wild-pipeline {
+      display: flex; align-items: center; gap: 0.5rem;
+      flex-wrap: wrap; font-size: 0.75rem;
+    }
+    .wild-step {
+      background: rgba(0,229,255,0.06);
+      border: 1px solid rgba(0,229,255,0.15);
       color: var(--accent);
-      border-bottom-color: var(--accent);
+      padding: 0.25rem 0.6rem;
+      border-radius: 2px;
     }
+    .wild-arrow { color: var(--muted); }
+    .wild-note {
+      margin-top: 1.25rem;
+      font-size: 0.78rem; color: var(--muted);
+      border-top: 1px solid var(--border);
+      padding-top: 1rem;
+    }
+    .wild-note a { color: var(--accent); text-decoration: none; }
+    .wild-note a:hover { text-decoration: underline; }
 
-    .tab-btn:hover:not(.active) { color: var(--text2); }
-
+    /* TABS */
+    .tabs { margin: 1.5rem 0; }
+    .tab-row { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+    .tab-btn {
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); font-family: inherit; font-size: 0.8rem;
+      padding: 0.5rem 1rem; cursor: pointer; margin-bottom: -1px;
+      transition: all .2s;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
     .tab-panel { display: none; }
     .tab-panel.active { display: block; }
 
+    /* CODE */
     .code-block {
       position: relative;
-      background: var(--bg2);
+      background: var(--code-bg);
       border: 1px solid var(--border);
-      border-radius: 0 0 6px 6px;
-      padding: 1.5rem;
-      overflow-x: auto;
-    }
-
-    .tab-panel:first-of-type .code-block { border-radius: 0 6px 6px 6px; }
-
-    pre {
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      line-height: 1.65;
-      color: var(--text);
-      white-space: pre;
-    }
-
-    .cmd-comment { color: var(--text3); }
-    .cmd-flag { color: var(--yellow); }
-    .cmd-string { color: var(--accent); }
-    .cmd-cmd { color: #7dd8ff; }
-
-    .copy-btn {
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      font-family: var(--mono);
-      font-size: 0.7rem;
-      letter-spacing: 0.05em;
-      padding: 0.3rem 0.6rem;
-      background: var(--bg3);
-      border: 1px solid var(--border);
-      border-radius: 3px;
-      color: var(--text3);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
-
-    .code-note {
-      font-size: 0.82rem;
-      color: var(--text2);
-      margin-top: 1rem;
-      padding: 0.75rem 1rem;
-      border-left: 2px solid var(--accent2);
-      background: var(--accent-dim);
-      line-height: 1.5;
-    }
-
-    /* ── SUPPLY CHAIN ── */
-    .supply-chain-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 1rem;
-      margin-top: 2rem;
-    }
-
-    .supply-item {
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 1.25rem;
-      display: flex;
-      gap: 0.75rem;
-      align-items: flex-start;
-    }
-
-    .supply-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: var(--accent);
-      flex-shrink: 0;
-      margin-top: 6px;
-    }
-
-    .supply-item-title {
-      font-family: var(--mono);
-      font-size: 0.82rem;
-      font-weight: 600;
-      color: var(--text);
-      margin-bottom: 0.25rem;
-    }
-
-    .supply-item-desc {
-      font-size: 0.78rem;
-      color: var(--text2);
-      line-height: 1.5;
-    }
-
-    .verify-block {
-      margin-top: 2rem;
-      background: var(--bg2);
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      border-radius: 0 4px 4px 4px;
       overflow: hidden;
     }
+    .code-block pre {
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: #ccc;
+    }
+    .code-block pre .cm { color: var(--muted); }
+    .copy-btn {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--muted); font-family: inherit; font-size: 0.7rem;
+      padding: 0.2rem 0.5rem; border-radius: 2px; cursor: pointer;
+      transition: all .2s;
+    }
+    .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+    .code-note { font-size: 0.8rem; color: var(--muted); margin-top: 0.75rem; }
+    .code-note strong { color: var(--text); }
 
-    .verify-header {
-      background: var(--bg3);
-      padding: 0.6rem 1rem;
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      letter-spacing: 0.1em;
-      color: var(--text3);
+    /* OPTIONS TABLE */
+    .opt-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .opt-table th {
+      text-align: left; padding: 0.5rem 1rem;
       border-bottom: 1px solid var(--border);
+      color: var(--muted); font-weight: 600; font-size: 0.72rem;
+      letter-spacing: .08em;
     }
+    .opt-table td { padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .opt-table td:first-child { color: var(--accent); white-space: nowrap; }
+    .opt-table td:last-child { color: var(--muted); }
+    .opt-table tr:last-child td { border-bottom: none; }
 
-    .verify-block pre {
-      padding: 1.25rem;
-      font-size: 0.78rem;
+    /* SUPPLY CHAIN */
+    .chain-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .chain-item {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 4px; padding: 1.25rem;
     }
+    .chain-name { font-size: 0.85rem; font-weight: 700; color: var(--accent); margin-bottom: 0.4rem; }
+    .chain-desc { font-size: 0.78rem; color: var(--muted); }
 
-    /* ── OPTIONS TABLE ── */
-    .opts-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1.5rem;
-      font-size: 0.84rem;
-    }
-
-    .opts-table tr {
-      border-bottom: 1px solid var(--border);
-    }
-
-    .opts-table tr:last-child { border-bottom: none; }
-
-    .opts-table tr:hover td { background: var(--bg2); }
-
-    .opts-table td {
-      padding: 0.65rem 1rem;
-      vertical-align: top;
-      transition: background 0.15s;
-    }
-
-    .opts-table td:first-child {
-      font-family: var(--mono);
-      font-size: 0.78rem;
-      color: var(--accent);
-      white-space: nowrap;
-      width: 200px;
-    }
-
-    .opts-table td:last-child {
-      color: var(--text2);
-    }
-
-    /* ── FOOTER ── */
+    /* FOOTER */
     footer {
-      position: relative;
-      z-index: 1;
       border-top: 1px solid var(--border);
       padding: 3rem 2rem;
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 2rem;
+      max-width: 900px; margin: 0 auto;
     }
-
-    .footer-brand {
-      font-family: var(--mono);
-      font-size: 1.1rem;
-      font-weight: 600;
-      color: var(--accent);
-      letter-spacing: -0.02em;
-      margin-bottom: 0.4rem;
-    }
-
-    .footer-desc {
-      font-size: 0.82rem;
-      color: var(--text3);
-      max-width: 280px;
-    }
-
-    .footer-links {
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .footer-links a {
-      font-family: var(--mono);
-      font-size: 0.8rem;
-      color: var(--text2);
-      text-decoration: none;
-      transition: color 0.2s;
-    }
-
+    .footer-inner { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 2rem; }
+    .footer-brand { font-weight: 700; color: var(--text); margin-bottom: 0.5rem; }
+    .footer-sub { font-size: 0.78rem; color: var(--muted); }
+    .footer-links { display: flex; flex-direction: column; gap: 0.4rem; }
+    .footer-links a { font-size: 0.8rem; color: var(--muted); text-decoration: none; }
     .footer-links a:hover { color: var(--accent); }
-
-    .footer-copy {
-      font-family: var(--mono);
-      font-size: 0.72rem;
-      color: var(--text3);
-      width: 100%;
-      padding-top: 2rem;
-      border-top: 1px solid var(--border);
-    }
-
-    /* ── ANIMATIONS ── */
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(20px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-
-    .hero > * {
-      animation: fadeUp 0.6s ease both;
-    }
-
-    .hero > *:nth-child(1) { animation-delay: 0.05s; }
-    .hero > *:nth-child(2) { animation-delay: 0.12s; }
-    .hero > *:nth-child(3) { animation-delay: 0.2s; }
-    .hero > *:nth-child(4) { animation-delay: 0.28s; }
-    .hero > *:nth-child(5) { animation-delay: 0.36s; }
-
-    /* ── RESPONSIVE ── */
-    @media (max-width: 640px) {
-      nav { padding: 0 1rem; }
-      .nav-links { display: none; }
-      .hero { padding: 4rem 1rem 3rem; }
-      section { padding: 3rem 1rem; }
-      .pipeline {
-        grid-template-columns: 1fr;
-        gap: 0.5rem;
-      }
-      .pipeline-arrow { transform: rotate(90deg); }
-      .opts-table td:first-child { width: auto; }
-    }
+    .footer-legal { font-size: 0.72rem; color: var(--muted); margin-top: 2rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
   </style>
 </head>
 <body>
 
-  <nav>
-    <a class="nav-logo" href="#"><span>~/</span>scrubexif</a>
-    <ul class="nav-links">
-      <li><a href="#how">how it works</a></li>
-      <li><a href="#features">features</a></li>
-      <li><a href="#quickstart">quick start</a></li>
-      <li><a href="#supply-chain">supply chain</a></li>
-      <li><a href="https://github.com/per2jensen/scrubexif" target="_blank">github ↗</a></li>
-    </ul>
-  </nav>
+<nav>
+  <a class="nav-brand" href="#">~/scrubexif</a>
+  <div class="nav-links">
+    <a href="#how">how it works</a>
+    <a href="#features">features</a>
+    <a href="#wild">in the wild</a>
+    <a href="#quickstart">quick start</a>
+    <a href="#supply-chain">supply chain</a>
+    <a href="https://github.com/per2jensen/scrubexif" target="_blank">github ↗</a>
+  </div>
+</nav>
 
-  <div class="hero">
-    <div class="hero-eyebrow">JPEG metadata removal · Docker · GPL-3.0</div>
-    <h1>scrub<em>exif</em></h1>
-    <p class="hero-sub">
-      High-trust EXIF removal with a transparent supply chain.
-      Two-stage pipeline: byte-level APP wipe via <code style="font-family:var(--mono);color:var(--accent);font-size:0.9em">jpegtran</code>,
-      then allowlisted EXIF rebuild via <code style="font-family:var(--mono);color:var(--accent);font-size:0.9em">ExifTool</code>.
-      Closes the gap parser-based tools leave open.
-    </p>
+<div class="hero">
+  <div class="hero-tag">JPEG metadata removal · Docker · GPL-3.0</div>
+  <h1>scrub<em>exif</em></h1>
+  <p class="hero-sub">
+    High-trust EXIF removal with a transparent supply chain.
+    Two-stage pipeline: byte-level APP wipe via <code>jpegtran</code>,
+    then allowlisted EXIF rebuild via <code>ExifTool</code>.
+    Closes the gap parser-based tools leave open.
+  </p>
 
-    <div class="hero-promise">
-      <span class="icon">⬡</span>
-      <p><strong>Promise:</strong> scrubexif will not write an unscrubbed JPEG into an output directory. If a scrub fails for any reason, no output file is created for that image.</p>
-    </div>
-
-    <div class="cta-row">
-      <a class="btn btn-primary" href="#quickstart">
-        ▶ Quick Start
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/per2jensen/scrubexif" target="_blank">
-        GitHub
-      </a>
-      <a class="btn btn-ghost" href="https://hub.docker.com/r/per2jensen/scrubexif" target="_blank">
-        Docker Hub
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md" target="_blank">
-        Full Docs ↗
-      </a>
-    </div>
+  <div class="promise">
+    ⬡ &nbsp;<strong>Promise:</strong> scrubexif will not write an unscrubbed JPEG into an output directory.
+    If a scrub fails for any reason, no output file is created for that image.
   </div>
 
   <div class="badges">
-    <img src="https://img.shields.io/github/v/tag/per2jensen/scrubexif" alt="tag">
-    <img src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg" alt="CI">
-    <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="license">
-    <img src="https://img.shields.io/docker/pulls/per2jensen/scrubexif" alt="docker pulls">
-    <img src="https://img.shields.io/badge/base%20image-ubuntu%2024.04-brightgreen" alt="base image">
-    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/doc/cosign_badge.json" alt="cosign">
+    <img src="https://img.shields.io/github/v/tag/per2jensen/scrubexif" alt="tag" />
+    <img src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg" alt="CI" />
+    <img src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue" alt="license" />
+    <img src="https://img.shields.io/docker/pulls/per2jensen/scrubexif" alt="docker pulls" />
+    <img src="https://img.shields.io/badge/base%20image-ubuntu%2024.04-brightgreen" alt="base image" />
+    <img src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/doc/cosign_badge.json" alt="cosign" />
   </div>
 
-  <hr class="divider">
+  <div class="cta-row">
+    <a class="btn btn-primary" href="#quickstart">▶ Quick Start</a>
+    <a class="btn btn-outline" href="https://github.com/per2jensen/scrubexif" target="_blank">GitHub</a>
+    <a class="btn btn-outline" href="https://hub.docker.com/r/per2jensen/scrubexif" target="_blank">Docker Hub</a>
+    <a class="btn btn-outline" href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md" target="_blank">Full Docs ↗</a>
+  </div>
+</div>
 
-  <!-- HOW IT WORKS -->
-  <section id="how">
-    <div class="section-label">mechanism</div>
-    <h2>Two-stage <em>pipeline</em></h2>
+<hr class="divider" />
 
-    <div class="pipeline">
-      <div class="pipeline-step">
-        <div class="step-num">STAGE 1</div>
-        <div class="step-name">jpegtran</div>
-        <div class="step-desc">Byte-level strip of all JPEG APP segments — including unknown and proprietary vendor segments invisible to parsers</div>
+<section id="how">
+  <div class="section-tag">mechanism</div>
+  <h2>Two-stage <em>pipeline</em></h2>
+
+  <div class="pipeline">
+    <div class="pipe-stage">
+      <div class="pipe-label">STAGE 1</div>
+      <div class="pipe-name">jpegtran</div>
+      <div class="pipe-desc">Byte-level strip of all JPEG APP segments — including unknown and proprietary vendor segments invisible to parsers</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-stage">
+      <div class="pipe-label">STAGE 2</div>
+      <div class="pipe-name">ExifTool</div>
+      <div class="pipe-desc">Writes back a small allowlist: exposure, ISO, focal length, orientation. Everything else stays gone.</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-stage">
+      <div class="pipe-label">OUTPUT</div>
+      <div class="pipe-name">Clean JPEG</div>
+      <div class="pipe-desc">No GPS. No serial numbers. No maker notes. No private metadata. ICC color profile re-embedded.</div>
+    </div>
+  </div>
+
+  <p class="pipeline-note">
+    Parser-based tools can only see segments they know about. <code>jpegtran</code> operates at the byte level — it removes
+    everything regardless of format, including segments from obscure camera manufacturers.
+    The allowlist rebuild ensures the resulting image is still technically complete and
+    usable, without carrying anything identifying.
+  </p>
+</section>
+
+<hr class="divider" />
+
+<section id="features">
+  <div class="section-tag">capabilities</div>
+  <h2>What it <em>does</em></h2>
+
+  <div class="feature-grid">
+    <div class="feature">
+      <div class="feature-icon">🛡</div>
+      <div class="feature-title">JPEG-only by design</div>
+      <div class="feature-desc">Avoids format-specific edge cases. Predictable, auditable behavior every time.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">✦</div>
+      <div class="feature-title">Allowlist scrubbing</div>
+      <div class="feature-desc">Only explicitly permitted tags survive. Everything else — GPS, maker notes, serial numbers — is gone.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🎨</div>
+      <div class="feature-title">ICC color preserved</div>
+      <div class="feature-desc">Color profiles are re-embedded after the jpegtran strip in normal mode. Colors stay accurate.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">📁</div>
+      <div class="feature-title">Auto intake mode</div>
+      <div class="feature-desc"><code>--from-input</code> watches a hot directory. Works with PhotoSync, rclone, FTP uploads.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔀</div>
+      <div class="feature-title">Filename sanitisation</div>
+      <div class="feature-desc"><code>--rename</code> replaces capture-timestamp filenames with random hex, UUID, or custom format strings.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">☠</div>
+      <div class="feature-title">Paranoia mode</div>
+      <div class="feature-desc">Byte-level wipe only. Zero metadata survives — not even ICC. For when you need absolute certainty.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔍</div>
+      <div class="feature-title">Dry-run &amp; preview</div>
+      <div class="feature-desc"><code>--dry-run</code> and <code>--show-tags</code> let you inspect before committing to any changes.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🏷</div>
+      <div class="feature-title">Copyright stamping</div>
+      <div class="feature-desc">Optionally write copyright and comment into EXIF/XMP on output with <code>--copyright</code>.</div>
+    </div>
+    <div class="feature">
+      <div class="feature-icon">🔒</div>
+      <div class="feature-title">Hardened container</div>
+      <div class="feature-desc">Example invocations use <code>--read-only</code>, <code>--no-new-privileges</code>, and <code>--tmpfs</code>.</div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider" />
+
+<!-- ======================================================= -->
+<!--  IN THE WILD                                            -->
+<!-- ======================================================= -->
+<section id="wild">
+  <div class="section-tag">production use</div>
+  <h2>In the <em>wild</em></h2>
+
+  <div class="wild-card">
+    <div class="wild-icon">🐕</div>
+    <div class="wild-body">
+      <div class="wild-title">
+        <a href="https://hunde.pics/gallery" target="_blank">hunde.pics</a>
+        — dog photography by Per Jensen
       </div>
-      <div class="pipeline-arrow">→</div>
-      <div class="pipeline-step">
-        <div class="step-num">STAGE 2</div>
-        <div class="step-name">ExifTool</div>
-        <div class="step-desc">Writes back a small allowlist: exposure, ISO, focal length, orientation. Everything else stays gone.</div>
+      <p class="wild-desc">
+        Every JPEG uploaded from a camera runs through scrubexif before landing in
+        <a href="https://photoprism.app" target="_blank" style="color:var(--accent);text-decoration:none;">PhotoPrism</a>.
+        GPS coordinates, camera serial numbers, and maker notes are stripped at intake.
+        Only technical shooting data — exposure, aperture, ISO, focal length — is kept.
+        The gallery is public; the metadata is not.
+      </p>
+
+      <div class="wild-pipeline">
+        <span class="wild-step">📷 Camera upload</span>
+        <span class="wild-arrow">→</span>
+        <span class="wild-step">scrubexif --from-input</span>
+        <span class="wild-arrow">→</span>
+        <span class="wild-step">PhotoPrism intake</span>
+        <span class="wild-arrow">→</span>
+        <span class="wild-step">🌐 Public gallery</span>
       </div>
-      <div class="pipeline-arrow">→</div>
-      <div class="pipeline-step">
-        <div class="step-num">OUTPUT</div>
-        <div class="step-name">Clean JPEG</div>
-        <div class="step-desc">No GPS. No serial numbers. No maker notes. No private metadata. ICC color profile re-embedded.</div>
+
+      <div class="wild-note">
+        Browse the gallery to see the result:
+        <a href="https://hunde.pics/gallery" target="_blank">hunde.pics/gallery ↗</a>
       </div>
     </div>
+  </div>
+</section>
 
-    <p class="pipeline-note">
-      Parser-based tools can only see segments they know about. <code style="font-family:var(--mono);color:var(--accent);font-size:0.88em">jpegtran</code> operates at the byte level — it removes
-      everything regardless of format, including segments from obscure camera manufacturers.
-      The allowlist rebuild ensures the resulting image is still technically complete and
-      usable, without carrying anything identifying.
-    </p>
-  </section>
+<hr class="divider" />
 
-  <hr class="divider">
+<section id="quickstart">
+  <div class="section-tag">usage</div>
+  <h2>Quick <em>start</em></h2>
 
-  <!-- FEATURES -->
-  <section id="features">
-    <div class="section-label">capabilities</div>
-    <h2>What it <em>does</em></h2>
-
-    <div class="features-grid">
-      <div class="feature-card">
-        <div class="feature-icon">🛡</div>
-        <div class="feature-title">JPEG-only by design</div>
-        <div class="feature-desc">Avoids format-specific edge cases. Predictable, auditable behavior every time.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">✦</div>
-        <div class="feature-title">Allowlist scrubbing</div>
-        <div class="feature-desc">Only explicitly permitted tags survive. Everything else — GPS, maker notes, serial numbers — is gone.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🎨</div>
-        <div class="feature-title">ICC color preserved</div>
-        <div class="feature-desc">Color profiles are re-embedded after the jpegtran strip in normal mode. Colors stay accurate.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">📁</div>
-        <div class="feature-title">Auto intake mode</div>
-        <div class="feature-desc"><code style="font-family:var(--mono);font-size:0.85em">--from-input</code> watches a hot directory. Works with PhotoSync, rclone, FTP uploads.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔀</div>
-        <div class="feature-title">Filename sanitisation</div>
-        <div class="feature-desc"><code style="font-family:var(--mono);font-size:0.85em">--rename</code> replaces capture-timestamp filenames with random hex, UUID, or custom format strings.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">☠</div>
-        <div class="feature-title">Paranoia mode</div>
-        <div class="feature-desc">Byte-level wipe only. Zero metadata survives — not even ICC. For when you need absolute certainty.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔍</div>
-        <div class="feature-title">Dry-run & preview</div>
-        <div class="feature-desc"><code style="font-family:var(--mono);font-size:0.85em">--dry-run</code> and <code style="font-family:var(--mono);font-size:0.85em">--show-tags</code> let you inspect before committing to any changes.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🏷</div>
-        <div class="feature-title">Copyright stamping</div>
-        <div class="feature-desc">Optionally write copyright and comment into EXIF/XMP on output with <code style="font-family:var(--mono);font-size:0.85em">--copyright</code>.</div>
-      </div>
-      <div class="feature-card">
-        <div class="feature-icon">🔒</div>
-        <div class="feature-title">Hardened container</div>
-        <div class="feature-desc">Example invocations use <code style="font-family:var(--mono);font-size:0.85em">--read-only</code>, <code style="font-family:var(--mono);font-size:0.85em">--no-new-privileges</code>, and <code style="font-family:var(--mono);font-size:0.85em">--tmpfs</code>.</div>
-      </div>
-    </div>
-  </section>
-
-  <hr class="divider">
-
-  <!-- QUICK START -->
-  <section id="quickstart">
-    <div class="section-label">usage</div>
-    <h2>Quick <em>start</em></h2>
-
-    <div class="quickstart-tabs">
+  <div class="tabs">
+    <div class="tab-row">
       <button class="tab-btn active" onclick="switchTab(event,'tab-basic')">Basic (safe)</button>
       <button class="tab-btn" onclick="switchTab(event,'tab-hardened')">Hardened inline</button>
       <button class="tab-btn" onclick="switchTab(event,'tab-rename')">Rename</button>
-      <button class="tab-btn" onclick="switchTab(event,'tab-batch')">Batch / intake</button>
+      <button class="tab-btn" onclick="switchTab(event,'tab-intake')">Batch / intake</button>
     </div>
 
-    <div id="tab-basic" class="tab-panel active">
+    <div class="tab-panel active" id="tab-basic">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
+<<<<<<< HEAD
         <pre><span class="cmd-comment"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
 <span class="cmd-cmd">docker run</span> <span class="cmd-flag">--rm</span> \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
@@ -791,28 +472,48 @@
       <div class="code-note">
         Originals are <strong>untouched</strong> in <code style="font-family:var(--mono)">$PWD/</code>. Scrubbed copies go to <code style="font-family:var(--mono)">$PWD/output/</code>.
         Run is refused if <code style="font-family:var(--mono)">output/</code> already exists — no accidental overwrites.
+=======
+        <pre><span class="cm"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
+docker run --rm \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.21</pre>
+>>>>>>> 25a3914 ("In the wild" section added)
       </div>
+      <p class="code-note">
+        Originals are <strong>untouched</strong> in <code>$PWD/</code>. Scrubbed copies go to <code>$PWD/output/</code>.<br>
+        Run is refused if <code>output/</code> already exists — no accidental overwrites.
+      </p>
     </div>
 
-    <div id="tab-hardened" class="tab-panel">
+    <div class="tab-panel" id="tab-hardened">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
+<<<<<<< HEAD
         <pre><span class="cmd-comment"># Hardened in-place (destructive) scrub</span>
 <span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
   <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
   <span class="cmd-flag">--tmpfs</span> /tmp \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
   per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline</span></pre>
+=======
+        <pre><span class="cm"># Hardened in-place (destructive) scrub</span>
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.21 --clean-inline</pre>
+>>>>>>> 25a3914 ("In the wild" section added)
       </div>
-      <div class="code-note">
+      <p class="code-note">
         Overwrites originals in-place. Use when you want the file count to stay the same
         and you don't need a non-destructive copy. Container runs fully read-only.
-      </div>
+      </p>
     </div>
 
-    <div id="tab-rename" class="tab-panel">
+    <div class="tab-panel" id="tab-rename">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
+<<<<<<< HEAD
         <pre><span class="cmd-comment"># Fully anonymous — 8-char random hex filenames</span>
 <span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
   <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
@@ -827,15 +528,32 @@
         Filenames leak too. <code style="font-family:var(--mono)">2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
         <code style="font-family:var(--mono)">D80_</code> identifies the camera body.
         Tokens: <code style="font-family:var(--mono)">%r</code> (random hex) · <code style="font-family:var(--mono)">%u</code> (UUID) · <code style="font-family:var(--mono)">%n</code> (counter) · <code style="font-family:var(--mono)">%Y</code> (year) · <code style="font-family:var(--mono)">%m</code> (month)
+=======
+        <pre><span class="cm"># Fully anonymous — 8-char random hex filenames</span>
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.21 --clean-inline --rename "%r8" --recursive
+
+<span class="cm"># Keep camera prefix, drop timestamp</span>
+  per2jensen/scrubexif:0.7.21 --clean-inline --rename "D80_%r6"</pre>
+>>>>>>> 25a3914 ("In the wild" section added)
       </div>
+      <p class="code-note">
+        Filenames leak too. <code>2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
+        <code>D80_</code> identifies the camera body.<br>
+        Tokens: <code>%r</code> (random hex) · <code>%u</code> (UUID) · <code>%n</code> (counter) · <code>%Y</code> (year) · <code>%m</code> (month)
+      </p>
     </div>
 
-    <div id="tab-batch" class="tab-panel">
+    <div class="tab-panel" id="tab-intake">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
-        <pre><span class="cmd-comment"># Create directories, then run auto-intake mode</span>
-<span class="cmd-cmd">mkdir</span> input scrubbed processed errors
+        <pre><span class="cm"># Create directories, then run auto-intake mode</span>
+mkdir input scrubbed processed errors
 
+<<<<<<< HEAD
 <span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
   <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
   <span class="cmd-flag">--tmpfs</span> /tmp \
@@ -848,18 +566,36 @@
       <div class="code-note">
         <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code style="font-family:var(--mono)">--on-duplicate move</code>).
         Pair with <code style="font-family:var(--mono)">--stable-seconds</code> for hot upload directories.
+=======
+docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD/input:/photos/input" \
+  -v "$PWD/scrubbed:/photos/output" \
+  -v "$PWD/processed:/photos/processed" \
+  -v "$PWD/errors:/photos/errors" \
+  per2jensen/scrubexif:0.7.21 --from-input</pre>
+>>>>>>> 25a3914 ("In the wild" section added)
       </div>
+      <p class="code-note">
+        <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code>--on-duplicate move</code>).<br>
+        Pair with <code>--stable-seconds</code> for hot upload directories.
+      </p>
     </div>
-  </section>
+  </div>
+</section>
 
-  <hr class="divider">
+<hr class="divider" />
 
-  <!-- COMMON OPTIONS -->
-  <section id="options">
-    <div class="section-label">reference</div>
-    <h2>Common <em>options</em></h2>
+<section id="reference">
+  <div class="section-tag">reference</div>
+  <h2>Common <em>options</em></h2>
 
-    <table class="opts-table">
+  <table class="opt-table">
+    <thead>
+      <tr><th>Flag</th><th>Description</th></tr>
+    </thead>
+    <tbody>
       <tr><td>--from-input</td><td>Auto intake mode — watches input/ directory</td></tr>
       <tr><td>--clean-inline</td><td>In-place scrub (destructive — modifies originals)</td></tr>
       <tr><td>--rename FORMAT</td><td>Rename output files using a format string (<a href="https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md" style="color:var(--accent)">spec ↗</a>)</td></tr>
@@ -875,89 +611,87 @@
       <tr><td>--comment</td><td>Stamp comment into EXIF/XMP</td></tr>
       <tr><td>--recursive</td><td>Process subdirectories</td></tr>
       <tr><td>-q, --quiet</td><td>No output on success</td></tr>
-    </table>
+    </tbody>
+  </table>
 
-    <p style="margin-top:1.5rem;font-size:0.84rem;color:var(--text3)">
-      Full CLI reference → <a href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md" style="color:var(--accent)">DETAILS.md ↗</a>
-    </p>
-  </section>
+  <p style="margin-top:1rem;font-size:0.82rem;color:var(--muted)">
+    Full CLI reference → <a href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md" style="color:var(--accent)">DETAILS.md ↗</a>
+  </p>
+</section>
 
-  <hr class="divider">
+<hr class="divider" />
 
-  <!-- SUPPLY CHAIN -->
-  <section id="supply-chain">
-    <div class="section-label">trust & verification</div>
-    <h2>Supply chain <em>transparency</em></h2>
+<section id="supply-chain">
+  <div class="section-tag">trust &amp; verification</div>
+  <h2>Supply chain <em>transparency</em></h2>
 
-    <p style="color:var(--text2);margin-bottom:1.5rem;font-size:0.9rem;max-width:600px">
-      Every release image is cryptographically signed using cosign keyless signing via the Sigstore public infrastructure.
-      The signature is tied to the exact GitHub Actions run — no long-lived signing keys exist anywhere.
-    </p>
+  <p style="color:var(--muted);font-size:0.85rem;margin-bottom:2rem;">
+    Every release image is cryptographically signed using cosign keyless signing via the Sigstore public infrastructure.
+    The signature is tied to the exact GitHub Actions run — no long-lived signing keys exist anywhere.
+  </p>
 
-    <div class="supply-chain-grid">
-      <div class="supply-item">
-        <div class="supply-dot"></div>
-        <div>
-          <div class="supply-item-title">cosign signature</div>
-          <div class="supply-item-desc">Keyless signing via Sigstore. Tied to the exact CI run that built the image.</div>
-        </div>
-      </div>
-      <div class="supply-item">
-        <div class="supply-dot"></div>
-        <div>
-          <div class="supply-item-title">SPDX SBOM</div>
-          <div class="supply-item-desc">Software Bill of Materials attached to each GitHub Release and as a signed attestation.</div>
-        </div>
-      </div>
-      <div class="supply-item">
-        <div class="supply-dot"></div>
-        <div>
-          <div class="supply-item-title">Grype scan</div>
-          <div class="supply-item-desc">Vulnerability scan on every release. Releases blocked on any high or critical CVE.</div>
-        </div>
-      </div>
-      <div class="supply-item">
-        <div class="supply-dot"></div>
-        <div>
-          <div class="supply-item-title">build-history.json</div>
-          <div class="supply-item-desc">Every release tracked: Git commit, image digest, Grype counts, Rekor log entry, CI run URL.</div>
-        </div>
-      </div>
+  <div class="chain-grid">
+    <div class="chain-item">
+      <div class="chain-name">cosign signature</div>
+      <div class="chain-desc">Keyless signing via Sigstore. Tied to the exact CI run that built the image.</div>
     </div>
+<<<<<<< HEAD
 
     <div class="verify-block">
       <div class="verify-header">VERIFY ANY RELEASE — requires cosign</div>
       <pre style="padding:1.25rem;font-size:0.78rem"><span class="cmd-cmd">cosign verify</span> per2jensen/scrubexif:0.7.21 \
   <span class="cmd-flag">--certificate-identity-regexp=</span><span class="cmd-string">"https://github.com/per2jensen/scrubexif"</span> \
   <span class="cmd-flag">--certificate-oidc-issuer=</span><span class="cmd-string">"https://token.actions.githubusercontent.com"</span></pre>
+=======
+    <div class="chain-item">
+      <div class="chain-name">SPDX SBOM</div>
+      <div class="chain-desc">Software Bill of Materials attached to each GitHub Release and as a signed attestation.</div>
+>>>>>>> 25a3914 ("In the wild" section added)
     </div>
-  </section>
+    <div class="chain-item">
+      <div class="chain-name">Grype scan</div>
+      <div class="chain-desc">Vulnerability scan on every release. Releases blocked on any high or critical CVE.</div>
+    </div>
+    <div class="chain-item">
+      <div class="chain-name">build-history.json</div>
+      <div class="chain-desc">Every release tracked: Git commit, image digest, Grype counts, Rekor log entry, CI run URL.</div>
+    </div>
+  </div>
 
-  <hr class="divider">
+  <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">VERIFY ANY RELEASE — requires cosign</p>
+  <div class="code-block">
+    <button class="copy-btn" onclick="copyCode(this)">copy</button>
+    <pre>cosign verify per2jensen/scrubexif:0.7.21 \
+  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"</pre>
+  </div>
+</section>
 
-  <!-- ACKNOWLEDGEMENTS -->
-  <section id="acks">
-    <div class="section-label">built on</div>
-    <h2><em>Acknowledgements</em></h2>
-    <p style="color:var(--text2);font-size:0.88rem;line-height:1.8;max-width:620px">
-      <a href="https://exiftool.org/" style="color:var(--accent)" target="_blank">ExifTool</a> by Phil Harvey — metadata extraction and selective tag write-back (GPL-1.0-or-later / Artistic)
-      &nbsp;·&nbsp;
-      <a href="https://ijg.org/" style="color:var(--accent)" target="_blank">jpegtran</a> from libjpeg-turbo — lossless byte-level JPEG transformation
-      &nbsp;·&nbsp;
-      <a href="https://github.com/sigstore/cosign" style="color:var(--accent)" target="_blank">cosign</a> — image signing
-      &nbsp;·&nbsp;
-      <a href="https://github.com/anchore/syft" style="color:var(--accent)" target="_blank">Syft</a> — SBOM generation
-      &nbsp;·&nbsp;
-      <a href="https://github.com/anchore/grype" style="color:var(--accent)" target="_blank">Grype</a> — vulnerability scanning
-      &nbsp;·&nbsp;
-      <a href="https://ubuntu.com/" style="color:var(--accent)" target="_blank">Ubuntu 24.04</a> — base image
-    </p>
-  </section>
+<hr class="divider" />
 
-  <footer>
+<section id="ack">
+  <div class="section-tag">built on</div>
+  <h2><em>Acknowledgements</em></h2>
+  <p style="font-size:0.83rem;color:var(--muted);line-height:2;">
+    <a href="https://exiftool.org/" style="color:var(--accent);text-decoration:none;">ExifTool</a> by Phil Harvey — metadata extraction and selective tag write-back (GPL-1.0-or-later / Artistic)
+    &nbsp;·&nbsp;
+    <a href="https://ijg.org/" style="color:var(--accent);text-decoration:none;">jpegtran</a> from libjpeg-turbo — lossless byte-level JPEG transformation
+    &nbsp;·&nbsp;
+    <a href="https://github.com/sigstore/cosign" style="color:var(--accent);text-decoration:none;">cosign</a> — image signing
+    &nbsp;·&nbsp;
+    <a href="https://github.com/anchore/syft" style="color:var(--accent);text-decoration:none;">Syft</a> — SBOM generation
+    &nbsp;·&nbsp;
+    <a href="https://github.com/anchore/grype" style="color:var(--accent);text-decoration:none;">Grype</a> — vulnerability scanning
+    &nbsp;·&nbsp;
+    <a href="https://ubuntu.com/" style="color:var(--accent);text-decoration:none;">Ubuntu 24.04</a> — base image
+  </p>
+</section>
+
+<footer>
+  <div class="footer-inner">
     <div>
       <div class="footer-brand">scrubexif</div>
-      <div class="footer-desc">High-trust JPEG metadata removal with a transparent supply chain. GPL-3.0-or-later.</div>
+      <div class="footer-sub">High-trust JPEG metadata removal with a transparent supply chain. GPL-3.0-or-later.</div>
     </div>
     <div class="footer-links">
       <a href="https://github.com/per2jensen/scrubexif" target="_blank">GitHub ↗</a>
@@ -965,28 +699,30 @@
       <a href="https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md" target="_blank">Full Docs ↗</a>
       <a href="https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md" target="_blank">Rename Spec ↗</a>
       <a href="https://github.com/per2jensen/scrubexif/releases" target="_blank">Releases ↗</a>
+      <a href="https://hunde.pics/gallery" target="_blank">hunde.pics gallery ↗</a>
     </div>
-    <div class="footer-copy">
-      Licensed under GNU General Public License v3.0 or later.
-      There is no warranty for the program, to the extent permitted by applicable law.
-    </div>
-  </footer>
+  </div>
+  <div class="footer-legal">
+    Licensed under GNU General Public License v3.0 or later.
+    There is no warranty for the program, to the extent permitted by applicable law.
+  </div>
+</footer>
 
-  <script>
-    function switchTab(e, id) {
-      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      e.target.classList.add('active');
-      document.getElementById(id).classList.add('active');
-    }
+<script>
+  function switchTab(e, id) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    e.target.classList.add('active');
+    document.getElementById(id).classList.add('active');
+  }
 
-    function copyCode(btn) {
-      const pre = btn.closest('.code-block').querySelector('pre');
-      navigator.clipboard.writeText(pre.innerText).then(() => {
-        btn.textContent = 'copied!';
-        setTimeout(() => btn.textContent = 'copy', 1800);
-      });
-    }
-  </script>
+  function copyCode(btn) {
+    const pre = btn.closest('.code-block').querySelector('pre');
+    navigator.clipboard.writeText(pre.innerText).then(() => {
+      btn.textContent = 'copied!';
+      setTimeout(() => btn.textContent = 'copy', 1800);
+    });
+  }
+</script>
 </body>
 </html>
