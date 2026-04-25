@@ -786,7 +786,7 @@
         <pre><span class="cmd-comment"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
 <span class="cmd-cmd">docker run</span> <span class="cmd-flag">--rm</span> \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.20</pre>
+  per2jensen/scrubexif:0.7.21</pre>
       </div>
       <div class="code-note">
         Originals are <strong>untouched</strong> in <code style="font-family:var(--mono)">$PWD/</code>. Scrubbed copies go to <code style="font-family:var(--mono)">$PWD/output/</code>.
@@ -802,7 +802,7 @@
   <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
   <span class="cmd-flag">--tmpfs</span> /tmp \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.20 <span class="cmd-flag">--clean-inline</span></pre>
+  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline</span></pre>
       </div>
       <div class="code-note">
         Overwrites originals in-place. Use when you want the file count to stay the same
@@ -818,10 +818,10 @@
   <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
   <span class="cmd-flag">--tmpfs</span> /tmp \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.20 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"%r8"</span> <span class="cmd-flag">--recursive</span>
+  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"%r8"</span> <span class="cmd-flag">--recursive</span>
 
 <span class="cmd-comment"># Keep camera prefix, drop timestamp</span>
-  per2jensen/scrubexif:0.7.20 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"D80_%r6"</span></pre>
+  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"D80_%r6"</span></pre>
       </div>
       <div class="code-note">
         Filenames leak too. <code style="font-family:var(--mono)">2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
@@ -843,7 +843,7 @@
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/scrubbed:/photos/output"</span> \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/processed:/photos/processed"</span> \
   <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/errors:/photos/errors"</span> \
-  per2jensen/scrubexif:0.7.20 <span class="cmd-flag">--from-input</span></pre>
+  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--from-input</span></pre>
       </div>
       <div class="code-note">
         <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code style="font-family:var(--mono)">--on-duplicate move</code>).
@@ -927,7 +927,7 @@
 
     <div class="verify-block">
       <div class="verify-header">VERIFY ANY RELEASE — requires cosign</div>
-      <pre style="padding:1.25rem;font-size:0.78rem"><span class="cmd-cmd">cosign verify</span> per2jensen/scrubexif:0.7.20 \
+      <pre style="padding:1.25rem;font-size:0.78rem"><span class="cmd-cmd">cosign verify</span> per2jensen/scrubexif:0.7.21 \
   <span class="cmd-flag">--certificate-identity-regexp=</span><span class="cmd-string">"https://github.com/per2jensen/scrubexif"</span> \
   <span class="cmd-flag">--certificate-oidc-issuer=</span><span class="cmd-string">"https://token.actions.githubusercontent.com"</span></pre>
     </div>
