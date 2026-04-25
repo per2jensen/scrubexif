@@ -37,7 +37,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
   test-release dry-run-release _dryrun-release-internal \
-  log-build-json update-readme-version update-scrub-version update-details-version \
+  log-build-json update-readme-version update-scrub-version update-details-version update-index-html-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
   show-labels show-tags help
 
@@ -217,14 +217,7 @@ else
 	  --github-run-id "$${GITHUB_RUN_ID:-}" \
 	  --github-run-url "$${GITHUB_RUN_URL:-}"
 
-	@echo "🔄 Checking if $(BUILD_LOG_PATH) changed"
-	@if ! git diff --quiet $(BUILD_LOG_PATH); then \
-	  git add $(BUILD_LOG_PATH); \
-	  git commit -m "build-history: add $(FINAL_VERSION) metadata"; \
-	  echo "✅ $(BUILD_LOG_PATH) updated and committed"; \
-	else \
-	  echo "ℹ️ No changes to commit — build history already up to date"; \
-	fi
+	@echo "✅ $(BUILD_LOG_PATH) updated"
 
 endif
 
@@ -232,13 +225,7 @@ endif
 update-scrub-version:
 	@echo "🔄 Updating __version__ in scrub.py to VERSION=$(FINAL_VERSION)"
 	@if sed -i -E 's/^__version__\s*=\s*".*"/__version__ = "$(FINAL_VERSION)"/' scrubexif/scrub.py; then \
-	  if ! git diff --quiet scrubexif/scrub.py; then \
-	    git add scrubexif/scrub.py; \
-	    git commit -m "version updated to VERSION=$(FINAL_VERSION)"; \
-	    echo "✅ scrub.py updated and committed"; \
-	  else \
-	    echo "ℹ️ No changes to commit — scrub.py already up to date"; \
-	  fi; \
+	  echo "✅ scrub.py updated"; \
 	else \
 	  echo "❌ sed command failed — scrub.py not updated"; \
 	  exit 1; \
@@ -247,13 +234,7 @@ update-scrub-version:
 update-details-version:
 	@echo "🔄 Updating version examples in DETAILS.md to VERSION=$(FINAL_VERSION)"
 	@if sed -i -E "s/VERSION=[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+)?;/VERSION=$(FINAL_VERSION);/" doc/DETAILS.md; then \
-	  if ! git diff --quiet doc/DETAILS.md; then \
-	    git add doc/DETAILS.md; \
-	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
-	    echo "✅ DETAILS.md updated and committed"; \
-	  else \
-	    echo "ℹ️ No changes to commit — DETAILS.md already up to date"; \
-	  fi; \
+	  echo "✅ DETAILS.md updated"; \
 	else \
 	  echo "❌ sed command failed — DETAILS.md not updated"; \
 	  exit 1; \
@@ -262,15 +243,18 @@ update-details-version:
 update-readme-version:
 	@echo "🔄 Updating version examples in README.md to version: $(FINAL_VERSION)"
 	@if sed -i -E "s/:[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?/:$(FINAL_VERSION)/" README.md; then \
-	  if ! git diff --quiet README.md; then \
-	    git add README.md; \
-	    git commit -m "examples updated to VERSION=$(FINAL_VERSION)"; \
-	    echo "✅ README.md updated and committed"; \
-	  else \
-	    echo "ℹ️ No changes to commit — README.md already up to date"; \
-	  fi; \
+	  echo "✅ README.md updated"; \
 	else \
 	  echo "❌ sed command failed — README.md not updated"; \
+	  exit 1; \
+	fi
+
+update-index-html-version:
+	@echo "🔄 Updating version examples in index.html to version: $(FINAL_VERSION)"
+	@if sed -i -E "s/:[0-9]+\.[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9]+)?/:$(FINAL_VERSION)/" index.html; then \
+	  echo "✅ index.html updated"; \
+	else \
+	  echo "❌ sed command failed — index.html not updated"; \
 	  exit 1; \
 	fi
 

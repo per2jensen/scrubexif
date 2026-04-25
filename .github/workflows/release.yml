@@ -178,34 +178,45 @@ jobs:
             --repo per2jensen/scrubexif \
             --tag ${{ env.FINAL_VERSION }}
 
-      - name: Housekeeping - update readme & details, clonepulse, and build log
+      - name: Housekeeping - update readme, index.html, details, clonepulse, and build log
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "actions@github.com"
 
-          # Update docs and build log
+          # Update version strings in docs (no git ops inside these targets)
           make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version
           make FINAL_VERSION=${{ env.FINAL_VERSION }} update-readme-version
+          make FINAL_VERSION=${{ env.FINAL_VERSION }} update-index-html-version
 
-          # Pass cosign and provenance metadata into the build-history logger.
-          # Your log-build-json target (or the script it calls) should accept
-          # these env vars and write them into the new JSON fields.
+          # Update build history log (no git ops inside this target)
           export BUILD_RUNNER="${{ runner.os }}-${{ runner.arch }}"
           export GITHUB_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           export COSIGN_SIGNED="true"
           export COSIGN_REKOR_URL="${{ steps.cosign_sign.outputs.rekor_url }}"
           export COSIGN_IMAGE_DIGEST="${{ steps.image_digest.outputs.digest }}"
           export SBOM_RELEASE_ASSET_URL="https://github.com/${{ github.repository }}/releases/download/v${{ env.FINAL_VERSION }}/sbom-${{ env.FINAL_VERSION }}.spdx.json"
-
           make FINAL_VERSION=${{ env.FINAL_VERSION }} log-build-json
 
-          # Update cosign badge to reflect successful signing.
+          # Update cosign badge
           python3 scripts/write_cosign_badge.py
-          scripts/git_commit_if_changed.sh doc/cosign_badge.json "cosign badge: signing successful for ${{ env.FINAL_VERSION }}"
- 
-          # Add clonepulse annotation: "Rel. <version>"
+
+          # Add clonepulse annotation
           python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"
-          scripts/git_commit_if_changed.sh clonepulse/fetch_clones.json "Add release annotation: ${{ env.FINAL_VERSION }}"
+
+          # Single commit for everything changed above
+          git add \
+            doc/DETAILS.md \
+            README.md \
+            index.html \
+            doc/build-history.json \
+            doc/cosign_badge.json \
+            clonepulse/fetch_clones.json
+          if ! git diff --cached --quiet; then
+            git commit -m "release ${{ env.FINAL_VERSION }}: update version strings, build log, cosign badge, clonepulse"
+            echo "✅ Housekeeping committed"
+          else
+            echo "ℹ️ Nothing changed — no housekeeping commit needed"
+          fi
 
           git status
           git push origin HEAD
