@@ -13,7 +13,7 @@ permissions:
   security-events: write
   pull-requests: write
   id-token: write       # required for cosign keyless signing via GitHub OIDC
-
+  actions: write        # required for triggering the dockerhub-readme workflow
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
