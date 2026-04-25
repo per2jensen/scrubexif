@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.7.20 - not released
+## 0.7.21 - 2026-04-25
+
+### Added
+
+- Github Pages `index.html` added to main
+
+### Changed
+
+- `release.yml` & `Makefile` refactored and updating `index.html`
+- --auto mode now prints physical paths in it's output (not internal container paths)
+- refactoring the physical path resolution
+
+## 0.7.20 - 2026-04-18
 
 ### Breaking
 

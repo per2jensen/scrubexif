@@ -302,3 +302,154 @@ def test_full_pipeline_no_mount_falls_back_to_container_path(monkeypatch):
 
     result = scrub._format_path_with_host(Path("/photos/input/file.jpg"))
     assert result == "/photos/input/file.jpg"
+
+
+# ---------------------------------------------------------------------------
+# Subdirectory bind-mounts — PHOTOS_ROOT not mounted, each subdir is
+# Simulates: -v /srv/input:/photos/input  -v /srv/output:/photos/output  etc.
+# ---------------------------------------------------------------------------
+
+_SUBDIR_MOUNT_LINES = (
+    "457 431 8:1 /srv/photosync/input/job1 /photos/input rw,relatime master:1 - ext4 /dev/sda1 rw\n"
+    "458 431 8:1 /mnt/vol/output /photos/output rw,relatime master:1 - ext4 /dev/sda1 rw\n"
+    "459 431 8:1 /mnt/vol/processed /photos/processed rw,relatime master:1 - ext4 /dev/sda1 rw\n"
+)
+
+
+def test_format_path_subdir_bind_mount_shows_host_path(monkeypatch):
+    """
+    PHOTOS_ROOT has no mount entry but each subdir is bind-mounted individually.
+    _format_path_with_host must return the physical host path for each subdir.
+    """
+    _patch_mountinfo(monkeypatch, _SUBDIR_MOUNT_LINES)
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", Path("/photos"))
+    monkeypatch.setattr(scrub, "SHOW_CONTAINER_PATHS", False)
+
+    assert scrub._format_path_with_host(Path("/photos/input")) == "/srv/photosync/input/job1"
+    assert scrub._format_path_with_host(Path("/photos/output")) == "/mnt/vol/output"
+    assert scrub._format_path_with_host(Path("/photos/processed")) == "/mnt/vol/processed"
+
+
+def test_format_path_subdir_bind_mount_no_root_mount_falls_back(monkeypatch):
+    """
+    Neither PHOTOS_ROOT nor the specific subdir has a mount entry → container path returned.
+    """
+    _patch_mountinfo(monkeypatch, _UNRELATED_LINES)
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", Path("/photos"))
+    monkeypatch.setattr(scrub, "SHOW_CONTAINER_PATHS", False)
+
+    assert scrub._format_path_with_host(Path("/photos/input")) == "/photos/input"
+    assert scrub._format_path_with_host(Path("/photos/output")) == "/photos/output"
+
+
+def test_format_path_subdir_bind_mount_show_container_paths(monkeypatch):
+    """With SHOW_CONTAINER_PATHS=True both container and host paths are shown."""
+    _patch_mountinfo(monkeypatch, _SUBDIR_MOUNT_LINES)
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", Path("/photos"))
+    monkeypatch.setattr(scrub, "SHOW_CONTAINER_PATHS", True)
+
+    assert (
+        scrub._format_path_with_host(Path("/photos/input"))
+        == "/photos/input (host: /srv/photosync/input/job1)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Physical tests — real /proc/self/mountinfo, no mocked filesystem
+# ---------------------------------------------------------------------------
+
+_VIRTUAL_FS = frozenset({
+    "proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup2",
+    "securityfs", "pstore", "bpf", "autofs", "mqueue", "hugetlbfs",
+    "tracefs", "debugfs", "configfs", "fusectl", "nfsd", "efivarfs",
+    "squashfs",
+})
+
+
+def _first_physical_mount() -> Path | None:
+    """
+    Scan the real /proc/self/mountinfo for the first non-virtual, non-root
+    mount point.  Returns None if the file is unreadable or nothing qualifies.
+    """
+    try:
+        with open("/proc/self/mountinfo") as f:
+            for line in f:
+                if " - " not in line:
+                    continue
+                pre, post = line.rstrip("\n").split(" - ", 1)
+                pre_fields = pre.split()
+                post_fields = post.split()
+                if len(pre_fields) < 5 or not post_fields:
+                    continue
+                if post_fields[0] in _VIRTUAL_FS:
+                    continue
+                root = pre_fields[3].replace("\\040", " ")
+                mount_point = pre_fields[4].replace("\\040", " ")
+                if root.startswith("/") and mount_point not in ("/", ""):
+                    return Path(mount_point)
+    except OSError:
+        return None
+    return None
+
+
+@pytest.mark.skipif(
+    not Path("/proc/self/mountinfo").exists(),
+    reason="Not on Linux — no /proc/self/mountinfo",
+)
+def test_format_path_with_host_real_subdir_mount_positive(monkeypatch, tmp_path):
+    """
+    Physical test: no mocking of _resolve_mount_source or /proc/self/mountinfo.
+
+    Mirrors the production Docker scenario where each container subdir is
+    bind-mounted individually and PHOTOS_ROOT itself has no mount entry.
+
+    PHOTOS_ROOT is set to an unmounted tmp directory so that
+    _resolve_mount_source(PHOTOS_ROOT) returns None.  The target is a real
+    mount point found in /proc/self/mountinfo.  The new fallback branch must
+    fire and return the mount's source path rather than the raw container path.
+    """
+    real_mount = _first_physical_mount()
+    if real_mount is None:
+        pytest.skip("No suitable physical mount point found in /proc/self/mountinfo")
+
+    fake_root = tmp_path / "photos"
+    fake_root.mkdir()
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", fake_root)
+    monkeypatch.setattr(scrub, "SHOW_CONTAINER_PATHS", False)
+
+    result = scrub._format_path_with_host(real_mount)
+    print(f"\n  mount point : {real_mount}")
+    print(f"  resolved to : {result}")
+
+    assert result != str(real_mount), (
+        f"Expected host-source resolution for real mount point {real_mount!r} "
+        f"but got the container path back — the new fallback branch did not fire."
+    )
+
+
+@pytest.mark.skipif(
+    not Path("/proc/self/mountinfo").exists(),
+    reason="Not on Linux — no /proc/self/mountinfo",
+)
+def test_format_path_with_host_real_unmounted_dirs_fall_back(monkeypatch, tmp_path):
+    """
+    Physical test: no mocking of _resolve_mount_source or /proc/self/mountinfo.
+
+    Both PHOTOS_ROOT and the target are fresh tmp directories that are never
+    mount points.  The function must fall back to returning the container path.
+    """
+    fake_root = tmp_path / "photos"
+    fake_root.mkdir()
+    target = fake_root / "input"
+    target.mkdir()
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", fake_root)
+    monkeypatch.setattr(scrub, "SHOW_CONTAINER_PATHS", False)
+
+    result = scrub._format_path_with_host(target)
+    print(f"\n  target (unmounted) : {target}")
+    print(f"  resolved to        : {result}")
+
+    assert result == str(target), (
+        f"Expected container-path fallback for unmounted {target!r}, got {result!r}"
+    )

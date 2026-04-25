@@ -164,21 +164,35 @@ def _resolve_mount_source(path: Path) -> Optional[str]:
 SHOW_CONTAINER_PATHS = False
 
 
+def _resolve_own_host_path(path: Path) -> str:
+    """
+    Resolve *path* to its host source via its own mount entry.
+
+    Falls back to str(path) if no mount entry exists for the path.
+    """
+    own_host = _resolve_mount_source(path)
+    if own_host:
+        if SHOW_CONTAINER_PATHS:
+            return f"{path} (host: {own_host})"
+        return own_host
+    return str(path)
+
+
 def _format_path_with_host(path: Path) -> str:
+    """
+    Return the host-side representation of *path* for display.
+
+    If PHOTOS_ROOT has a mount entry, paths under it are rewritten to the
+    host root.  Paths outside PHOTOS_ROOT (or when PHOTOS_ROOT itself has no
+    mount) are resolved via their own mount entry.
+    """
     host_root = _resolve_mount_source(PHOTOS_ROOT)
     if not host_root:
-        return str(path)
+        return _resolve_own_host_path(path)
     try:
         rel = path.relative_to(PHOTOS_ROOT)
     except ValueError:
-        # path is outside PHOTOS_ROOT (e.g. -o /scrubbed with a separate bind-mount).
-        # Try resolving the mount for that path directly so the user sees the host path.
-        own_host = _resolve_mount_source(path)
-        if own_host:
-            if SHOW_CONTAINER_PATHS:
-                return f"{path} (host: {own_host})"
-            return own_host
-        return str(path)
+        return _resolve_own_host_path(path)
     host_path = Path(host_root) / rel
     if SHOW_CONTAINER_PATHS:
         return f"{path} (host: {host_path})"
@@ -186,19 +200,17 @@ def _format_path_with_host(path: Path) -> str:
 
 
 def _format_relative_path_with_host(path: Path) -> str:
+    """
+    Like _format_path_with_host but shows the relative container path when
+    SHOW_CONTAINER_PATHS is True (e.g. 'input/file.jpg (host: /srv/…)').
+    """
     host_root = _resolve_mount_source(PHOTOS_ROOT)
     if not host_root:
-        return str(path)
+        return _resolve_own_host_path(path)
     try:
         rel = path.relative_to(PHOTOS_ROOT)
     except ValueError:
-        # path is outside PHOTOS_ROOT — resolve its own mount for a meaningful host path.
-        own_host = _resolve_mount_source(path)
-        if own_host:
-            if SHOW_CONTAINER_PATHS:
-                return f"{path} (host: {own_host})"
-            return own_host
-        return str(path)
+        return _resolve_own_host_path(path)
     host_path = Path(host_root) / rel
     if SHOW_CONTAINER_PATHS:
         return f"{rel} (host: {host_path})"
