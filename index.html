@@ -424,7 +424,7 @@
         Every JPEG uploaded from a camera runs through scrubexif before landing in
         <a href="https://photoprism.app" target="_blank" style="color:var(--accent);text-decoration:none;">PhotoPrism</a>.
         GPS coordinates, camera serial numbers, and maker notes are stripped at intake.
-        Only technical shooting data — exposure, aperture, ISO, focal length — is kept.
+        Only technical shooting data — exposure, ISO, focal length — is kept.
         The gallery is public; the metadata is not.
       </p>
 
@@ -441,6 +441,8 @@
       <div class="wild-note">
         Browse the gallery to see the result:
         <a href="https://hunde.pics/gallery" target="_blank">hunde.pics/gallery ↗</a>
+        &nbsp;·&nbsp;
+        Served via a hardened HAProxy + Docker stack on a Hetzner VPS.
       </div>
     </div>
   </div>
@@ -463,21 +465,10 @@
     <div class="tab-panel active" id="tab-basic">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
-<<<<<<< HEAD
-        <pre><span class="cmd-comment"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
-<span class="cmd-cmd">docker run</span> <span class="cmd-flag">--rm</span> \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.21</pre>
-      </div>
-      <div class="code-note">
-        Originals are <strong>untouched</strong> in <code style="font-family:var(--mono)">$PWD/</code>. Scrubbed copies go to <code style="font-family:var(--mono)">$PWD/output/</code>.
-        Run is refused if <code style="font-family:var(--mono)">output/</code> already exists — no accidental overwrites.
-=======
         <pre><span class="cm"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
 docker run --rm \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:0.7.21</pre>
->>>>>>> 25a3914 ("In the wild" section added)
       </div>
       <p class="code-note">
         Originals are <strong>untouched</strong> in <code>$PWD/</code>. Scrubbed copies go to <code>$PWD/output/</code>.<br>
@@ -488,21 +479,12 @@ docker run --rm \
     <div class="tab-panel" id="tab-hardened">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
-<<<<<<< HEAD
-        <pre><span class="cmd-comment"># Hardened in-place (destructive) scrub</span>
-<span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
-  <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
-  <span class="cmd-flag">--tmpfs</span> /tmp \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline</span></pre>
-=======
         <pre><span class="cm"># Hardened in-place (destructive) scrub</span>
 docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:0.7.21 --clean-inline</pre>
->>>>>>> 25a3914 ("In the wild" section added)
       </div>
       <p class="code-note">
         Overwrites originals in-place. Use when you want the file count to stay the same
@@ -513,22 +495,6 @@ docker run -it --rm \
     <div class="tab-panel" id="tab-rename">
       <div class="code-block">
         <button class="copy-btn" onclick="copyCode(this)">copy</button>
-<<<<<<< HEAD
-        <pre><span class="cmd-comment"># Fully anonymous — 8-char random hex filenames</span>
-<span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
-  <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
-  <span class="cmd-flag">--tmpfs</span> /tmp \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD:/photos"</span> \
-  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"%r8"</span> <span class="cmd-flag">--recursive</span>
-
-<span class="cmd-comment"># Keep camera prefix, drop timestamp</span>
-  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--clean-inline --rename</span> <span class="cmd-string">"D80_%r6"</span></pre>
-      </div>
-      <div class="code-note">
-        Filenames leak too. <code style="font-family:var(--mono)">2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
-        <code style="font-family:var(--mono)">D80_</code> identifies the camera body.
-        Tokens: <code style="font-family:var(--mono)">%r</code> (random hex) · <code style="font-family:var(--mono)">%u</code> (UUID) · <code style="font-family:var(--mono)">%n</code> (counter) · <code style="font-family:var(--mono)">%Y</code> (year) · <code style="font-family:var(--mono)">%m</code> (month)
-=======
         <pre><span class="cm"># Fully anonymous — 8-char random hex filenames</span>
 docker run -it --rm \
   --read-only --security-opt no-new-privileges \
@@ -538,7 +504,6 @@ docker run -it --rm \
 
 <span class="cm"># Keep camera prefix, drop timestamp</span>
   per2jensen/scrubexif:0.7.21 --clean-inline --rename "D80_%r6"</pre>
->>>>>>> 25a3914 ("In the wild" section added)
       </div>
       <p class="code-note">
         Filenames leak too. <code>2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
@@ -553,20 +518,6 @@ docker run -it --rm \
         <pre><span class="cm"># Create directories, then run auto-intake mode</span>
 mkdir input scrubbed processed errors
 
-<<<<<<< HEAD
-<span class="cmd-cmd">docker run</span> <span class="cmd-flag">-it --rm</span> \
-  <span class="cmd-flag">--read-only --security-opt</span> no-new-privileges \
-  <span class="cmd-flag">--tmpfs</span> /tmp \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/input:/photos/input"</span> \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/scrubbed:/photos/output"</span> \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/processed:/photos/processed"</span> \
-  <span class="cmd-flag">-v</span> <span class="cmd-string">"$PWD/errors:/photos/errors"</span> \
-  per2jensen/scrubexif:0.7.21 <span class="cmd-flag">--from-input</span></pre>
-      </div>
-      <div class="code-note">
-        <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code style="font-family:var(--mono)">--on-duplicate move</code>).
-        Pair with <code style="font-family:var(--mono)">--stable-seconds</code> for hot upload directories.
-=======
 docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -575,7 +526,6 @@ docker run -it --rm \
   -v "$PWD/processed:/photos/processed" \
   -v "$PWD/errors:/photos/errors" \
   per2jensen/scrubexif:0.7.21 --from-input</pre>
->>>>>>> 25a3914 ("In the wild" section added)
       </div>
       <p class="code-note">
         <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code>--on-duplicate move</code>).<br>
@@ -635,18 +585,9 @@ docker run -it --rm \
       <div class="chain-name">cosign signature</div>
       <div class="chain-desc">Keyless signing via Sigstore. Tied to the exact CI run that built the image.</div>
     </div>
-<<<<<<< HEAD
-
-    <div class="verify-block">
-      <div class="verify-header">VERIFY ANY RELEASE — requires cosign</div>
-      <pre style="padding:1.25rem;font-size:0.78rem"><span class="cmd-cmd">cosign verify</span> per2jensen/scrubexif:0.7.21 \
-  <span class="cmd-flag">--certificate-identity-regexp=</span><span class="cmd-string">"https://github.com/per2jensen/scrubexif"</span> \
-  <span class="cmd-flag">--certificate-oidc-issuer=</span><span class="cmd-string">"https://token.actions.githubusercontent.com"</span></pre>
-=======
     <div class="chain-item">
       <div class="chain-name">SPDX SBOM</div>
       <div class="chain-desc">Software Bill of Materials attached to each GitHub Release and as a signed attestation.</div>
->>>>>>> 25a3914 ("In the wild" section added)
     </div>
     <div class="chain-item">
       <div class="chain-name">Grype scan</div>
