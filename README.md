@@ -22,7 +22,6 @@
   <img alt="Milestone" src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/per2jensen/scrubexif/main/clonepulse/milestone_badge.json"/>
 </a>
 
-
 <sub>🎯 Stats powered by <a href="https://github.com/per2jensen/clonepulse">ClonePulse</a></sub>
 
 </div>
@@ -35,19 +34,20 @@
 
 Removes GPS, serial numbers, maker notes, and all private metadata using a two‑stage process: a byte‑level APP wipe via `jpegtran`, followed by an allowlisted EXIF rebuild via `ExifTool`. This closes the gap parser‑based tools leave open for unknown or proprietary segments and makes `scrubexif` ideal for privacy‑safe publishing and automated pipelines.
 
+Verify the integrity and origin of every build using industry-standard Sigstore signatures and automated vulnerability scanning.
+
 > **Promise:** scrubexif will not write an unscrubbed JPEG into an output directory.  
 If a scrub fails for any reason, **no output file is created** for that JPEG.
 <sub>This is true when writing scrubbed JPEGs to an output directory, **not** if you scrub JPEGs inline. The jpegtran byte-level strip ensures removal of all APP segments, including unknown or proprietary ones that parser-based tools cannot see.</sub>
 
-**Full documentation moved** → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)  
+**Full documentation moved** → [`DETAILS.md`](doc/DETAILS.md)  
  This README is intentionally short for Docker Hub visibility.
 
 ## Quick Start
 
 ### Easiest one-liner (default safe mode, non-destructive)
 
-Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to  
-`$PWD/output/`:
+Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to `$PWD/output/`:
 
 ````bash
 docker run --rm \
@@ -55,7 +55,9 @@ docker run --rm \
 per2jensen/scrubexif:0.7.21
 ````
 
-This:
+*Verify the results:* <sub>Check the output/ directory for your cleaned images. All GPS data and camera metadata have now been stripped.</sub>
+
+Worth noting:
 
 - scans **your current directory** (`$PWD`) for `*.jpg` / `*.jpeg` (also in capital letters)
 - writes scrubbed copies to **$PWD/output/** (or a custom `--output` dir)  
@@ -99,8 +101,6 @@ Scrubbed photos end up in `/tmp/scrub-test/` on the host.
 > than nested under `/photos` (e.g. `/photos/scrubbed`). Nesting requires `$PWD` to be writable
 > so Docker can create the mount point there.
 
-
-
 ### Failure handling (important)
 
 scrubexif is designed to **never place an unscrubbed JPEG into an output directory**.
@@ -116,11 +116,13 @@ What happens on failed scrubs depends on the mode `scrubexif` is run in:
 
 Same idea, but with container hardening and in-line (destructive) overwrite:
 
+```bash
     docker run -it --rm \
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
       per2jensen/scrubexif:0.7.21 --clean-inline
+```
 
 ### Filename sanitisation (`--rename`)
 
@@ -154,6 +156,7 @@ Full specification → [`doc/rename-spec.md`](https://github.com/per2jensen/scru
 
 Use auto mode with explicit input/output/processed directories:
 
+```bash
     mkdir input scrubbed processed errors
     docker run -it --rm \
       --read-only --security-opt no-new-privileges \
@@ -163,6 +166,7 @@ Use auto mode with explicit input/output/processed directories:
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
       per2jensen/scrubexif:0.7.21 --from-input
+```
 
 These are the physical directories used on your file system:
 
@@ -180,7 +184,7 @@ where four directories (`input/`, `output/`, `processed/`, `errors/`) are used.
 
 Please observe these directories are named like this **inside the container**. Your physical directories in your file system are mapped when you run the `docker run ...` command. See the `-v ....` options in the above example.
 
-```
+```txt
 [input/]  -->  <scrubexif> runs  -->  [output/]
                  |
                  +-->  [processed/]   (original JPEGs moved here after successful scrub,
@@ -206,6 +210,7 @@ Meaning:
 
 ### Build & Run Locally
 
+```bash
     # build the image from the Dockerfile in this repo
     docker build -t scrubexif:local .
 
@@ -218,6 +223,7 @@ Meaning:
       --tmpfs /tmp \
       -v "$PWD:/photos" \
       scrubexif:local
+```
 
 Any arguments appended to `docker run … scrubexif:*` are forwarded to the underlying
 `python3 -m scrubexif.scrub` entrypoint.
@@ -245,7 +251,7 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
   
 ## Supply Chain Transparency
 
-Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied to the exact GitHub Actions run that built the image — no long-lived signing keys exist anywhere. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
+Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied directly to the specific GitHub Actions run that built the image, ensuring there are no long-lived signing keys that could be compromised.. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
 
 **Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
@@ -254,6 +260,8 @@ cosign verify per2jensen/scrubexif:0.7.21 \
   --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
+
+Replace `0.7.21` with the version you wish to verify.
 
 A successful verification prints the signing certificate, which includes the exact workflow URL, the Git commit SHA, and the GitHub Actions run URL — proving provenance down to the individual CI run.
 
@@ -297,6 +305,7 @@ One use case is to quickly show dog owners photos at exhibitions.
 
 `/etc/systemd/system/scrubexif.service`:
 
+```txt
     [Service]
     ExecStart=/usr/bin/docker run --rm \
       --read-only --security-opt no-new-privileges \
@@ -305,9 +314,11 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
       per2jensen/scrubexif:0.7.21 --from-input --stable-seconds 10
+```
 
 `/etc/systemd/system/scrubexif.timer`:
 
+```txt
     [Unit]
     Description=Run scrubexif every 5 minutes
 
@@ -318,7 +329,7 @@ One use case is to quickly show dog owners photos at exhibitions.
 
     [Install]
     WantedBy=timers.target
-
+```
 ### Photoprism systemd script
 
 I use `scrubexif` to clean my jpegs on dog exhibitions. I upload the files to a server using rclone and a systemd timer runs the script below every 5 minutes.
