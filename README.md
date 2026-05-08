@@ -52,7 +52,7 @@ Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies t
 ````bash
 docker run --rm \
 -v "$PWD:/photos" \
-per2jensen/scrubexif:0.7.21
+per2jensen/scrubexif:0.7.22
 ````
 
 *Verify the results:* <sub>Check the output/ directory for your cleaned images. All GPS data and camera metadata have now been stripped.</sub>
@@ -74,7 +74,7 @@ Use `-o` to control where scrubbed files are written.
 ````bash
 docker run --rm \
     -v "$PWD:/photos" \
-    per2jensen/scrubexif:0.7.21 \
+    per2jensen/scrubexif:0.7.22 \
     -o scrubbed
 ````
 
@@ -87,7 +87,7 @@ Scrubbed files are written to `$PWD/scrubbed/`. The run is refused if `scrubbed/
 docker run --rm \
     -v "$PWD:/photos" \
     -v "/tmp/scrub-test:/scrubbed" \
-    per2jensen/scrubexif:0.7.21 \
+    per2jensen/scrubexif:0.7.22 \
     -o /scrubbed
 ````
 
@@ -121,7 +121,7 @@ Same idea, but with container hardening and in-line (destructive) overwrite:
       --read-only --security-opt no-new-privileges \
       --tmpfs /tmp \
       -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.21 --clean-inline
+      per2jensen/scrubexif:0.7.22 --clean-inline
 ```
 
 ### Filename sanitisation (`--rename`)
@@ -137,14 +137,14 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.21 --clean-inline --rename "%r8" --recursive
+  per2jensen/scrubexif:0.7.22 --clean-inline --rename "%r8" --recursive
 
 # Keep your camera prefix, remove the timestamp
 docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.21 --clean-inline --rename "D80_%r6" --recursive
+  per2jensen/scrubexif:0.7.22 --clean-inline --rename "D80_%r6" --recursive
 ```
 
 `--paranoia` implies `--rename "%r8"` when no `--rename` is given.  
@@ -165,7 +165,7 @@ Use auto mode with explicit input/output/processed directories:
       -v "$PWD/scrubbed:/photos/output" \
       -v "$PWD/processed:/photos/processed" \
       -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.21 --from-input
+      per2jensen/scrubexif:0.7.22 --from-input
 ```
 
 These are the physical directories used on your file system:
@@ -256,7 +256,7 @@ Every release image is **cryptographically signed** using [cosign](https://githu
 **Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
 ```bash
-cosign verify per2jensen/scrubexif:0.7.21 \
+cosign verify per2jensen/scrubexif:0.7.22 \
   --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
@@ -313,7 +313,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.21 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.22 --from-input --stable-seconds 10
 ```
 
 `/etc/systemd/system/scrubexif.timer`:

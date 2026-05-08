@@ -468,7 +468,7 @@
         <pre><span class="cm"># Scrub all JPEGs in $PWD → writes to $PWD/output/</span>
 docker run --rm \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.21</pre>
+  per2jensen/scrubexif:0.7.22</pre>
       </div>
       <p class="code-note">
         Originals are <strong>untouched</strong> in <code>$PWD/</code>. Scrubbed copies go to <code>$PWD/output/</code>.<br>
@@ -484,7 +484,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.21 --clean-inline</pre>
+  per2jensen/scrubexif:0.7.22 --clean-inline</pre>
       </div>
       <p class="code-note">
         Overwrites originals in-place. Use when you want the file count to stay the same
@@ -500,10 +500,10 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.21 --clean-inline --rename "%r8" --recursive
+  per2jensen/scrubexif:0.7.22 --clean-inline --rename "%r8" --recursive
 
 <span class="cm"># Keep camera prefix, drop timestamp</span>
-  per2jensen/scrubexif:0.7.21 --clean-inline --rename "D80_%r6"</pre>
+  per2jensen/scrubexif:0.7.22 --clean-inline --rename "D80_%r6"</pre>
       </div>
       <p class="code-note">
         Filenames leak too. <code>2026-04-07_11-13-45.jpeg</code> reveals exact capture time.
@@ -525,7 +525,7 @@ docker run -it --rm \
   -v "$PWD/scrubbed:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
   -v "$PWD/errors:/photos/errors" \
-  per2jensen/scrubexif:0.7.21 --from-input</pre>
+  per2jensen/scrubexif:0.7.22 --from-input</pre>
       </div>
       <p class="code-note">
         <strong>input/</strong> → new uploads · <strong>output/</strong> → scrubbed · <strong>processed/</strong> → originals · <strong>errors/</strong> → duplicates (with <code>--on-duplicate move</code>).<br>
@@ -602,7 +602,7 @@ docker run -it --rm \
   <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">VERIFY ANY RELEASE — requires cosign</p>
   <div class="code-block">
     <button class="copy-btn" onclick="copyCode(this)">copy</button>
-    <pre>cosign verify per2jensen/scrubexif:0.7.21 \
+    <pre>cosign verify per2jensen/scrubexif:0.7.22 \
   --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"</pre>
   </div>
