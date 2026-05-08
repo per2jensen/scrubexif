@@ -68,6 +68,7 @@ final: check_version validate
 	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
 	$(eval FINAL_TAG := $(FINAL_IMAGE_NAME):$(FINAL_VERSION))
 	$(eval DOCKERHUB_TAG := $(DOCKERHUB_REPO):$(FINAL_VERSION))
+	$(eval DOCKERHUB_LATEST := $(DOCKERHUB_REPO):latest)
 	@echo "Building final image: $(FINAL_TAG)"
 	$(DOCKER) build -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
@@ -84,7 +85,8 @@ final: check_version validate
 		--label org.opencontainers.image.base.version="$(UBUNTU_VERSION)" \
 		--label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
 		-t $(FINAL_TAG) \
-		-t $(DOCKERHUB_TAG) .
+		-t $(DOCKERHUB_TAG) \
+		-t $(DOCKERHUB_LATEST) .
 
 
 verify-labels:
@@ -262,6 +264,8 @@ update-index-html-version:
 push: check_version
 	@echo "Pushing $(DOCKERHUB_REPO):$(FINAL_VERSION) to Docker Hub..."
 	$(DOCKER) push $(DOCKERHUB_REPO):$(FINAL_VERSION)
+	@echo "Pushing $(DOCKERHUB_REPO):latest to Docker Hub..."
+	$(DOCKER) push $(DOCKERHUB_REPO):latest
 
 
 login:
@@ -365,6 +369,7 @@ show-tags:
 		echo "Base Image (latest):     $(BASE_LATEST_TAG)"; \
 		echo "Final Image (local):     $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"; \
 		echo "Docker Hub Image:        $(DOCKERHUB_REPO):$(FINAL_VERSION)"; \
+		echo "Docker Hub Latest:       $(DOCKERHUB_REPO):latest"; \
 	fi
 
 

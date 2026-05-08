@@ -684,14 +684,17 @@ If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Dock
 
 ## Docker Images
 
-For now I am not using `latest`, as the images are only development quality.
+From version 0.7.22 I am using `latest`, as the images seem to work well and I have some confidence in them.
+
+If the Docker upload or cosign steps in release.yml fails, the uploaded version tag AND :latest are deleted.
+Until a new :latest is uploaded, that tag does not exist for `scrubexif`.
 
 I am currently going with:
 
 | Tag        | Description                                      | Docker Hub | Example Usage  |
 |------------|--------------------------------------------------|------------|----------------|
 | `:0.x.y`   | Versioned releases following semantic versioning | ✅ Yes     | `docker pull per2jensen/scrubexif:0.5.11`   |
-| `:stable`  | Latest "good" and trusted version; perhaps `:rc` | ✅ Yes     | `docker pull per2jensen/scrubexif:stable` |
+| `:latest`  | Latest "good" and trusted version;               | ✅ Yes     | `docker pull per2jensen/scrubexif:latest` |
 | `:dev`     | Development version; may be broken or incomplete | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev` |
 
 🔄 The release pipeline automatically updates build-history.json, which contains metadata for each uploaded image.

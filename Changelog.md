@@ -1,12 +1,14 @@
 # Changelog
 
-## 0.7.22 - not released
+## 0.7.22 - 2026-05-08
 
 ### Fixed
 
 - Positional file arguments can now be combined with `-o <dir>` without requiring `--clean-inline`. Previously this combination was incorrectly rejected; it now routes to the safe copy-to-output mode as expected.
 
 ### Added
+
+- :latest Docker tag now used, from v0.7.22 and onwards.
 
 ## 0.7.21 - 2026-04-25
 

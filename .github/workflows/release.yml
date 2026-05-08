@@ -114,7 +114,7 @@ jobs:
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USER_NAME }}" --password-stdin
 
       - name: Docker push
-        run: docker push per2jensen/scrubexif:${{ env.FINAL_VERSION }}
+        run: make FINAL_VERSION=${{ env.FINAL_VERSION }} push
 
       # Capture the image digest immediately after push so every subsequent step
       # references the immutable digest rather than the mutable tag.
@@ -177,6 +177,9 @@ jobs:
           python3 scripts/remove_dockerhub_tag.py \
             --repo per2jensen/scrubexif \
             --tag ${{ env.FINAL_VERSION }}
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo per2jensen/scrubexif \
+            --tag latest
 
       - name: Housekeeping - update readme, index.html, details, clonepulse, and build log
         run: |
