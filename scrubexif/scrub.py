@@ -1233,7 +1233,8 @@ def simple_scrub(summary: ScrubSummary,
                  copyright_text: str | None = None,
                  comment_text: str | None = None,
                  rename_format: str | None = None,
-                 rename_counter: dict[str, int] | None = None) -> ScrubSummary:
+                 rename_counter: dict[str, int] | None = None,
+                 explicit_files: list[Path] | None = None) -> ScrubSummary:
     """
     Default safe mode:
       - Scan /photos for JPEGs (non-recursive by default, -r respected)
@@ -1254,9 +1255,15 @@ def simple_scrub(summary: ScrubSummary,
             pre-existing output directory is accepted in that case because the
             user stated intent (e.g. via a bind-mount). When False (default)
             a pre-existing directory is refused to prevent accidental clobbering.
+        explicit_files: When set, process only these resolved paths instead of
+            scanning PHOTOS_ROOT. Directories in the list are expanded via
+            find_jpegs_in_dir; the special-dirs safety filter still applies.
     """
     host_root = _resolve_mount_source(PHOTOS_ROOT)
-    print(f"🚀 Default safe mode: Scrubbing JPEGs in {_format_path_with_host(PHOTOS_ROOT)}")
+    if explicit_files is not None:
+        print(f"🚀 Default safe mode: Scrubbing {len(explicit_files)} explicit file(s)")
+    else:
+        print(f"🚀 Default safe mode: Scrubbing JPEGs in {_format_path_with_host(PHOTOS_ROOT)}")
     print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
 
     # Safety: /photos must exist and be usable
@@ -1277,11 +1284,22 @@ def simple_scrub(summary: ScrubSummary,
 
     check_dir_safety(OUTPUT_DIR, "Output")
 
-    files = find_jpegs_in_dir(PHOTOS_ROOT, recursive=recursive)
+    if explicit_files is not None:
+        candidates: list[Path] = []
+        for p in explicit_files:
+            if p.is_symlink():
+                log.debug("Skipping symlink in explicit-files mode: %s", p)
+                continue
+            if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg"):
+                candidates.append(p)
+            elif p.is_dir():
+                candidates.extend(find_jpegs_in_dir(p, recursive=recursive))
+    else:
+        candidates = find_jpegs_in_dir(PHOTOS_ROOT, recursive=recursive)
 
     # Avoid feeding our own pipeline directories back into the scrub loop
     filtered: list[Path] = []
-    for f in files:
+    for f in candidates:
         # Skip symlinks aggressively
         if f.is_symlink():
             log.debug("Skipping symlink in default safe mode: %s", f)
@@ -1302,9 +1320,9 @@ def simple_scrub(summary: ScrubSummary,
 
     if log.isEnabledFor(logging.DEBUG):
         log.debug(
-            "Default safe mode: found %d JPEGs under %s (recursive=%s, after filtering=%d)",
-            len(files),
-            PHOTOS_ROOT,
+            "Default safe mode: found %d JPEGs (explicit=%s, recursive=%s, after filtering=%d)",
+            len(candidates),
+            explicit_files is not None,
             recursive,
             len(filtered),
         )
@@ -1569,9 +1587,6 @@ def _run_inner(args: argparse.Namespace) -> int:
     if args.clean_inline and args.from_input:
         print("❌ --clean-inline and --from-input cannot be used together.", file=sys.stderr)
         sys.exit(1)
-    if args.files and not args.clean_inline:
-        print("❌ Positional file or directory arguments require --clean-inline.", file=sys.stderr)
-        sys.exit(1)
     if args.output and args.clean_inline:
         print("❌ --output cannot be used with --clean-inline.", file=sys.stderr)
         sys.exit(1)
@@ -1641,6 +1656,7 @@ def _run_inner(args: argparse.Namespace) -> int:
             rename_counter=rename_counter,
         )
     else:
+        resolved_explicit = [resolve_cli_path(f) for f in args.files] if args.files else None
         simple_scrub(
             summary=summary,
             recursive=args.recursive,
@@ -1653,6 +1669,7 @@ def _run_inner(args: argparse.Namespace) -> int:
             comment_text=args.comment,
             rename_format=rename_format,
             rename_counter=rename_counter,
+            explicit_files=resolved_explicit,
         )
 
     summary.print()

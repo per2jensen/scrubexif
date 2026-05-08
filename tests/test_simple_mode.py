@@ -306,3 +306,66 @@ def test_simple_scrub_on_duplicate_delete_ignored_originals_safe(tmp_path, monke
     assert "on_duplicate" not in simple_calls[0], \
         "--on-duplicate must not be forwarded to simple_scrub"
     assert photo.read_bytes() == original_bytes, "Original must be untouched"
+
+
+def test_simple_scrub_explicit_files_processes_only_named_files(tmp_path, monkeypatch):
+    """
+    When explicit_files is provided, simple_scrub must process only those
+    files and ignore any other JPEGs present in PHOTOS_ROOT.
+    """
+    photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
+    output_dir.mkdir(parents=True)
+
+    target = photos_root / "wanted.jpg"
+    bystander = photos_root / "ignored.jpg"
+    target.write_bytes(b"jpeg-wanted")
+    bystander.write_bytes(b"jpeg-ignored")
+
+    def fake_pipeline(input_path, output_path, **kwargs):
+        """Write sentinel bytes so scrub_file can rename temp → final."""
+        output_path.write_bytes(b"scrubbed")
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(
+        summary=summary,
+        output_explicit=True,
+        explicit_files=[target],
+    )
+
+    assert summary.scrubbed == 1
+    assert summary.errors == 0
+    assert (output_dir / "wanted.jpg").read_bytes() == b"scrubbed"
+    assert not (output_dir / "ignored.jpg").exists()
+
+
+def test_simple_scrub_explicit_files_positional_args_without_clean_inline(tmp_path, monkeypatch):
+    """
+    CLI: positional file argument + -o <dir> without --clean-inline must succeed
+    and process only the named file.
+    """
+    import sys
+
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    custom_output = tmp_path / "out"
+    monkeypatch.setattr(scrub, "OUTPUT_DIR", custom_output)
+
+    photo = photos_root / "one.jpg"
+    other = photos_root / "two.jpg"
+    photo.write_bytes(b"jpeg-one")
+    other.write_bytes(b"jpeg-two")
+
+    def fake_pipeline(input_path, output_path, **kwargs):
+        output_path.write_bytes(b"scrubbed")
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
+    monkeypatch.setattr(sys, "argv", ["scrub", "-o", str(custom_output), str(photo)])
+    monkeypatch.setattr(scrub, "resolve_output_dir", lambda p: custom_output)
+    monkeypatch.setattr(scrub, "resolve_cli_path", lambda p: p)
+
+    rc = scrub.main()
+
+    assert rc == 0
+    assert (custom_output / "one.jpg").read_bytes() == b"scrubbed"
+    assert not (custom_output / "two.jpg").exists()

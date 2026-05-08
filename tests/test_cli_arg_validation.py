@@ -54,21 +54,30 @@ def _setup_dirs(tmp_path: Path, monkeypatch) -> dict[str, Path]:
 
 
 # ---------------------------------------------------------------------------
-# Constraint: positional files require --clean-inline
+# Constraint: positional files + -o routes to simple_scrub (no --clean-inline needed)
 # ---------------------------------------------------------------------------
 
-def test_files_without_clean_inline_rejected(tmp_path, monkeypatch, capsys):
-    """Passing positional file arguments without --clean-inline must exit with an error."""
-    dummy = tmp_path / "photo.jpg"
-    dummy.write_bytes(SAMPLE_BYTES)
+def test_files_without_clean_inline_accepted(tmp_path, monkeypatch):
+    """Positional file arguments without --clean-inline must be accepted and routed
+    to simple_scrub with an explicit file list (not rejected)."""
+    dirs = _setup_dirs(tmp_path, monkeypatch)
+    photo = dirs["root"] / "photo.jpg"
+    photo.write_bytes(SAMPLE_BYTES)
 
-    monkeypatch.setattr(sys, "argv", ["scrub", str(dummy)])
+    captured: list[dict] = []
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    def fake_simple_scrub(summary, **kwargs):
+        captured.append(kwargs)
+        return summary
 
-    assert exc_info.value.code != 0
-    assert "require --clean-inline" in capsys.readouterr().err
+    monkeypatch.setattr(scrub, "simple_scrub", fake_simple_scrub)
+    monkeypatch.setattr(sys, "argv", ["scrub", str(photo)])
+
+    scrub.main()
+
+    assert len(captured) == 1
+    assert captured[0].get("explicit_files") is not None, \
+        "explicit_files must be forwarded to simple_scrub"
 
 
 def test_files_with_clean_inline_accepted(tmp_path, monkeypatch):

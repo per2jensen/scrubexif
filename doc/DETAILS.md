@@ -116,6 +116,49 @@ same whether you use the published image or a locally built one.
 
 ### Default safe mode (copy)
 
+Scrub named files, they are saved in output/
+
+```bash
+VERSION=0.7.21; docker run -it --rm  \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION  001_4888.jpg 001_4789.jpg
+
+...
+
+📊 Summary:
+  Total JPEGs found        : 2
+  Successfully scrubbed    : 2
+  Skipped (unstable/temp)  : 0
+  Errors                   : 0
+  Duration                 : 0.48s
+SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 duration=0.482
+```
+
+---
+Scrub named files, they are saved in a specified directory using the `-o` option
+
+```bash
+VERSION=0.7.21; docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION -o scrub-test  001_4888.jpg 001_4789.jpg
+
+...
+
+📊 Summary:
+  Total JPEGs found        : 2
+  Successfully scrubbed    : 2
+  Skipped (unstable/temp)  : 0
+  Errors                   : 0
+  Duration                 : 0.49s
+SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 duration=0.485
+```
+
+---
+
 Scrub all JPEGs in the current directory and write cleaned copies to `output/`.
 Originals are left untouched. This mode refuses to run if `output/` already exists.
 
@@ -126,6 +169,23 @@ VERSION=0.7.21; docker run -it --rm \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:$VERSION
 ```
+
+---
+
+Scrub all JPEGs in the current directory and write cleaned copies to `specific-dir/`.
+Originals are left untouched. Providing `-o specific-dir` will make `scrubexif` create the
+directory and put scrubbed JPEGs there. Existing files will not be overwritten.
+
+```bash
+VERSION=0.7.21; docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION \
+  -o specific-dir
+```
+
+---
 
 Recursively scrub nested folders:
 
@@ -149,7 +209,21 @@ VERSION=0.7.21; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --clean-inline "file1.jpg" "file2.jpeg"
 ```
 
-Recursively scrub nested folders in-place:
+---
+
+Scrub all JEPGs in-place (destructive) in current directory (-v $PWD:/photos).
+
+```bash
+VERSION=0.7.21; docker run -it --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:$VERSION --clean-inline
+```
+
+---
+
+Recursively scrub current directory and nested directories in-place:
 
 ```bash
 VERSION=0.7.21; docker run -it --rm \
