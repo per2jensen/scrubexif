@@ -124,6 +124,11 @@ Same idea, but with container hardening and in-line (destructive) overwrite:
       per2jensen/scrubexif:0.7.22 --clean-inline
 ```
 
+---
+
+Example of Gnome File Manager integration can be seen in my [file manager scripts](https://github.com/per2jensen/file-manager-scripts/blob/main/scripts/scrubexif.sh)
+
+
 ### Filename sanitisation (`--rename`)
 
 Filenames can leak as much as EXIF. A name like `2026-04-07_11-13-45.jpeg`
