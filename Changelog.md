@@ -1,5 +1,7 @@
 # Changelog
 
+## 0.7.23 - not released
+
 ## 0.7.22 - 2026-05-08
 
 ### Fixed
