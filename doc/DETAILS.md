@@ -983,7 +983,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--log-level {debug,info,warn,error,crit}` | Set log verbosity (default: `info`). |
 | `--max-files N` | Limit number of eligible files scrubbed in the current run. |
 | `--on-duplicate {delete,move}` | Auto/default mode duplicate handling. `delete` removes input; `move` sends duplicates to `/photos/errors`. |
-| `--output PATH` | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
+| `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
 | `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |
 | `--preview` | Preview scrub effect on one file without modifying it (implies `--dry-run` + `--show-tags both`). |
 | `-q`, `--quiet` | Suppress all output on success. |
