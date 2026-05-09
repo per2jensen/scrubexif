@@ -25,14 +25,16 @@
       "label": "Rel. 0.7.21"
     },
     {
-      "date": "2025-12-03",
-      "label": "Daily max: 180"
-    },
-    {
       "date": "2026-05-08",
       "label": "Rel. 0.7.22"
+    },
+    {
+      "date": "2025-12-03",
+      "label": "Daily max: 180"
     }
   ],
+  "total_clones": 5987,
+  "unique_clones": 2991,
   "daily": [
     {
       "count": 41,
@@ -1525,71 +1527,74 @@
       "uniques": 64
     },
     {
-      "count": 113,
       "timestamp": "2026-04-24T00:00:00Z",
+      "count": 113,
       "uniques": 52
     },
     {
-      "count": 176,
       "timestamp": "2026-04-25T00:00:00Z",
+      "count": 176,
       "uniques": 80
     },
     {
-      "count": 86,
       "timestamp": "2026-04-26T00:00:00Z",
+      "count": 86,
       "uniques": 30
     },
     {
-      "count": 68,
       "timestamp": "2026-04-27T00:00:00Z",
+      "count": 68,
       "uniques": 26
     },
     {
-      "count": 27,
       "timestamp": "2026-04-28T00:00:00Z",
+      "count": 27,
       "uniques": 12
     },
     {
-      "count": 45,
       "timestamp": "2026-04-29T00:00:00Z",
+      "count": 45,
       "uniques": 16
     },
     {
-      "count": 36,
       "timestamp": "2026-04-30T00:00:00Z",
+      "count": 36,
       "uniques": 10
     },
     {
-      "count": 60,
       "timestamp": "2026-05-01T00:00:00Z",
+      "count": 60,
       "uniques": 21
     },
     {
-      "count": 53,
       "timestamp": "2026-05-02T00:00:00Z",
+      "count": 53,
       "uniques": 18
     },
     {
-      "count": 53,
       "timestamp": "2026-05-03T00:00:00Z",
+      "count": 53,
       "uniques": 20
     },
     {
-      "count": 46,
       "timestamp": "2026-05-04T00:00:00Z",
+      "count": 46,
       "uniques": 17
     },
     {
-      "count": 52,
       "timestamp": "2026-05-05T00:00:00Z",
+      "count": 52,
       "uniques": 18
     },
     {
-      "count": 50,
       "timestamp": "2026-05-06T00:00:00Z",
+      "count": 50,
       "uniques": 21
+    },
+    {
+      "timestamp": "2026-05-07T00:00:00Z",
+      "count": 23,
+      "uniques": 10
     }
-  ],
-  "total_clones": 5964,
-  "unique_clones": 2981
+  ]
 }
