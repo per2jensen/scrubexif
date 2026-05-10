@@ -2,6 +2,10 @@
 
 ## 0.7.23 - not released
 
+### Added
+
+- Demo shell script added. It shows how to non-desctructively scrub JPEGs in a directory.
+
 ## 0.7.22 - 2026-05-08
 
 ### Fixed
