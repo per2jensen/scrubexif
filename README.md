@@ -50,9 +50,16 @@ If a scrub fails for any reason, **no output file is created** for that JPEG.
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to `$PWD/output/`:
 
 ````bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run --rm \
--v "$PWD:/photos" \
-per2jensen/scrubexif:0.7.22
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.22
 ````
 
 *Verify the results:* <sub>Check the output/ directory for your cleaned images. All GPS data and camera metadata have now been stripped.</sub>
@@ -72,7 +79,14 @@ Use `-o` to control where scrubbed files are written.
 **Output to a subdirectory of `$PWD`** — `scrubexif` creates it if it does not exist:
 
 ````bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run --rm \
+    --user "$RUN_AS_UID:$RUN_AS_GID" \
     -v "$PWD:/photos" \
     per2jensen/scrubexif:0.7.22 \
     -o scrubbed
@@ -84,11 +98,18 @@ Scrubbed files are written to `$PWD/scrubbed/`. The run is refused if `scrubbed/
 **Output to an arbitrary host directory** — mount it independently and pass the container path to `-o`:
 
 ````bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run --rm \
-    -v "$PWD:/photos" \
-    -v "/tmp/scrub-test:/scrubbed" \
-    per2jensen/scrubexif:0.7.22 \
-    -o /scrubbed
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  -v "$PWD:/photos" \
+  -v "/tmp/scrub-test:/scrubbed" \
+  per2jensen/scrubexif:0.7.22 \
+  -o /scrubbed
 ````
 
 `-v "/tmp/scrub-test:/scrubbed"` maps `/tmp/scrub-test` on the host to `/scrubbed` inside the
@@ -117,17 +138,25 @@ What happens on failed scrubs depends on the mode `scrubexif` is run in:
 Same idea, but with container hardening and in-line (destructive) overwrite:
 
 ```bash
-    docker run -it --rm \
-      --read-only --security-opt no-new-privileges \
-      --tmpfs /tmp \
-      -v "$PWD:/photos" \
-      per2jensen/scrubexif:0.7.22 --clean-inline
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  per2jensen/scrubexif:0.7.22 --clean-inline
 ```
 
 ---
 
-Example of Gnome File Manager integration can be seen in my [file manager scripts](https://github.com/per2jensen/file-manager-scripts/blob/main/scripts/scrubexif.sh)
+#### Nautilus integration
 
+Example of Gnome File Manager (Nautilus) integration can be seen in my [file manager scripts](https://github.com/per2jensen/file-manager-scripts/blob/main/scripts/scrubexif.sh)
 
 ### Filename sanitisation (`--rename`)
 
@@ -138,14 +167,28 @@ choice so nothing identifying survives.
 
 ```bash
 # Fully anonymous — 8-character random hex name
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   per2jensen/scrubexif:0.7.22 --clean-inline --rename "%r8" --recursive
 
 # Keep your camera prefix, remove the timestamp
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -162,15 +205,22 @@ Full specification → [`doc/rename-spec.md`](https://github.com/per2jensen/scru
 Use auto mode with explicit input/output/processed directories:
 
 ```bash
-    mkdir input scrubbed processed errors
-    docker run -it --rm \
-      --read-only --security-opt no-new-privileges \
-      --tmpfs /tmp \
-      -v "$PWD/input:/photos/input" \
-      -v "$PWD/scrubbed:/photos/output" \
-      -v "$PWD/processed:/photos/processed" \
-      -v "$PWD/errors:/photos/errors" \
-      per2jensen/scrubexif:0.7.22 --from-input
+mkdir input scrubbed processed errors
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD/input:/photos/input" \
+  -v "$PWD/scrubbed:/photos/output" \
+  -v "$PWD/processed:/photos/processed" \
+  -v "$PWD/errors:/photos/errors" \
+  per2jensen/scrubexif:0.7.22 --from-input
 ```
 
 These are the physical directories used on your file system:
@@ -216,18 +266,25 @@ Meaning:
 ### Build & Run Locally
 
 ```bash
-    # build the image from the Dockerfile in this repo
-    docker build -t scrubexif:local .
+# build the image from the Dockerfile in this repo
+docker build -t scrubexif:local .
 
-    # show CLI usage (ENTRYPOINT runs python -m scrubexif.scrub)
-    docker run --rm scrubexif:local --help
+# show CLI usage (ENTRYPOINT runs python -m scrubexif.scrub)
+docker run --rm scrubexif:local --help
 
-    # scrub the current directory with hardened defaults
-    docker run -it --rm \
-      --read-only --security-opt no-new-privileges \
-      --tmpfs /tmp \
-      -v "$PWD:/photos" \
-      scrubexif:local
+# scrub the current directory with hardened defaults
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v "$PWD:/photos" \
+  scrubexif:local
 ```
 
 Any arguments appended to `docker run … scrubexif:*` are forwarded to the underlying
@@ -266,7 +323,7 @@ cosign verify per2jensen/scrubexif:0.7.22 \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
 
-Replace `0.7.21` with the version you wish to verify.
+Replace the tag with the version you wish to verify.
 
 A successful verification prints the signing certificate, which includes the exact workflow URL, the Git commit SHA, and the GitHub Actions run URL — proving provenance down to the individual CI run.
 

@@ -103,7 +103,14 @@ docker build -t scrubexif:local .
 docker run --rm --read-only --security-opt no-new-privileges scrubexif:local --help
 
 # scrub the current directory with hardened defaults
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -119,7 +126,14 @@ same whether you use the published image or a locally built one.
 Scrub named files, they are saved in output/
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm  \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -140,7 +154,14 @@ SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 dup
 Scrub named files, they are saved in a specified directory using the `-o` option
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -163,7 +184,14 @@ Scrub all JPEGs in the current directory and write cleaned copies to `output/`.
 Originals are left untouched. This mode refuses to run if `output/` already exists.
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -177,7 +205,14 @@ Originals are left untouched. Providing `-o specific-dir` will make `scrubexif` 
 directory and put scrubbed JPEGs there. Existing files will not be overwritten.
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -190,7 +225,14 @@ VERSION=0.7.22; docker run -it --rm \
 Recursively scrub nested folders:
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -202,7 +244,14 @@ VERSION=0.7.22; docker run -it --rm \
 Manually scrub one or more `.jpg` / `.jpeg` files in-place (destructive).
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -214,7 +263,14 @@ VERSION=0.7.22; docker run -it --rm \
 Scrub all JEPGs in-place (destructive) in current directory (-v $PWD:/photos).
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -226,7 +282,14 @@ VERSION=0.7.22; docker run -it --rm \
 Recursively scrub current directory and nested directories in-place:
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -247,7 +310,14 @@ You **must** mount three volumes:
 #### Example
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
@@ -267,13 +337,20 @@ This ensures output is not overwritten and prevents silently skipping files.
 
 ```bash
 # Move duplicates to /photos/errors instead of deleting
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 docker run --read-only --security-opt no-new-privileges \
-           --tmpfs /tmp \
-           -v "$PWD/input:/photos/input" \
-           -v "$PWD/output:/photos/output" \
-           -v "$PWD/processed:/photos/processed" \
-           -v "$PWD/errors:/photos/errors" \
-           scrubexif:dev --from-input --on-duplicate move
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --tmpfs /tmp \
+  -v "$PWD/input:/photos/input" \
+  -v "$PWD/output:/photos/output" \
+  -v "$PWD/processed:/photos/processed" \
+  -v "$PWD/errors:/photos/errors" \
+  scrubexif:dev --from-input --on-duplicate move
 ```
 
 📌 **Observe** the `-v "$PWD/errors:/photos/errors"` volume specification needed for the `--on-duplicate move` option.
@@ -329,7 +406,14 @@ SCRUBEXIF_AUTOBUILD=0 pytest
 Scrub all `.jpg` files in subdirectories:
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -339,7 +423,14 @@ VERSION=0.7.22; docker run -it --rm \
 Dry-run (preview only):
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -349,7 +440,14 @@ VERSION=0.7.22; docker run -it --rm \
 Mix recursion and dry-run:
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -401,13 +499,29 @@ If you want to **inspect metadata only without modifying any files**, you must p
 
 ```bash
 # See tags BEFORE scrub (no modifications)
-docker run --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev --clean-inline image.jpg --show-tags before --dry-run
 
 # See both BEFORE and AFTER (scrub still happens)
-docker run --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev --clean-inline image.jpg --show-tags both
@@ -426,7 +540,15 @@ This mode:
 - Never alters the original image
 
 ```bash
-docker run --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   scrubexif:dev --clean-inline test.jpg --preview
@@ -636,13 +758,18 @@ docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrube
 ```
 
 - Specify a custom UID with `--user $(id -u)` to match host permissions.
-- Running as root is blocked unless `ALLOW_ROOT=1` is set. Use with caution:
 
 ```bash
-docker run --rm --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
-  --user 0 \
-  -e ALLOW_ROOT=1 \
   scrubexif:dev
 ```
 
@@ -655,7 +782,15 @@ Use these options when starting a container:
 - `--tmpfs /tmp`
 
 ```bash
-docker run --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
@@ -720,7 +855,14 @@ docker pull per2jensen/scrubexif:stable
 🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
 ```bash
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
 VERSION=0.7.22; docker run -it --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
@@ -751,7 +893,15 @@ Inside the container (optional):
 Observe the "/photos" in the filename, that is because the container has your $PWD mounted on /photos.
 
 ```bash
-VERSION=0.7.22; docker run --rm --read-only --security-opt no-new-privileges \
+RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
+RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+if [ "$RUN_AS_UID" -eq 0 ]; then
+    echo "Running as root is not allowed"
+    exit 1
+fi
+VERSION=0.7.22; docker run --rm \
+  --user "$RUN_AS_UID:$RUN_AS_GID" \
+  --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
   --entrypoint exiftool \
@@ -773,7 +923,6 @@ VERSION=0.7.22; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.
 ```
 
 ## Image Signing and Supply Chain Verification
-
 
 ### The problem cosign solves
 
