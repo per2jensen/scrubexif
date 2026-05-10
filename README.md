@@ -45,7 +45,7 @@ If a scrub fails for any reason, **no output file is created** for that JPEG.
 
 ## Quick Start
 
-### Easiest one-liner (default safe mode, non-destructive)
+### Simple command line usage (default safe mode, non-destructive)
 
 Scrub all JPEGs in the **current directory** (`$PWD`) and write cleaned copies to `$PWD/output/`:
 
@@ -71,6 +71,15 @@ Worth noting:
 - leaves the originals untouched in **$PWD/**
 - refuses to run if the `$PWD/output` directory already exists
 - prints host paths by default (use `--show-container-paths` to include `/photos/...` paths)
+
+### Demo script
+
+The [demo script](scripts/scrubexif-demo.sh) shows how to non-structively scrub JPEGs in a directory and output the scrubbed JPEGs to another directory. Features:
+
+- Run as the user calling the script, root is not allowed
+- write a log in /tmp/scrubexif.log (keep it under 100k)
+- sanity checks
+- send notifications to desktop
 
 ### Write to specific directory
 
