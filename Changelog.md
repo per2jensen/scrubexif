@@ -1,10 +1,11 @@
 # Changelog
 
-## 0.7.23 - not released
+## 0.7.23 - 2026-06-10
 
 ### Added
 
 - Demo shell script added. It shows how to non-desctructively scrub JPEGs in a directory.
+- Built now to include a fix for an openssl vuln
 
 ## 0.7.22 - 2026-05-08
 
