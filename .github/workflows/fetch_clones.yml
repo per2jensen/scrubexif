@@ -13,8 +13,8 @@ on:
     - cron: '23 4 * * *'  # Run daily at 04:17 UTC
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+#env:
+#  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   update-clones:
