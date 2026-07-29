@@ -27,7 +27,7 @@ def test_image_refresh_workflow_schedules_saturday_refresh() -> None:
     """The refresh workflow runs every Saturday at the agreed UTC time."""
     workflow = _workflow_text()
 
-    assert 'cron: "17 4 * * 6"' in workflow
+    assert 'cron: "37 4 * * 6"' in workflow
     assert "workflow_dispatch:" in workflow
 
 
