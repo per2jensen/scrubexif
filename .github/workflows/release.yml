@@ -17,6 +17,10 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
+concurrency:
+  group: scrubexif-image-publication
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-24.04

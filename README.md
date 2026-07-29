@@ -338,10 +338,17 @@ A successful verification prints the signing certificate, which includes the exa
 
 Full details on installation, verification, and what the certificate fields mean → [`doc/DETAILS.md#image-signing-and-supply-chain-verification`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification)
 
-**Additional supply chain artefacts per release:**
+The `:latest` image is rebuilt every Saturday from the exact source of the
+latest stable release. A successful refresh is tested, scanned, signed, and
+published with an immutable numeric suffix such as `:0.7.24-1`. Weekly
+refreshes do not change the stable release version shown in this README; their
+complete audit trail is recorded in `doc/build-history.json`.
+
+**Additional supply chain artefacts per release and scheduled refresh:**
+
 - SPDX SBOM (`sbom-<version>.spdx.json`) — attached to each GitHub Release and as a signed in-toto attestation on the image itself
 - Grype vulnerability scan (`grype-results-<version>.sarif`) — attached to the release, uploaded to the GitHub Security tab; releases are blocked on any high or critical CVE
-- `doc/build-history.json` — tracks every release with Git commit, image digest, Grype counts, cosign Rekor log entry, and CI run URL
+- `doc/build-history.json` — tracks every release and refresh with Git commit, image digest, Grype counts, cosign Rekor log entry, and CI run URL
 
 ## Common Options
 

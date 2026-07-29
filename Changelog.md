@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.25 - not released
+
+### Added
+
+- Saturday image refresh workflow rebuilds the latest stable release against current Ubuntu packages, then tests, scans, signs, attests, and publishes it as both an immutable `x.y.z-N` tag and `:latest`.
+- Refresh build history includes committed SBOM and SARIF audit files without changing README, project-page, or table-version examples.
+
+## 0.7.24 - 2026-07-26
+
+### Changed
+
+- bumped version number to rebuild image
+
 ## 0.7.23 - 2026-06-10
 
 ### Added

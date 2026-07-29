@@ -1,0 +1,345 @@
+name: Weekly image refresh - scrubexif
+
+on:
+  schedule:
+    - cron: "37 4 * * 6"  # Every Saturday at 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  security-events: write
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  DOCKERHUB_REPO: per2jensen/scrubexif
+  FINAL_IMAGE_NAME: scrubexif
+  UBUNTU_VERSION: "24.04"
+
+concurrency:
+  group: scrubexif-image-publication
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout full Git history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Compute refresh version
+        id: versions
+        run: |
+          set -euo pipefail
+          python3 scripts/compute_refresh_version.py \
+            --history doc/build-history.json \
+            --repository . \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Set refresh environment
+        run: |
+          set -euo pipefail
+          TIMESTAMP=$(date -u +%Y-%m-%dT%H-%M-%SZ)
+          echo "BASE_VERSION=${{ steps.versions.outputs.base_version }}" >> "${GITHUB_ENV}"
+          echo "REFRESH_VERSION=${{ steps.versions.outputs.refresh_version }}" >> "${GITHUB_ENV}"
+          echo "SBOM_FILE=doc/sbom/sbom-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.spdx.json" >> "${GITHUB_ENV}"
+          echo "SARIF_FILE=doc/sarif/grype-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.sarif" >> "${GITHUB_ENV}"
+
+      - name: Checkout stable release source
+        run: |
+          set -euo pipefail
+          git checkout "v${BASE_VERSION}"
+          # Refresh support lives on main but must orchestrate the exact source
+          # from the stable release tag.
+          git checkout origin/main -- Makefile
+          echo "Building source from v${BASE_VERSION}"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y exiftool libjpeg-turbo-progs
+          python -m pip install --upgrade pip
+          pip install ".[test]" --break-system-packages
+
+      - name: Build refreshed image from scratch
+        run: |
+          set -euo pipefail
+          make \
+            FINAL_VERSION="${REFRESH_VERSION}" \
+            DOCKER_BUILD_FLAGS="--pull --no-cache" \
+            final
+
+      - name: Test refreshed image
+        run: make FINAL_VERSION="${REFRESH_VERSION}" test-release
+
+      - name: Verify application version
+        run: |
+          set -euo pipefail
+          make \
+            FINAL_VERSION="${REFRESH_VERSION}" \
+            EXPECTED_CLI_VERSION="${BASE_VERSION}" \
+            verify-cli-version
+
+      - name: Verify OCI labels
+        run: make FINAL_VERSION="${REFRESH_VERSION}" verify-labels
+
+      - name: Install Syft and Grype
+        run: |
+          set -euo pipefail
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Prepare audit directories
+        run: mkdir -p doc/sbom doc/sarif
+
+      - name: Cache Grype database
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/grype/db
+          key: grype-db-${{ runner.os }}-${{ env.UBUNTU_VERSION }}-${{ github.run_id }}
+          restore-keys: |
+            grype-db-${{ runner.os }}-${{ env.UBUNTU_VERSION }}-
+
+      - name: Generate SPDX SBOM
+        run: |
+          set -euo pipefail
+          SYFT_CHECK_FOR_APP_UPDATE=false \
+            syft "docker:${FINAL_IMAGE_NAME}:${REFRESH_VERSION}" \
+              -o spdx-json \
+              > "${SBOM_FILE}"
+
+      - name: Scan image with Grype
+        id: grype_scan
+        run: |
+          set -euo pipefail
+          GRYPE_CHECK_FOR_APP_UPDATE=false \
+            grype \
+              "sbom:${SBOM_FILE}" \
+              --fail-on high \
+              -o sarif \
+              > "${SARIF_FILE}"
+
+      - name: Upload Grype SARIF to GitHub Security
+        if: always() && steps.grype_scan.outcome != 'skipped'
+        uses: github/codeql-action/upload-sarif@v3.28.21
+        with:
+          sarif_file: ${{ env.SARIF_FILE }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload refresh audit artifacts
+        if: always() && steps.grype_scan.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: refresh-audit-${{ env.REFRESH_VERSION }}
+          path: |
+            ${{ env.SBOM_FILE }}
+            ${{ env.SARIF_FILE }}
+
+      - name: Log in to Docker Hub
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login \
+                -u "${{ secrets.DOCKERHUB_USER_NAME }}" \
+                --password-stdin
+
+      - name: Refuse to overwrite an existing refresh tag
+        run: |
+          set -euo pipefail
+          if docker manifest inspect \
+            "${DOCKERHUB_REPO}:${REFRESH_VERSION}" >/dev/null 2>&1; then
+            echo "ERROR: Docker Hub tag already exists: ${DOCKERHUB_REPO}:${REFRESH_VERSION}" >&2
+            exit 1
+          fi
+
+      - name: Push immutable refresh tag
+        id: push_refresh
+        run: docker push "${DOCKERHUB_REPO}:${REFRESH_VERSION}"
+
+      - name: Capture immutable image digest
+        id: image_digest
+        run: |
+          set -euo pipefail
+          DIGEST=$(docker inspect \
+            --format='{{index .RepoDigests 0}}' \
+            "${DOCKERHUB_REPO}:${REFRESH_VERSION}")
+          if [[ ! "${DIGEST}" =~ ^${DOCKERHUB_REPO}@sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: Unexpected image digest: ${DIGEST}" >&2
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Pushed digest: ${DIGEST}"
+
+      - name: Roll back immutable tag if digest capture fails
+        if: failure() && steps.image_digest.outcome == 'failure'
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}"
+
+      - name: Sign image digest with cosign
+        id: cosign_sign
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          OUTPUT=$(cosign sign --yes \
+            "${{ steps.image_digest.outputs.digest }}" 2>&1)
+          echo "${OUTPUT}"
+
+          REKOR_INDEX=$(echo "${OUTPUT}" \
+            | grep -oP 'tlog entry created with index: \K[0-9]+' || true)
+          if [ -n "${REKOR_INDEX}" ]; then
+            REKOR_URL="https://search.sigstore.dev/?logIndex=${REKOR_INDEX}"
+          else
+            REKOR_URL=""
+          fi
+          echo "rekor_url=${REKOR_URL}" >> "${GITHUB_OUTPUT}"
+          echo "rekor_index=${REKOR_INDEX}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attach signed SBOM attestation
+        id: cosign_attest
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+        run: |
+          set -euo pipefail
+          cosign attest --yes \
+            --predicate "${SBOM_FILE}" \
+            --type spdxjson \
+            "${{ steps.image_digest.outputs.digest }}"
+
+      - name: Roll back immutable tag after signing failure
+        if: >
+          failure() && (
+            steps.cosign_sign.outcome == 'failure' ||
+            steps.cosign_attest.outcome == 'failure'
+          )
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}"
+
+      - name: Publish signed refresh as latest
+        id: push_latest
+        run: docker push "${DOCKERHUB_REPO}:latest"
+
+      - name: Roll back immutable tag if latest publication fails
+        if: failure() && steps.push_latest.outcome == 'failure'
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}"
+
+      - name: Record successful refresh
+        id: housekeeping
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git restore --source=HEAD --staged --worktree Makefile
+          git checkout -B main origin/main
+          git pull --rebase origin main
+
+          DIGEST="${{ steps.image_digest.outputs.digest }}"
+          BUILD_NUMBER=$(jq length doc/build-history.json)
+          IMAGE_ID=$(docker inspect \
+            --format '{{ .Id }}' \
+            "${FINAL_IMAGE_NAME}:${REFRESH_VERSION}")
+
+          export PYTHONPATH="${PYTHONPATH:-}:scripts"
+          python3 scripts/update_build_log.py \
+            --log doc/build-history.json \
+            --build-number "${BUILD_NUMBER}" \
+            --version "${REFRESH_VERSION}" \
+            --base "ubuntu:${UBUNTU_VERSION}" \
+            --git-rev "$(git rev-parse --short "v${BASE_VERSION}")" \
+            --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --url "https://hub.docker.com/layers/${DOCKERHUB_REPO}/${REFRESH_VERSION}/images/${DIGEST#*@}" \
+            --digest "${DIGEST#*@}" \
+            --image-id "${IMAGE_ID}" \
+            --grype-sarif "${SARIF_FILE}" \
+            --sbom-file "${SBOM_FILE}" \
+            --sbom-release-asset-url "no release asset - scheduled image refresh" \
+            --cosign-signed "true" \
+            --cosign-rekor-url "${{ steps.cosign_sign.outputs.rekor_url }}" \
+            --cosign-image-digest "${DIGEST}" \
+            --build-runner "${{ runner.os }}-${{ runner.arch }}" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          python3 scripts/write_cosign_badge.py
+
+          # Weekly refreshes intentionally do not update README.md, index.html,
+          # DETAILS.md, release notes, or stable-version examples.
+          git add \
+            doc/build-history.json \
+            doc/cosign_badge.json \
+            "${SBOM_FILE}" \
+            "${SARIF_FILE}"
+          git commit -m "image refresh ${REFRESH_VERSION}: audit metadata"
+          git push origin HEAD:main
+
+          git tag -a "v${REFRESH_VERSION}" \
+            -m "Weekly image refresh v${REFRESH_VERSION}"
+          git push origin "v${REFRESH_VERSION}"
+
+      - name: Write failed refresh badge
+        if: failure() && steps.housekeeping.outcome != 'success'
+        run: |
+          set -euo pipefail
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git restore --source=HEAD --staged --worktree Makefile
+          git checkout -B main origin/main
+          git pull --rebase origin main
+          python3 scripts/write_cosign_badge.py --failed
+          git add doc/cosign_badge.json
+          if ! git diff --cached --quiet; then
+            git commit -m "cosign badge: image refresh failed"
+            git push origin HEAD:main
+          fi
+
+      - name: Post refresh summary
+        run: |
+          set -euo pipefail
+          SUMMARY=$(python3 scripts/grype_sarif_summary.py "${SARIF_FILE}")
+          CRITICAL=$(jq -r '.counts.critical // 0' <<< "${SUMMARY}")
+          HIGH=$(jq -r '.counts.high // 0' <<< "${SUMMARY}")
+          MEDIUM=$(jq -r '.counts.medium // 0' <<< "${SUMMARY}")
+
+          echo "## Scrubexif weekly refresh ${REFRESH_VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Field | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|---|---|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Immutable image | \`${DOCKERHUB_REPO}:${REFRESH_VERSION}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Also published as | \`${DOCKERHUB_REPO}:latest\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Application version | \`${BASE_VERSION}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Image digest | \`${{ steps.image_digest.outputs.digest }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Rekor entry | ${{ steps.cosign_sign.outputs.rekor_url }} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Grype Critical / High / Medium | ${CRITICAL} / ${HIGH} / ${MEDIUM} |" >> "${GITHUB_STEP_SUMMARY}"

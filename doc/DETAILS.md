@@ -828,13 +828,32 @@ Until a new :latest is uploaded, that tag does not exist for `scrubexif`.
 
 I am currently going with:
 
-| Tag        | Description                                      | Docker Hub | Example Usage  |
-|------------|--------------------------------------------------|------------|----------------|
-| `:0.x.y`   | Versioned releases following semantic versioning | ✅ Yes     | `docker pull per2jensen/scrubexif:0.5.11`   |
-| `:latest`  | Latest "good" and trusted version;               | ✅ Yes     | `docker pull per2jensen/scrubexif:latest` |
-| `:dev`     | Development version; may be broken or incomplete | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev` |
+| Tag          | Description                                                   | Docker Hub | Example Usage  |
+|--------------|---------------------------------------------------------------|------------|----------------|
+| `:0.x.y`     | Immutable semantic-versioned application release              | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.24`   |
+| `:0.x.y-N`   | Immutable Saturday rebuild of release `0.x.y`                  | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.24-1` |
+| `:latest`    | Most recent signed and scanned release or Saturday refresh     | ✅ Yes     | `docker pull per2jensen/scrubexif:latest` |
+| `:dev`       | Development version; may be broken or incomplete              | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev` |
 
-🔄 The release pipeline automatically updates build-history.json, which contains metadata for each uploaded image.
+### Weekly image refresh
+
+At 04:17 UTC every Saturday, the image is rebuilt from the exact Git tag of
+the latest stable release. The rebuild uses the current Ubuntu 24.04 packages
+without changing the scrubexif application source or application version.
+
+Before publication, the rebuilt image must pass the full test suite, CLI and
+OCI-label checks, an SPDX SBOM generation, and a Grype gate that rejects High
+or Critical vulnerabilities. The immutable refresh tag is pushed and signed
+by digest with cosign before its SBOM attestation is attached. Only after those
+steps succeed is `:latest` moved to the refreshed image.
+
+Refreshes use numeric tags such as `0.7.24-1`, `0.7.24-2`, and so on. They do
+not create GitHub Releases and do not update the stable version examples in
+README.md, this document, or the project page. Their SBOM, SARIF report,
+source revision, digest, Rekor entry, and workflow provenance are recorded in
+`doc/build-history.json` and the repository audit directories.
+
+🔄 The release and refresh pipelines automatically update build-history.json, which contains metadata for each uploaded image.
 
 > Pull Images
 
@@ -1034,7 +1053,8 @@ Docker tags are mutable — the same tag can point to a different image at any t
 
 ### Supply chain artefacts in build-history.json
 
-From release `0.7.16` onwards, each entry in `doc/build-history.json` includes:
+From release `0.7.16` onwards, each release or refresh entry in
+`doc/build-history.json` includes:
 
 ```json
 "cosign": {
@@ -1053,7 +1073,9 @@ From release `0.7.16` onwards, each entry in `doc/build-history.json` includes:
 }
 ```
 
-This gives every release a permanent, human-readable audit trail linking the Docker image digest to the exact source commit, the CI run that built it, the Sigstore transparency log entry, and the SBOM.
+This gives every release and refresh a permanent, human-readable audit trail
+linking the Docker image digest to the exact source commit, the CI run that
+built it, the Sigstore transparency log entry, and the SBOM.
 
 ## Dev setup
 

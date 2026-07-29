@@ -13,6 +13,7 @@
 SHELL := /bin/bash
 
 DOCKER ?= docker
+DOCKER_BUILD_FLAGS ?=
 DOCKER_RUN := $(DOCKER) run --read-only --security-opt no-new-privileges --rm $(if $(CI),,-it) \
   --tmpfs /tmp:rw,exec,nosuid,size=64m \
   -e SCRUBEXIF_STABLE_SECONDS=$(SCRUBEXIF_STABLE_SECONDS) \
@@ -28,6 +29,7 @@ BASE_LATEST_TAG = $(BASE_IMAGE_NAME):$(UBUNTU_VERSION)
 BUILD_LOG_DIR ?= doc
 BUILD_LOG_FILE ?= build-history.json
 BUILD_LOG_PATH := $(BUILD_LOG_DIR)/$(BUILD_LOG_FILE)
+EXPECTED_CLI_VERSION ?= $(FINAL_VERSION)
 
 export SCRUBEXIF_STABLE_SECONDS ?= 0
 export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
@@ -52,8 +54,8 @@ check_version:
 		echo "   Example: make FINAL_VERSION=1.0.0 final"; \
 		exit 1; \
 	fi
-	@if ! echo "$(FINAL_VERSION)" | grep -Eq '^(dev|[0-9]+\.[0-9]+\.[0-9]+)$$'; then \
-		echo "❌ FINAL_VERSION must be 'dev' or semantic, like 0.5.3"; \
+	@if ! echo "$(FINAL_VERSION)" | grep -Eq '^(dev|[0-9]+\.[0-9]+\.[0-9]+(-[1-9][0-9]*)?)$$'; then \
+		echo "❌ FINAL_VERSION must be 'dev', semantic (0.5.3), or a numeric refresh (0.5.3-1)"; \
 		exit 1; \
 	fi
 
@@ -70,7 +72,7 @@ final: check_version validate
 	$(eval DOCKERHUB_TAG := $(DOCKERHUB_REPO):$(FINAL_VERSION))
 	$(eval DOCKERHUB_LATEST := $(DOCKERHUB_REPO):latest)
 	@echo "Building final image: $(FINAL_TAG)"
-	$(DOCKER) build -f Dockerfile \
+	$(DOCKER) build $(DOCKER_BUILD_FLAGS) -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
 		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
 		--label org.opencontainers.image.created="$(DATE)" \
@@ -117,14 +119,18 @@ verify-labels:
 	@echo "🎉 All required OCI labels are present."
 
 
-verify-cli-version:
-	@echo "🔎 Verifying scrub --version matches FINAL_VERSION ($(FINAL_VERSION))"
-	@actual_version="$$(docker run  --read-only --security-opt no-new-privileges --rm $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | head -n1 | awk '{print $$2}')" && \
-	if [ "$$actual_version" != "$(FINAL_VERSION)" ]; then \
-	  echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(FINAL_VERSION)'"; \
+verify-cli-version: check_version
+	@if ! echo "$(EXPECTED_CLI_VERSION)" | grep -Eq '^(dev|[0-9]+\.[0-9]+\.[0-9]+)$$'; then \
+	  echo "❌ EXPECTED_CLI_VERSION must be 'dev' or semantic, like 0.5.3"; \
+	  exit 1; \
+	fi
+	@echo "🔎 Verifying scrub --version matches EXPECTED_CLI_VERSION ($(EXPECTED_CLI_VERSION))"
+	@actual_version="$$($(DOCKER) run  --read-only --security-opt no-new-privileges --rm $(FINAL_IMAGE_NAME):$(FINAL_VERSION) --version | head -n1 | awk '{print $$2}')" && \
+	if [ "$$actual_version" != "$(EXPECTED_CLI_VERSION)" ]; then \
+	  echo "❌ Version mismatch: CLI reports '$$actual_version', expected '$(EXPECTED_CLI_VERSION)'"; \
 	  exit 1; \
 	else \
-	  echo "✅ scrub --version is correct: $(FINAL_VERSION)"; \
+	  echo "✅ scrub --version is correct: $(EXPECTED_CLI_VERSION)"; \
 	fi
 
 
@@ -299,7 +305,7 @@ BUILD_DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 dev:
 	$(eval FINAL_VERSION := dev)
 	@echo "Building development image: scrubexif:dev ..."
-	$(DOCKER) build -f Dockerfile \
+	$(DOCKER) build $(DOCKER_BUILD_FLAGS) -f Dockerfile \
 		--build-arg VERSION=$(FINAL_VERSION) \
 		--label org.opencontainers.image.created="$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" \
 		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
