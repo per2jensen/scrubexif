@@ -11,7 +11,7 @@
 
 - Refresh provenance now records the source commit rather than the annotated release-tag object.
 - Grype build-history summaries now report vulnerability severities instead of SARIF display levels and support gzip-compressed reports.
-- Docker Hub rollback now treats an already-absent image tag as successful cleanup.
+- Docker Hub rollback now deletes through the Registry API and treats an already-absent manifest as successful cleanup.
 
 ### Changed
 
