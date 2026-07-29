@@ -132,7 +132,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm  \
+VERSION=latest; docker run -it --rm  \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -160,7 +160,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -190,7 +190,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -211,7 +211,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -222,7 +222,9 @@ VERSION=0.7.24; docker run -it --rm \
 
 ---
 
-Recursively scrub nested folders:
+Recursively scrub nested folders
+
+**Observe** that all scrubbed jpegs, including in nested directories, are put in the same directoty: $PWD/output/
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -231,7 +233,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -250,7 +252,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -260,7 +262,7 @@ VERSION=0.7.24; docker run -it --rm \
 
 ---
 
-Scrub all JEPGs in-place (destructive) in current directory (-v $PWD:/photos).
+Scrub all JEPGs **in-place** (destructively) in current directory (-v $PWD:/photos).
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -269,7 +271,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -279,7 +281,7 @@ VERSION=0.7.24; docker run -it --rm \
 
 ---
 
-Recursively scrub current directory and nested directories in-place:
+Scrub **in-place** (destructively) recursively current directory and nested directories:
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -288,7 +290,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -316,7 +318,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.24; docker run -it --rm \
+VERSION=latest; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
