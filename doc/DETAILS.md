@@ -837,7 +837,7 @@ I am currently going with:
 
 ### Weekly image refresh
 
-At 04:17 UTC every Saturday, the image is rebuilt from the exact Git tag of
+At 04:37 UTC every Saturday, the image is rebuilt from the exact Git tag of
 the latest stable release. The rebuild uses the current Ubuntu 24.04 packages
 without changing the scrubexif application source or application version.
 
@@ -851,7 +851,9 @@ Refreshes use numeric tags such as `0.7.24-1`, `0.7.24-2`, and so on. They do
 not create GitHub Releases and do not update the stable version examples in
 README.md, this document, or the project page. Their SBOM, SARIF report,
 source revision, digest, Rekor entry, and workflow provenance are recorded in
-`doc/build-history.json` and the repository audit directories.
+`doc/build-history.json` and the repository audit directories. Scheduled
+refresh SBOM and SARIF files are stored as `.gz` archives to limit checkout
+size; the signed registry attestation still contains the original SPDX JSON.
 
 🔄 The release and refresh pipelines automatically update build-history.json, which contains metadata for each uploaded image.
 

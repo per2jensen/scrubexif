@@ -342,7 +342,8 @@ The `:latest` image is rebuilt every Saturday from the exact source of the
 latest stable release. A successful refresh is tested, scanned, signed, and
 published with an immutable numeric suffix such as `:0.7.24-1`. Weekly
 refreshes do not change the stable release version shown in this README; their
-complete audit trail is recorded in `doc/build-history.json`.
+complete audit trail is recorded in `doc/build-history.json`, with compressed
+SBOM and SARIF files stored under `doc/`.
 
 **Additional supply chain artefacts per release and scheduled refresh:**
 

@@ -7,6 +7,15 @@
 - Saturday image refresh workflow rebuilds the latest stable release against current Ubuntu packages, then tests, scans, signs, attests, and publishes it as both an immutable `x.y.z-N` tag and `:latest`.
 - Refresh build history includes committed SBOM and SARIF audit files without changing README, project-page, or table-version examples.
 
+### Fixed
+
+- Refresh provenance now records the source commit rather than the annotated release-tag object.
+- Grype build-history summaries now report vulnerability severities instead of SARIF display levels and support gzip-compressed reports.
+
+### Changed
+
+- Scheduled refresh SBOM and SARIF files are gzip-compressed before commit to limit working-tree growth.
+
 ## 0.7.24 - 2026-07-26
 
 ### Changed

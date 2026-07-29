@@ -2,7 +2,7 @@ name: Weekly image refresh - scrubexif
 
 on:
   schedule:
-    - cron: "37 4 * * 6"  # Every Saturday at 04:17 UTC
+    - cron: "37 4 * * 6"  # Every Saturday at 04:37 UTC
   workflow_dispatch:
 
 permissions:
@@ -48,6 +48,8 @@ jobs:
           echo "REFRESH_VERSION=${{ steps.versions.outputs.refresh_version }}" >> "${GITHUB_ENV}"
           echo "SBOM_FILE=doc/sbom/sbom-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.spdx.json" >> "${GITHUB_ENV}"
           echo "SARIF_FILE=doc/sarif/grype-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.sarif" >> "${GITHUB_ENV}"
+          echo "SBOM_ARCHIVE=doc/sbom/sbom-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.spdx.json.gz" >> "${GITHUB_ENV}"
+          echo "SARIF_ARCHIVE=doc/sarif/grype-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.sarif.gz" >> "${GITHUB_ENV}"
 
       - name: Checkout stable release source
         run: |
@@ -226,11 +228,20 @@ jobs:
             --type spdxjson \
             "${{ steps.image_digest.outputs.digest }}"
 
-      - name: Roll back immutable tag after signing failure
+      - name: Compress repository audit artifacts
+        id: compress_artifacts
+        run: |
+          set -euo pipefail
+          gzip -9 -- "${SBOM_FILE}" "${SARIF_FILE}"
+          test -s "${SBOM_ARCHIVE}"
+          test -s "${SARIF_ARCHIVE}"
+
+      - name: Roll back immutable tag after audit failure
         if: >
           failure() && (
             steps.cosign_sign.outcome == 'failure' ||
-            steps.cosign_attest.outcome == 'failure'
+            steps.cosign_attest.outcome == 'failure' ||
+            steps.compress_artifacts.outcome == 'failure'
           )
         env:
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
@@ -268,6 +279,7 @@ jobs:
 
           DIGEST="${{ steps.image_digest.outputs.digest }}"
           BUILD_NUMBER=$(jq length doc/build-history.json)
+          SOURCE_GIT_REV=$(git rev-parse --short "v${BASE_VERSION}^{commit}")
           IMAGE_ID=$(docker inspect \
             --format '{{ .Id }}' \
             "${FINAL_IMAGE_NAME}:${REFRESH_VERSION}")
@@ -278,13 +290,13 @@ jobs:
             --build-number "${BUILD_NUMBER}" \
             --version "${REFRESH_VERSION}" \
             --base "ubuntu:${UBUNTU_VERSION}" \
-            --git-rev "$(git rev-parse --short "v${BASE_VERSION}")" \
+            --git-rev "${SOURCE_GIT_REV}" \
             --created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --url "https://hub.docker.com/layers/${DOCKERHUB_REPO}/${REFRESH_VERSION}/images/${DIGEST#*@}" \
             --digest "${DIGEST#*@}" \
             --image-id "${IMAGE_ID}" \
-            --grype-sarif "${SARIF_FILE}" \
-            --sbom-file "${SBOM_FILE}" \
+            --grype-sarif "${SARIF_ARCHIVE}" \
+            --sbom-file "${SBOM_ARCHIVE}" \
             --sbom-release-asset-url "no release asset - scheduled image refresh" \
             --cosign-signed "true" \
             --cosign-rekor-url "${{ steps.cosign_sign.outputs.rekor_url }}" \
@@ -300,8 +312,8 @@ jobs:
           git add \
             doc/build-history.json \
             doc/cosign_badge.json \
-            "${SBOM_FILE}" \
-            "${SARIF_FILE}"
+            "${SBOM_ARCHIVE}" \
+            "${SARIF_ARCHIVE}"
           git commit -m "image refresh ${REFRESH_VERSION}: audit metadata"
           git push origin HEAD:main
 
@@ -328,7 +340,7 @@ jobs:
       - name: Post refresh summary
         run: |
           set -euo pipefail
-          SUMMARY=$(python3 scripts/grype_sarif_summary.py "${SARIF_FILE}")
+          SUMMARY=$(python3 scripts/grype_sarif_summary.py "${SARIF_ARCHIVE}")
           CRITICAL=$(jq -r '.counts.critical // 0' <<< "${SUMMARY}")
           HIGH=$(jq -r '.counts.high // 0' <<< "${SUMMARY}")
           MEDIUM=$(jq -r '.counts.medium // 0' <<< "${SUMMARY}")

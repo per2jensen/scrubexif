@@ -40,6 +40,25 @@ def test_image_refresh_workflow_publishes_latest_after_attestation() -> None:
     assert attest_position < latest_position
 
 
+def test_image_refresh_workflow_compresses_artifacts_after_attestation() -> None:
+    """Raw audit inputs are consumed before compressed files are committed."""
+    workflow = _workflow_text()
+
+    attest_position = workflow.index("- name: Attach signed SBOM attestation")
+    compress_position = workflow.index("- name: Compress repository audit artifacts")
+    housekeeping_position = workflow.index("- name: Record successful refresh")
+    assert attest_position < compress_position < housekeeping_position
+    assert 'gzip -9 -- "${SBOM_FILE}" "${SARIF_FILE}"' in workflow
+
+
+def test_image_refresh_workflow_records_dereferenced_source_commit() -> None:
+    """Build history records the tagged commit rather than the tag object."""
+    workflow = _workflow_text()
+
+    assert 'git rev-parse --short "v${BASE_VERSION}^{commit}"' in workflow
+    assert 'git rev-parse --short "v${BASE_VERSION}")' not in workflow
+
+
 def test_image_refresh_workflow_shares_release_concurrency_group() -> None:
     """Manual releases and refreshes cannot publish images concurrently."""
     refresh_workflow = _workflow_text()
@@ -62,8 +81,10 @@ def test_image_refresh_workflow_stages_audit_files_without_readmes() -> None:
     )[0]
 
     assert "doc/build-history.json" in stage_block
-    assert '"${SBOM_FILE}"' in stage_block
-    assert '"${SARIF_FILE}"' in stage_block
+    assert '"${SBOM_ARCHIVE}"' in stage_block
+    assert '"${SARIF_ARCHIVE}"' in stage_block
+    assert '"${SBOM_FILE}"' not in stage_block
+    assert '"${SARIF_FILE}"' not in stage_block
     assert "README.md" not in stage_block
     assert "DETAILS.md" not in stage_block
     assert "index.html" not in stage_block
