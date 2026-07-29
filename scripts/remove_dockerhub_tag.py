@@ -95,7 +95,7 @@ def remove_tag(repo: str, tag: str, jwt: str) -> None:
         jwt: JWT obtained from get_jwt().
 
     Raises:
-        SystemExit: If the deletion fails.
+        SystemExit: If the deletion fails for a reason other than an absent tag.
     """
     url = DOCKERHUB_TAG_URL_TEMPLATE.format(repo=repo, tag=tag)
     req = urllib.request.Request(
@@ -107,6 +107,13 @@ def remove_tag(repo: str, tag: str, jwt: str) -> None:
         with urllib.request.urlopen(req) as resp:
             logger.info("✅ Removed tag %s from %s (HTTP %s)", tag, repo, resp.status)
     except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            logger.info(
+                "✅ Tag %s is already absent from %s (HTTP 404)",
+                tag,
+                repo,
+            )
+            return
         logger.error("❌ Failed to remove tag %s from %s: HTTP %s", tag, repo, exc.code)
         raise SystemExit(1) from exc
 

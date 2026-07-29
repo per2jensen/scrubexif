@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import os
 import sys
 import urllib.error
@@ -116,12 +117,16 @@ def test_remove_tag_success_on_204():
         remove_tag("per2jensen/scrubexif", "1.2.3", "fake-jwt")
 
 
-def test_remove_tag_http_404_raises_system_exit():
-    """DELETE returns 404 (tag not found) → SystemExit(1)."""
+def test_remove_tag_http_404_returns_success(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """DELETE returns 404 (tag already absent) → completes without raising."""
+    caplog.set_level(logging.INFO, logger=_mod.logger.name)
+
     with patch("urllib.request.urlopen", side_effect=_http_error(404)):
-        with pytest.raises(SystemExit) as exc:
-            remove_tag("per2jensen/scrubexif", "1.2.3", "fake-jwt")
-    assert exc.value.code == 1
+        remove_tag("per2jensen/scrubexif", "1.2.3", "fake-jwt")
+
+    assert "already absent" in caplog.text
 
 
 def test_remove_tag_http_401_raises_system_exit():
@@ -168,14 +173,14 @@ def test_main_login_failure_propagates(monkeypatch):
     assert exc.value.code == 1
 
 
-def test_main_delete_failure_propagates(monkeypatch):
-    """Login succeeds but DELETE returns 404 → main() raises SystemExit(1)."""
+def test_main_delete_server_failure_propagates(monkeypatch):
+    """Login succeeds but DELETE returns 500 → main() raises SystemExit(1)."""
     login_body = json.dumps({"token": "fake-jwt"}).encode()
     monkeypatch.setattr(sys, "argv", ["remove_dockerhub_tag.py", "--repo", "per2jensen/scrubexif", "--tag", "1.2.3"])
     monkeypatch.setenv("DOCKERHUB_USER", "u")
     monkeypatch.setenv("DOCKERHUB_TOKEN", "t")
     with patch("urllib.request.urlopen",
-               side_effect=[_resp(login_body), _http_error(404)]):
+               side_effect=[_resp(login_body), _http_error(500)]):
         with pytest.raises(SystemExit) as exc:
             main()
     assert exc.value.code == 1
