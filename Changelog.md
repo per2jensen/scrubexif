@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.7.25 - not released
+## 0.7.25 - 2026-07-29
 
 ### Added
 
