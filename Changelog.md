@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.26 - not released
+
+### Changed
+
+- Syft and Grype are pinned to reviewed releases, checked monthly for updates, and recorded in build history for each new image.
+- Dependabot checks GitHub Actions references weekly.
+- Manual releases now validate tagged `main` source, rebuild without cache, test the final image, scan and attest one SBOM, and create one GitHub release with both audit assets.
+- Release and refresh publication now resolve digests from Docker Hub, persist immutable audit metadata before moving `latest`, and retain a valid audited image if the mutable-tag update fails.
+
+### Fixed
+
+- Docker Hub tag-existence checks now fail closed on authentication or registry errors instead of treating lookup failures as permission to overwrite an immutable tag.
+- Refresh audit commits and annotated Git tags are pushed atomically.
+
 ## 0.7.25 - 2026-07-29
 
 ### Added

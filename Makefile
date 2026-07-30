@@ -30,6 +30,8 @@ BUILD_LOG_DIR ?= doc
 BUILD_LOG_FILE ?= build-history.json
 BUILD_LOG_PATH := $(BUILD_LOG_DIR)/$(BUILD_LOG_FILE)
 EXPECTED_CLI_VERSION ?= $(FINAL_VERSION)
+BUILD_GIT_REV ?=
+PUSHED_IMAGE_DIGEST ?=
 
 export SCRUBEXIF_STABLE_SECONDS ?= 0
 export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
@@ -171,9 +173,9 @@ else
 	@test -f $(BUILD_LOG_PATH) || echo "[]" > $(BUILD_LOG_PATH)
 
 	$(eval DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
-	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
+	$(eval GIT_REV := $(if $(BUILD_GIT_REV),$(BUILD_GIT_REV),$(shell git rev-parse --short HEAD)))
 
-	$(eval DIGEST := $(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo ""))
+	$(eval DIGEST := $(if $(PUSHED_IMAGE_DIGEST),$(PUSHED_IMAGE_DIGEST),$(shell docker inspect --format '{{ index .RepoDigests 0 }}' $(DOCKERHUB_REPO):$(FINAL_VERSION) 2>/dev/null || echo "")))
 	@if [ -z "$(DIGEST)" ]; then \
 		if [ "$(DRY_RUN)" = "1" ]; then \
 			echo "⚠️  Skipping digest check in dry-run mode"; \
@@ -223,7 +225,9 @@ else
 	  --cosign-image-digest "$${COSIGN_IMAGE_DIGEST:-}" \
 	  --build-runner "$${BUILD_RUNNER:-}" \
 	  --github-run-id "$${GITHUB_RUN_ID:-}" \
-	  --github-run-url "$${GITHUB_RUN_URL:-}"
+	  --github-run-url "$${GITHUB_RUN_URL:-}" \
+	  --syft-version "$${SYFT_VERSION:-}" \
+	  --grype-version "$${GRYPE_VERSION:-}"
 
 	@echo "✅ $(BUILD_LOG_PATH) updated"
 

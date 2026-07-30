@@ -4,18 +4,21 @@ on:
   workflow_dispatch:
     inputs:
       FINAL_VERSION:
-        description: 'Release version (e.g. 1.2.3)'
+        description: "Release version (for example 1.2.3)"
         required: true
         type: string
 
 permissions:
   contents: write
   security-events: write
-  pull-requests: write
-  id-token: write       # required for cosign keyless signing via GitHub OIDC
-  actions: write        # required for triggering the dockerhub-readme workflow
+  id-token: write
+  actions: write
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  DOCKERHUB_REPO: per2jensen/scrubexif
+  FINAL_IMAGE_NAME: scrubexif
+  UBUNTU_VERSION: "24.04"
 
 concurrency:
   group: scrubexif-image-publication
@@ -24,193 +27,293 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
 
     env:
       FINAL_VERSION: ${{ inputs.FINAL_VERSION }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout full Git history
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Validate release request
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${FINAL_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERROR: FINAL_VERSION must use stable X.Y.Z form" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "ERROR: Stable releases must run from refs/heads/main" >&2
+            exit 1
+          fi
+
+          TAG_REF="refs/tags/v${FINAL_VERSION}"
+          if ! git show-ref --verify --quiet "${TAG_REF}"; then
+            echo "ERROR: Required release tag does not exist: v${FINAL_VERSION}" >&2
+            exit 1
+          fi
+
+          SOURCE_COMMIT=$(git rev-parse "${TAG_REF}^{commit}")
+          HEAD_COMMIT=$(git rev-parse HEAD)
+          if [ "${SOURCE_COMMIT}" != "${HEAD_COMMIT}" ]; then
+            echo "ERROR: v${FINAL_VERSION} does not point to the checked-out main commit" >&2
+            exit 1
+          fi
+
+          echo "SOURCE_GIT_REV=$(git rev-parse --short "${TAG_REF}^{commit}")" \
+            >> "${GITHUB_ENV}"
+          echo "SBOM_FILE=sbom-${FINAL_VERSION}.spdx.json" >> "${GITHUB_ENV}"
+          echo "SARIF_FILE=grype-results-${FINAL_VERSION}.sarif" >> "${GITHUB_ENV}"
+
+      - name: Load pinned security tool versions
+        run: |
+          set -euo pipefail
+          python3 scripts/security_tool_versions.py export \
+            --config .github/security-tools.json \
+            --github-env "${GITHUB_ENV}"
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - name: Update and install exiftool
-        run: sudo apt-get update && sudo apt-get install -y exiftool libjpeg-turbo-progs
-
-      - name: Install Python dependencies
+      - name: Install test dependencies
         run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y exiftool libjpeg-turbo-progs
           python -m pip install --upgrade pip
-          pip install ".[test]" --break-system-packages
+          python -m pip install ".[test]" --break-system-packages
 
-      - name: Run tests
+      - name: Run source tests
         run: |
+          set -euo pipefail
           python3 --version
           exiftool -ver
           make dev-clean
           make test
 
-      - name: Make final version
+      - name: Build release image from scratch
         run: |
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} final
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-cli-version
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} verify-labels
+          set -euo pipefail
+          make \
+            FINAL_VERSION="${FINAL_VERSION}" \
+            DOCKER_BUILD_FLAGS="--pull --no-cache" \
+            final
 
-      - name: Install Syft, Grype and cosign
+      - name: Test release image
+        run: make FINAL_VERSION="${FINAL_VERSION}" test-release
+
+      - name: Verify application version
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          set -euo pipefail
+          make \
+            FINAL_VERSION="${FINAL_VERSION}" \
+            EXPECTED_CLI_VERSION="${FINAL_VERSION}" \
+            verify-cli-version
+
+      - name: Verify OCI labels
+        run: make FINAL_VERSION="${FINAL_VERSION}" verify-labels
+
+      - name: Install Syft and Grype
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            "https://raw.githubusercontent.com/anchore/syft/${SYFT_VERSION}/install.sh" \
+            | sh -s -- -b /usr/local/bin "${SYFT_VERSION}"
+          curl -sSfL \
+            "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" \
+            | sh -s -- -b /usr/local/bin "${GRYPE_VERSION}"
+          syft version
+          grype version
+
       - uses: sigstore/cosign-installer@v3
 
-      - name: Cache Grype DB
+      - name: Cache Grype database
         uses: actions/cache@v4
         with:
           path: ~/.cache/grype/db
-          key: grype-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}
+          key: grype-db-${{ runner.os }}-${{ env.GRYPE_VERSION }}-${{ github.run_id }}
           restore-keys: |
-            grype-db-${{ runner.os }}-
+            grype-db-${{ runner.os }}-${{ env.GRYPE_VERSION }}-
 
-      - name: Generate SBOM with Syft
-        run: syft per2jensen/scrubexif:${{ env.FINAL_VERSION }} -o spdx-json > sbom-${{ env.FINAL_VERSION }}.spdx.json
+      - name: Generate SPDX SBOM
+        run: |
+          set -euo pipefail
+          SYFT_CHECK_FOR_APP_UPDATE=false \
+            syft "docker:${FINAL_IMAGE_NAME}:${FINAL_VERSION}" \
+              -o spdx-json \
+              > "${SBOM_FILE}"
+          test -s "${SBOM_FILE}"
 
-      - name: Upload SBOM to release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ env.FINAL_VERSION }}
-          files: sbom-${{ env.FINAL_VERSION }}.spdx.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan SBOM with Grype
+        id: grype_scan
+        run: |
+          set -euo pipefail
+          GRYPE_CHECK_FOR_APP_UPDATE=false \
+            grype \
+              "sbom:${SBOM_FILE}" \
+              --fail-on high \
+              -o sarif \
+              > "${SARIF_FILE}"
+          test -s "${SARIF_FILE}"
 
-      - name: Upload SBOM artifact, visible in Actions tab
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom-v${{ env.FINAL_VERSION }}
-          path: sbom-${{ env.FINAL_VERSION }}.spdx.json
-
-      - name: Scan image with Grype (fail on high)
-        run: grype per2jensen/scrubexif:${{ env.FINAL_VERSION }} --fail-on high -o sarif > grype-results-${{ env.FINAL_VERSION }}.sarif
-
-      - name: Upload Grype SARIF to release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ env.FINAL_VERSION }}
-          files: grype-results-${{ env.FINAL_VERSION }}.sarif
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Grype SARIF report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: grype-report-${{ env.FINAL_VERSION }}
-          path: grype-results-${{ env.FINAL_VERSION }}.sarif
-
-      - name: Upload SARIF to GitHub Security tab
-        if: always()
+      - name: Upload Grype SARIF to GitHub Security
+        if: always() && steps.grype_scan.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v3.28.21
         with:
-          sarif_file: grype-results-${{ env.FINAL_VERSION }}.sarif
+          sarif_file: ${{ env.SARIF_FILE }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker login
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USER_NAME }}" --password-stdin
+      - name: Upload release audit artifacts
+        if: always() && steps.grype_scan.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-audit-${{ env.FINAL_VERSION }}
+          path: |
+            ${{ env.SBOM_FILE }}
+            ${{ env.SARIF_FILE }}
 
-      - name: Docker push
-        run: make FINAL_VERSION=${{ env.FINAL_VERSION }} push
-
-      # Capture the image digest immediately after push so every subsequent step
-      # references the immutable digest rather than the mutable tag.
-      - name: Capture image digest
-        id: image_digest
+      - name: Log in to Docker Hub
         run: |
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' \
-            per2jensen/scrubexif:${{ env.FINAL_VERSION }})
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
-          echo "Pushed digest: ${DIGEST}"
+          set -euo pipefail
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" \
+            | docker login \
+                -u "${{ secrets.DOCKERHUB_USER_NAME }}" \
+                --password-stdin
 
-      # --- cosign: sign the image (keyless, via GitHub OIDC → Sigstore / Rekor) ---
-      - name: Sign image with cosign (keyless)
+      - name: Refuse to overwrite an existing release tag
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/dockerhub_manifest.py assert-absent \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${FINAL_VERSION}"
+
+      - name: Push immutable release tag
+        id: push_release
+        run: docker push "${DOCKERHUB_REPO}:${FINAL_VERSION}"
+
+      - name: Capture immutable image digest
+        id: image_digest
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/dockerhub_manifest.py resolve \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${FINAL_VERSION}" \
+            --github-output "${GITHUB_OUTPUT}"
+
+      - name: Roll back immutable tag if digest capture fails
+        if: >
+          failure() &&
+          steps.push_release.outcome == 'success' &&
+          steps.image_digest.outcome == 'failure'
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${FINAL_VERSION}"
+
+      - name: Sign image digest with cosign
         id: cosign_sign
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
-          # Sign by digest so the signature is tied to immutable content.
-          OUTPUT=$(cosign sign --yes "${{ steps.image_digest.outputs.digest }}" 2>&1)
+          set -euo pipefail
+          OUTPUT=$(cosign sign --yes \
+            "${{ steps.image_digest.outputs.digest }}" 2>&1)
           echo "${OUTPUT}"
 
-          # Extract the Rekor log index from cosign output and build a browser URL.
-          REKOR_INDEX=$(echo "${OUTPUT}" | grep -oP 'tlog entry created with index: \K[0-9]+' || true)
+          REKOR_INDEX=$(echo "${OUTPUT}" \
+            | grep -oP 'tlog entry created with index: \K[0-9]+' || true)
           if [ -n "${REKOR_INDEX}" ]; then
             REKOR_URL="https://search.sigstore.dev/?logIndex=${REKOR_INDEX}"
           else
             REKOR_URL=""
           fi
-          echo "rekor_url=${REKOR_URL}" >> $GITHUB_OUTPUT
-          echo "rekor_index=${REKOR_INDEX}" >> $GITHUB_OUTPUT
-          echo "Rekor entry: ${REKOR_URL}"
+          echo "rekor_url=${REKOR_URL}" >> "${GITHUB_OUTPUT}"
+          echo "rekor_index=${REKOR_INDEX}" >> "${GITHUB_OUTPUT}"
 
-      # --- cosign: attach the SBOM as a signed in-toto attestation ---
-      - name: Attach SBOM attestation with cosign
+      - name: Attach signed SBOM attestation
         id: cosign_attest
         env:
           COSIGN_EXPERIMENTAL: "1"
         run: |
+          set -euo pipefail
           cosign attest --yes \
-            --predicate sbom-${{ env.FINAL_VERSION }}.spdx.json \
+            --predicate "${SBOM_FILE}" \
             --type spdxjson \
             "${{ steps.image_digest.outputs.digest }}"
 
-      # --- cosign: write failure badge if signing or attestation failed ---
-      - name: Write cosign failure badge
-        if: failure() && (steps.cosign_sign.outcome == 'failure' || steps.cosign_attest.outcome == 'failure')
+      - name: Write signing failure badge
+        if: >
+          failure() && (
+            steps.cosign_sign.outcome == 'failure' ||
+            steps.cosign_attest.outcome == 'failure'
+          )
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
           python3 scripts/write_cosign_badge.py --failed
-          scripts/git_commit_if_changed.sh doc/cosign_badge.json "cosign badge: signing failed for ${{ env.FINAL_VERSION }}"
+          git add doc/cosign_badge.json
+          if ! git diff --cached --quiet; then
+            git commit -m "cosign badge: signing failed for ${FINAL_VERSION}"
+            git pull --rebase origin main
+            git push origin HEAD:main
+          fi
 
-      # --- cosign: remove image from Docker Hub if signing or attestation failed ---
-      - name: Rollback - remove image from Docker Hub (cosign failed)
-        if: failure() && (steps.cosign_sign.outcome == 'failure' || steps.cosign_attest.outcome == 'failure')
+      - name: Roll back immutable tag after trust failure
+        if: >
+          failure() && (
+            steps.cosign_sign.outcome == 'failure' ||
+            steps.cosign_attest.outcome == 'failure'
+          )
         env:
           DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
+          set -euo pipefail
           python3 scripts/remove_dockerhub_tag.py \
-            --repo per2jensen/scrubexif \
-            --tag ${{ env.FINAL_VERSION }}
-          python3 scripts/remove_dockerhub_tag.py \
-            --repo per2jensen/scrubexif \
-            --tag latest
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${FINAL_VERSION}"
 
-      - name: Housekeeping - update readme, index.html, details, clonepulse, and build log
+      - name: Record audited immutable release
+        id: audit_commit
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git pull --rebase origin main
 
-          # Update version strings in docs (no git ops inside these targets)
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} update-details-version
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} update-readme-version
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} update-index-html-version
+          make FINAL_VERSION="${FINAL_VERSION}" update-details-version
+          make FINAL_VERSION="${FINAL_VERSION}" update-readme-version
+          make FINAL_VERSION="${FINAL_VERSION}" update-index-html-version
 
-          # Update build history log (no git ops inside this target)
           export BUILD_RUNNER="${{ runner.os }}-${{ runner.arch }}"
-          export GITHUB_RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          export BUILD_GIT_REV="${SOURCE_GIT_REV}"
+          export PUSHED_IMAGE_DIGEST="${{ steps.image_digest.outputs.digest }}"
           export COSIGN_SIGNED="true"
           export COSIGN_REKOR_URL="${{ steps.cosign_sign.outputs.rekor_url }}"
           export COSIGN_IMAGE_DIGEST="${{ steps.image_digest.outputs.digest }}"
-          export SBOM_RELEASE_ASSET_URL="https://github.com/${{ github.repository }}/releases/download/v${{ env.FINAL_VERSION }}/sbom-${{ env.FINAL_VERSION }}.spdx.json"
-          make FINAL_VERSION=${{ env.FINAL_VERSION }} log-build-json
+          export SBOM_RELEASE_ASSET_URL="https://github.com/${{ github.repository }}/releases/download/v${FINAL_VERSION}/${SBOM_FILE}"
+          make FINAL_VERSION="${FINAL_VERSION}" log-build-json
 
-          # Update cosign badge
           python3 scripts/write_cosign_badge.py
+          python3 clonepulse/add_release_annotation.py "${FINAL_VERSION}"
 
-          # Add clonepulse annotation
-          python clonepulse/add_release_annotation.py "${{ env.FINAL_VERSION }}"
-
-          # Single commit for everything changed above
           git add \
             doc/DETAILS.md \
             README.md \
@@ -218,73 +321,97 @@ jobs:
             doc/build-history.json \
             doc/cosign_badge.json \
             clonepulse/fetch_clones.json
-          if ! git diff --cached --quiet; then
-            git commit -m "release ${{ env.FINAL_VERSION }}: update version strings, build log, cosign badge, clonepulse"
-            echo "✅ Housekeeping committed"
-          else
-            echo "ℹ️ Nothing changed — no housekeeping commit needed"
+          if git diff --cached --quiet; then
+            echo "ERROR: Release audit metadata produced no changes" >&2
+            exit 1
           fi
 
-          git status
-          git push origin HEAD
+          git commit -m "release ${FINAL_VERSION}: documentation and audit metadata"
+          git push origin HEAD:main
 
-      - name: Post summary
+      - name: Roll back immutable tag if audit persistence fails
+        if: >
+          failure() &&
+          steps.audit_commit.outcome == 'failure'
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
-          echo "## ✅ Scrubexif Release v${{ env.FINAL_VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Docker image | \`per2jensen/scrubexif:${{ env.FINAL_VERSION }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Image digest | \`${{ steps.image_digest.outputs.digest }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Cosign signed | ✅ keyless (Sigstore / Rekor) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Rekor entry | ${{ steps.cosign_sign.outputs.rekor_url }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| SBOM | [sbom-${{ env.FINAL_VERSION }}.spdx.json](https://github.com/${{ github.repository }}/releases/download/v${{ env.FINAL_VERSION }}/sbom-${{ env.FINAL_VERSION }}.spdx.json) |" >> $GITHUB_STEP_SUMMARY
-          echo "| Grype scan | uploaded to release assets and Security tab |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Verify the signature" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "cosign verify per2jensen/scrubexif:${{ env.FINAL_VERSION }} \\" >> $GITHUB_STEP_SUMMARY
-          echo '  --certificate-identity-regexp="https://github.com/${{ github.repository }}" \' >> $GITHUB_STEP_SUMMARY
-          echo '  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"' >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${FINAL_VERSION}"
 
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub Release with audit assets
+        id: github_release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ env.FINAL_VERSION }}
           name: Scrubexif Release v${{ env.FINAL_VERSION }}
           generate_release_notes: false
+          fail_on_unmatched_files: true
           body: |
             ## Documentation
+
             - [What's changed](https://github.com/${{ github.repository }}/blob/main/Changelog.md)
             - [Full documentation](https://github.com/${{ github.repository }}/blob/main/doc/DETAILS.md)
             - [Filename rename spec](https://github.com/${{ github.repository }}/blob/main/doc/rename-spec.md)
             - [Project page](https://per2jensen.github.io/scrubexif/)
 
             ## Supply chain
+
             | Artifact | Link |
-            |----------|------|
+            |---|---|
             | SPDX SBOM | attached as release asset |
-            | Grype vulnerability scan | attached as release asset + GitHub Security tab |
+            | Grype vulnerability scan | attached as release asset and uploaded to GitHub Security |
             | Rekor transparency log | ${{ steps.cosign_sign.outputs.rekor_url }} |
+            | Syft | `${{ env.SYFT_VERSION }}` |
+            | Grype | `${{ env.GRYPE_VERSION }}` |
 
             ## Verify the image signature
+
             ```bash
-                        cosign verify per2jensen/scrubexif:${{ env.FINAL_VERSION }} \
-                          --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
-                          --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+            cosign verify per2jensen/scrubexif:${{ env.FINAL_VERSION }} \
+              --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+              --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
             ```
           files: |
-            sbom-${{ env.FINAL_VERSION }}.spdx.json
-            grype-results-${{ env.FINAL_VERSION }}.sarif
+            ${{ env.SBOM_FILE }}
+            ${{ env.SARIF_FILE }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
-      - name: Trigger dockerhub-readme workflow
+      - name: Publish audited release as latest
+        id: push_latest
         run: |
-          gh workflow run dockerhub-readme.yml \
-            --ref ${{ github.ref_name }}
+          set -euo pipefail
+          docker tag \
+            "${DOCKERHUB_REPO}:${FINAL_VERSION}" \
+            "${DOCKERHUB_REPO}:latest"
+          docker push "${DOCKERHUB_REPO}:latest"
+
+      - name: Trigger Docker Hub README update
+        run: |
+          set -euo pipefail
+          gh workflow run dockerhub-readme.yml --ref main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Post release summary
+        run: |
+          set -euo pipefail
+          SUMMARY=$(python3 scripts/grype_sarif_summary.py "${SARIF_FILE}")
+          CRITICAL=$(jq -r '.counts.critical // 0' <<< "${SUMMARY}")
+          HIGH=$(jq -r '.counts.high // 0' <<< "${SUMMARY}")
+          MEDIUM=$(jq -r '.counts.medium // 0' <<< "${SUMMARY}")
+
+          echo "## Scrubexif release v${FINAL_VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Field | Value |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "|---|---|" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Immutable image | \`${DOCKERHUB_REPO}:${FINAL_VERSION}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Also published as | \`${DOCKERHUB_REPO}:latest\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Image digest | \`${{ steps.image_digest.outputs.digest }}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Rekor entry | ${{ steps.cosign_sign.outputs.rekor_url }} |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Syft / Grype | \`${SYFT_VERSION}\` / \`${GRYPE_VERSION}\` |" >> "${GITHUB_STEP_SUMMARY}"
+          echo "| Grype Critical / High / Medium | ${CRITICAL} / ${HIGH} / ${MEDIUM} |" >> "${GITHUB_STEP_SUMMARY}"

@@ -1,0 +1,41 @@
+name: Monthly security tool version check
+
+on:
+  schedule:
+    - cron: "17 6 1 * *"  # First day of every month at 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Read latest Anchore releases
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "syft=$(gh api repos/anchore/syft/releases/latest --jq .tag_name)" \
+            >> "${GITHUB_OUTPUT}"
+          echo "grype=$(gh api repos/anchore/grype/releases/latest --jq .tag_name)" \
+            >> "${GITHUB_OUTPUT}"
+
+      - name: Report pinned version status
+        run: |
+          set -euo pipefail
+          python3 scripts/security_tool_versions.py check \
+            --config .github/security-tools.json \
+            --latest-syft "${{ steps.latest.outputs.syft }}" \
+            --latest-grype "${{ steps.latest.outputs.grype }}" \
+            --github-summary "${GITHUB_STEP_SUMMARY}"

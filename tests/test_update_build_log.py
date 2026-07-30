@@ -144,6 +144,8 @@ def _base_argv(version: str = "1.2.3", build_number: int = 0) -> list[str]:
         "--url", f"https://hub.docker.com/r/per2jensen/scrubexif/tags/{version}",
         "--digest", "sha256:deadbeef",
         "--image-id", "sha256:cafebabe",
+        "--syft-version", "v1.50.0",
+        "--grype-version", "v0.116.1",
     ]
 
 
@@ -165,6 +167,10 @@ class TestCoreFields:
         )
         assert entry["digest"] == "sha256:deadbeef"
         assert entry["image_id"] == "sha256:cafebabe"
+        assert entry["security_tools"] == {
+            "syft": "v1.50.0",
+            "grype": "v0.116.1",
+        }
 
     def test_optional_blocks_absent_by_default(self, tmp_path):
         entry = _run(_base_argv(), tmp_path)
@@ -446,6 +452,31 @@ class TestErrorHandling:
             "--image-id", "sha256:bb",
             # --version intentionally omitted
         ]
+        with _stub_grype(return_value=None), \
+             patch.object(sys, "argv", argv):
+            with pytest.raises(SystemExit):
+                runpy.run_path(str(SCRIPT), run_name="__main__")
+
+    @pytest.mark.parametrize(
+        ("flag", "invalid_version"),
+        [
+            ("--syft-version", "latest"),
+            ("--grype-version", "0.116.0"),
+        ],
+    )
+    def test_invalid_security_tool_version_raises_systemexit(
+        self,
+        tmp_path: Path,
+        flag: str,
+        invalid_version: str,
+    ) -> None:
+        """Malformed tool pins must stop build-history generation."""
+        argv_values = _base_argv()
+        flag_position = argv_values.index(flag)
+        argv_values[flag_position + 1] = invalid_version
+        log = tmp_path / "build-history.json"
+        argv = ["update_build_log.py", "--log", str(log)] + argv_values
+
         with _stub_grype(return_value=None), \
              patch.object(sys, "argv", argv):
             with pytest.raises(SystemExit):

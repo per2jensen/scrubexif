@@ -9,9 +9,31 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import re
 from typing import Any, Dict, List
 
 from grype_sarif_summary import summarize as summarize_grype
+
+SECURITY_TOOL_VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def _security_tool_version(value: str) -> str:
+    """Validate an exact security-tool release tag.
+
+    Args:
+        value: Candidate release tag.
+
+    Returns:
+        Validated release tag.
+
+    Raises:
+        argparse.ArgumentTypeError: If the release tag is malformed.
+    """
+    if not isinstance(value, str) or not SECURITY_TOOL_VERSION_PATTERN.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "security-tool version must be an exact release tag such as v1.2.3",
+        )
+    return value
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,6 +94,20 @@ def parse_args() -> argparse.Namespace:
         help="Full URL to the GitHub Actions run",
     )
 
+    # ── security tools ────────────────────────────────────────────────────────
+    parser.add_argument(
+        "--syft-version",
+        type=_security_tool_version,
+        required=True,
+        help="Exact Syft release tag used to generate the SBOM",
+    )
+    parser.add_argument(
+        "--grype-version",
+        type=_security_tool_version,
+        required=True,
+        help="Exact Grype release tag used for vulnerability scanning",
+    )
+
     return parser.parse_args()
 
 
@@ -113,6 +149,10 @@ def main() -> None:
         "dockerhub_tag_url": args.url,
         "digest":       args.digest,
         "image_id":     args.image_id,
+        "security_tools": {
+            "syft": args.syft_version,
+            "grype": args.grype_version,
+        },
     }
 
     # ── grype scan ────────────────────────────────────────────────────────────

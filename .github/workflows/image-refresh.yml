@@ -40,6 +40,13 @@ jobs:
             --repository . \
             --github-output "${GITHUB_OUTPUT}"
 
+      - name: Load pinned security tool versions
+        run: |
+          set -euo pipefail
+          python3 scripts/security_tool_versions.py export \
+            --config .github/security-tools.json \
+            --github-env "${GITHUB_ENV}"
+
       - name: Set refresh environment
         run: |
           set -euo pipefail
@@ -57,7 +64,10 @@ jobs:
           git checkout "v${BASE_VERSION}"
           # Refresh support lives on main but must orchestrate the exact source
           # from the stable release tag.
-          git checkout origin/main -- Makefile
+          git checkout origin/main -- \
+            Makefile \
+            scripts/dockerhub_manifest.py \
+            scripts/remove_dockerhub_tag.py
           echo "Building source from v${BASE_VERSION}"
 
       - name: Set up Python
@@ -98,10 +108,14 @@ jobs:
       - name: Install Syft and Grype
         run: |
           set -euo pipefail
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-            | sh -s -- -b /usr/local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
-            | sh -s -- -b /usr/local/bin
+          curl -sSfL \
+            "https://raw.githubusercontent.com/anchore/syft/${SYFT_VERSION}/install.sh" \
+            | sh -s -- -b /usr/local/bin "${SYFT_VERSION}"
+          curl -sSfL \
+            "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" \
+            | sh -s -- -b /usr/local/bin "${GRYPE_VERSION}"
+          syft version
+          grype version
 
       - uses: sigstore/cosign-installer@v3
 
@@ -112,9 +126,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/grype/db
-          key: grype-db-${{ runner.os }}-${{ env.UBUNTU_VERSION }}-${{ github.run_id }}
+          key: grype-db-${{ runner.os }}-${{ env.GRYPE_VERSION }}-${{ env.UBUNTU_VERSION }}-${{ github.run_id }}
           restore-keys: |
-            grype-db-${{ runner.os }}-${{ env.UBUNTU_VERSION }}-
+            grype-db-${{ runner.os }}-${{ env.GRYPE_VERSION }}-${{ env.UBUNTU_VERSION }}-
 
       - name: Generate SPDX SBOM
         run: |
@@ -123,6 +137,7 @@ jobs:
             syft "docker:${FINAL_IMAGE_NAME}:${REFRESH_VERSION}" \
               -o spdx-json \
               > "${SBOM_FILE}"
+          test -s "${SBOM_FILE}"
 
       - name: Scan image with Grype
         id: grype_scan
@@ -134,6 +149,7 @@ jobs:
               --fail-on high \
               -o sarif \
               > "${SARIF_FILE}"
+          test -s "${SARIF_FILE}"
 
       - name: Upload Grype SARIF to GitHub Security
         if: always() && steps.grype_scan.outcome != 'skipped'
@@ -160,13 +176,14 @@ jobs:
                 --password-stdin
 
       - name: Refuse to overwrite an existing refresh tag
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if docker manifest inspect \
-            "${DOCKERHUB_REPO}:${REFRESH_VERSION}" >/dev/null 2>&1; then
-            echo "ERROR: Docker Hub tag already exists: ${DOCKERHUB_REPO}:${REFRESH_VERSION}" >&2
-            exit 1
-          fi
+          python3 scripts/dockerhub_manifest.py assert-absent \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}"
 
       - name: Push immutable refresh tag
         id: push_refresh
@@ -174,17 +191,15 @@ jobs:
 
       - name: Capture immutable image digest
         id: image_digest
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         run: |
           set -euo pipefail
-          DIGEST=$(docker inspect \
-            --format='{{index .RepoDigests 0}}' \
-            "${DOCKERHUB_REPO}:${REFRESH_VERSION}")
-          if [[ ! "${DIGEST}" =~ ^${DOCKERHUB_REPO}@sha256:[0-9a-f]{64}$ ]]; then
-            echo "ERROR: Unexpected image digest: ${DIGEST}" >&2
-            exit 1
-          fi
-          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
-          echo "Pushed digest: ${DIGEST}"
+          python3 scripts/dockerhub_manifest.py resolve \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}" \
+            --github-output "${GITHUB_OUTPUT}"
 
       - name: Roll back immutable tag if digest capture fails
         if: failure() && steps.image_digest.outcome == 'failure'
@@ -252,30 +267,21 @@ jobs:
             --repo "${DOCKERHUB_REPO}" \
             --tag "${REFRESH_VERSION}"
 
-      - name: Publish signed refresh as latest
-        id: push_latest
-        run: docker push "${DOCKERHUB_REPO}:latest"
-
-      - name: Roll back immutable tag if latest publication fails
-        if: failure() && steps.push_latest.outcome == 'failure'
-        env:
-          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          python3 scripts/remove_dockerhub_tag.py \
-            --repo "${DOCKERHUB_REPO}" \
-            --tag "${REFRESH_VERSION}"
-
-      - name: Record successful refresh
+      - name: Record audited immutable refresh
         id: housekeeping
         run: |
           set -euo pipefail
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git restore --source=HEAD --staged --worktree Makefile
-          git checkout -B main origin/main
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          # This is a disposable Actions checkout. Force-switching drops the
+          # stable-source overrides while preserving untracked audit artifacts.
+          git checkout -f -B main origin/main
           git pull --rebase origin main
+
+          if git show-ref --verify --quiet "refs/tags/v${REFRESH_VERSION}"; then
+            echo "ERROR: Git tag already exists: v${REFRESH_VERSION}" >&2
+            exit 1
+          fi
 
           DIGEST="${{ steps.image_digest.outputs.digest }}"
           BUILD_NUMBER=$(jq length doc/build-history.json)
@@ -303,7 +309,9 @@ jobs:
             --cosign-image-digest "${DIGEST}" \
             --build-runner "${{ runner.os }}-${{ runner.arch }}" \
             --github-run-id "${{ github.run_id }}" \
-            --github-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            --github-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --syft-version "${SYFT_VERSION}" \
+            --grype-version "${GRYPE_VERSION}"
 
           python3 scripts/write_cosign_badge.py
 
@@ -315,20 +323,40 @@ jobs:
             "${SBOM_ARCHIVE}" \
             "${SARIF_ARCHIVE}"
           git commit -m "image refresh ${REFRESH_VERSION}: audit metadata"
-          git push origin HEAD:main
 
           git tag -a "v${REFRESH_VERSION}" \
             -m "Weekly image refresh v${REFRESH_VERSION}"
-          git push origin "v${REFRESH_VERSION}"
+          git push --atomic origin \
+            HEAD:main \
+            "refs/tags/v${REFRESH_VERSION}"
+
+      - name: Roll back immutable tag if audit persistence fails
+        if: failure() && steps.housekeeping.outcome == 'failure'
+        env:
+          DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER_NAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/remove_dockerhub_tag.py \
+            --repo "${DOCKERHUB_REPO}" \
+            --tag "${REFRESH_VERSION}"
+
+      - name: Publish audited refresh as latest
+        id: push_latest
+        run: |
+          set -euo pipefail
+          docker tag \
+            "${DOCKERHUB_REPO}:${REFRESH_VERSION}" \
+            "${DOCKERHUB_REPO}:latest"
+          docker push "${DOCKERHUB_REPO}:latest"
 
       - name: Write failed refresh badge
         if: failure() && steps.housekeeping.outcome != 'success'
         run: |
           set -euo pipefail
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@github.com"
-          git restore --source=HEAD --staged --worktree Makefile
-          git checkout -B main origin/main
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git checkout -f -B main origin/main
           git pull --rebase origin main
           python3 scripts/write_cosign_badge.py --failed
           git add doc/cosign_badge.json
