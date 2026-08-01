@@ -43,6 +43,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
       - [Example](#example)
       - [Duplicate Handling](#duplicate-handling)
   - [Options](#options)
+  - [Exit status](#exit-status)
   - [Environment variables](#environment-variables)
   - [Features](#features)
     - [Metadata Preservation Strategy](#metadata-preservation-strategy)
@@ -69,6 +70,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Hardening \& Recommendations](#hardening--recommendations)
   - [Known limitations](#known-limitations)
   - [Docker Images](#docker-images)
+    - [Weekly image refresh](#weekly-image-refresh)
   - [Viewing Metadata](#viewing-metadata)
   - [Inspecting the Image Itself](#inspecting-the-image-itself)
   - [Image Signing and Supply Chain Verification](#image-signing-and-supply-chain-verification)
@@ -82,6 +84,7 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
     - [Supply chain artefacts in build-history.json](#supply-chain-artefacts-in-build-historyjson)
   - [Dev setup](#dev-setup)
   - [Test Image](#test-image)
+  - [See version and license](#see-version-and-license)
   - [License](#license)
   - [Related Tools](#related-tools)
   - [Feedback](#feedback)
@@ -1153,6 +1156,12 @@ A good methodology is:
 ```bash
 make dev-clean
 make test
+```
+
+## See version and license
+
+```bash
+docker run --rm per2jensen/scrubexif:latest --version
 ```
 
 ## License
