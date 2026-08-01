@@ -189,7 +189,10 @@ def test_auto_scrub_delete_original_skips_move(tmp_path, monkeypatch):
     assert summary.scrubbed == 1
 
 
-def test_auto_scrub_skips_symlink_destination(tmp_path, monkeypatch):
+def test_auto_scrub_preserves_occupied_symlink_and_archives_with_new_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = tmp_path / "photos"
     input_dir = root / "input"
     output_dir = root / "output"
@@ -210,23 +213,28 @@ def test_auto_scrub_skips_symlink_destination(tmp_path, monkeypatch):
     monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
     monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
 
-    moves: list[tuple[Path, Path]] = []
-
-    def fake_move(src, dst):
-        moves.append((Path(src), Path(dst)))
-
-    def fake_scrub_file(path, output_path, delete_original, **kwargs):
+    def fake_scrub_file(
+        path: Path,
+        output_path: Path,
+        delete_original: bool,
+        **kwargs: object,
+    ) -> ScrubResult:
+        """Return a successful scrub result without invoking external tools."""
+        del delete_original, kwargs
         return ScrubResult(path, output_path, status="scrubbed")
 
-    monkeypatch.setattr(scrub.shutil, "move", fake_move)
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 
     summary = scrub.ScrubSummary()
     scrub.auto_scrub(summary=summary, delete_original=False, stable_seconds=0)
 
-    assert moves == []
-    assert file_path.read_bytes() == b"jpeg", "Original file content must be unchanged"
+    archived = [path for path in processed_dir.iterdir() if not path.is_symlink()]
+    assert processed_target.is_symlink(), "Occupied destination must not be replaced"
+    assert len(archived) == 1
+    assert archived[0].read_bytes() == b"jpeg"
+    assert not file_path.exists()
     assert summary.scrubbed == 1
+    assert summary.errors == 0
 
 
 def test_resolve_output_dir_rejects_symlink(tmp_path):
@@ -240,9 +248,11 @@ def test_resolve_output_dir_rejects_symlink(tmp_path):
         scrub.resolve_output_dir(link_dir)
 
 
-def test_auto_scrub_error_branch_skips_symlink_destination(tmp_path, monkeypatch):
-    """When scrub_file returns an error, auto_scrub must not move the original if
-    the processed-dir destination is a symlink (line 1138 guard)."""
+def test_auto_scrub_error_preserves_occupied_symlink_and_archives_with_new_name(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed scrub uses a fresh archive name when the usual name is occupied."""
     root = tmp_path / "photos"
     input_dir = root / "input"
     output_dir = root / "output"
@@ -253,7 +263,7 @@ def test_auto_scrub_error_branch_skips_symlink_destination(tmp_path, monkeypatch
 
     file_path = input_dir / "one.jpg"
     file_path.write_bytes(b"jpeg")
-    # processed-dir destination is a symlink — the error-branch guard must catch this
+    # The occupied name is preserved while archival selects another name.
     processed_target = processed_dir / file_path.name
     processed_target.symlink_to(file_path)
 
@@ -264,22 +274,26 @@ def test_auto_scrub_error_branch_skips_symlink_destination(tmp_path, monkeypatch
     monkeypatch.setattr(scrub, "ERRORS_DIR", errors_dir)
     monkeypatch.setattr(scrub, "STATE_FILE", None, raising=False)
 
-    moves: list[tuple[Path, Path]] = []
-
-    def fake_move(src, dst):
-        moves.append((Path(src), Path(dst)))
-
-    def fake_scrub_file(path, output_path, **kwargs):
+    def fake_scrub_file(
+        path: Path,
+        output_path: Path,
+        **kwargs: object,
+    ) -> ScrubResult:
+        """Return a failed scrub result without invoking external tools."""
+        del kwargs
         return ScrubResult(path, output_path, status="error", error_message="simulated failure")
 
-    monkeypatch.setattr(scrub.shutil, "move", fake_move)
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 
     summary = scrub.ScrubSummary()
     scrub.auto_scrub(summary=summary, delete_original=False, stable_seconds=0)
 
-    assert moves == [], "shutil.move must not be called when processed-dir dest is a symlink"
-    assert file_path.read_bytes() == b"jpeg", "Original file content must be unchanged"
+    archived = [path for path in processed_dir.iterdir() if not path.is_symlink()]
+    assert processed_target.is_symlink(), "Occupied destination must not be replaced"
+    assert len(archived) == 1
+    assert archived[0].read_bytes() == b"jpeg"
+    assert not file_path.exists()
+    assert summary.errors == 1
 
 
 def test_simple_scrub_skips_symlinks(tmp_path, monkeypatch):

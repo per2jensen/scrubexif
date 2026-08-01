@@ -309,6 +309,14 @@ You **must** mount three volumes:
 - `/photos/processed` — originals are moved here (or deleted if `--delete-original` is used)
 - Any file ExifTool cannot scrub (e.g. corrupted JPEG) is logged and moved to `/photos/processed` so it does not loop
 
+Moves into `/photos/processed` and `/photos/errors` use collision-safe archival.
+An existing file, directory entry, or symlink is never replaced. Instead, the
+new original is copied to a fresh temporary file on the archive filesystem and
+atomically published under a random-suffixed name. Only then is the intake
+source removed. If copying, publication, or source removal fails, scrubexif
+reports an error and retains at least the source; a source-removal failure may
+intentionally leave both safe copies.
+
 #### Example
 
 ```bash
@@ -381,6 +389,20 @@ docker run --read-only --security-opt no-new-privileges \
 - positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); requires `--clean-inline`
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
 - `-v`, `--version` - show version and license
+
+## Exit status
+
+Exit status `0` means the run completed without scrub or post-processing
+errors. Exit status `1` is returned when any file fails to scrub, a preview
+fails, a destination conflict cannot be resolved, or an original cannot be
+archived/deleted safely. Expected skips and successfully handled duplicates are
+not errors. With `--quiet`, successful output is suppressed; on failure, the
+buffered diagnostics and final summary are written to standard error.
+
+Writable-directory probes, state updates, scrub outputs, previews, and archive
+copies reserve fresh temporary files with exclusive creation. They do not reuse
+fixed filenames, and cleanup only removes temporary paths owned by the current
+operation.
 
 ## Environment variables
 
@@ -611,6 +633,29 @@ tool. Using them produces an immediate error before any files are touched.
 - `--dry-run` prints proposed new filenames without modifying any files.
 - `--clean-inline --rename` scrubs the file in place and renames it in the same directory. The original path disappears — this is intentional, since the user has explicitly opted into destructive in-place modification.
 - Without `--rename`, original filenames are preserved (existing behaviour).
+
+Before any scrub starts, rename mode makes two streaming passes through a
+temporary SQLite index: first to inventory sources, then to reserve every
+destination. This prevents a late collision from leaving a partially processed
+batch without holding a very large directory hierarchy in memory. The initial
+message warns that planning a large hierarchy may take time, and periodic
+messages show the file count, elapsed time, and temporary-index size.
+
+Existing files and other planned destinations are never overwritten. `%r`,
+`%u`, and UUID fallbacks are re-rolled up to three times after a collision.
+Deterministic formats such as literals, dates, or an occupied `%n` destination
+abort the plan with a non-zero exit. Publication uses an atomic no-overwrite
+operation as a final guard against a destination appearing after planning. A
+late random-name collision is treated as normal active-filesystem activity:
+scrubexif reserves another plan-safe name and publishes the already-scrubbed
+temporary output there. It becomes an error only when no safe alternative can
+be generated.
+
+The planning circuit breakers default to 250,000 files, 1,800 seconds, and
+512 MiB of temporary database storage. Adjust them with
+`--rename-plan-max-files`, `--rename-plan-timeout-seconds`, and
+`--rename-plan-max-mib`. A limit failure occurs before any source file is
+modified.
 
 #### Missing EXIF DateTimeOriginal
 
@@ -1164,6 +1209,9 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `-q`, `--quiet` | Suppress all output on success. |
 | `-r`, `--recursive` | Recurse into directories when scanning. |
 | `--rename FORMAT` | Rename output files using a format string. Tokens: `%r` (hex), `%u` (UUID), `%n` (counter), `%Y` (year from EXIF), `%m` (month from EXIF). See [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md). |
+| `--rename-plan-max-files N` | Stop rename planning if more than `N` source files would be indexed (default: 250,000). |
+| `--rename-plan-timeout-seconds SECONDS` | Stop rename planning after this wall-clock duration (default: 1,800). |
+| `--rename-plan-max-mib MIB` | Stop rename planning when its temporary SQLite index exceeds this size (default: 512 MiB). |
 | `--show-container-paths` | Include container paths alongside host paths in output. |
 | `--show-tags {before,after,both}` | Print metadata before/after scrub for each file. |
 | `--stable-seconds SECS` | Only process files whose mtime age is at least this many seconds (default: 120). |

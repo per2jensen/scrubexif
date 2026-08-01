@@ -53,6 +53,61 @@ def _setup_dirs(tmp_path: Path, monkeypatch) -> dict[str, Path]:
             "processed": processed_dir, "errors": errors_dir}
 
 
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [
+        ("--rename-plan-max-files", "0"),
+        ("--rename-plan-timeout-seconds", "0"),
+        ("--rename-plan-max-mib", "-1"),
+    ],
+)
+def test_rename_plan_limits_reject_non_positive_values(
+    option: str,
+    value: str,
+) -> None:
+    """Every rename-planning circuit breaker must be strictly positive."""
+    with pytest.raises(SystemExit) as exc_info:
+        scrub.main([option, value])
+
+    assert exc_info.value.code == 2
+
+
+def test_rename_plan_limits_are_forwarded_to_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Validated CLI limits reach the selected scrub mode as bytes and seconds."""
+    _setup_dirs(tmp_path, monkeypatch)
+    captured: list[object] = []
+
+    def fake_simple_scrub(
+        summary: ScrubSummary,
+        **kwargs: object,
+    ) -> ScrubSummary:
+        """Capture the planner limits without performing filesystem work."""
+        captured.append(kwargs["rename_plan_limits"])
+        return summary
+
+    monkeypatch.setattr(scrub, "simple_scrub", fake_simple_scrub)
+
+    rc = scrub.main(
+        [
+            "--rename-plan-max-files",
+            "123",
+            "--rename-plan-timeout-seconds",
+            "4.5",
+            "--rename-plan-max-mib",
+            "7",
+        ]
+    )
+
+    assert rc == 0
+    limits = captured[0]
+    assert limits.max_files == 123
+    assert limits.max_seconds == 4.5
+    assert limits.max_database_bytes == 7 * 1024 * 1024
+
+
 # ---------------------------------------------------------------------------
 # Constraint: positional files + -o routes to simple_scrub (no --clean-inline needed)
 # ---------------------------------------------------------------------------

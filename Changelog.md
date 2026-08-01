@@ -2,8 +2,13 @@
 
 ## 0.7.26 - not released
 
+### Added
+
+- Docker integration coverage now executes successful, conflicting, and resource-limited rename plans through the packaged CLI.
+
 ### Changed
 
+- Rename batches are now fully planned in a bounded, disk-backed index before any file is modified, with progress reporting and configurable file, time, and storage circuit breakers.
 - Syft and Grype are pinned to reviewed releases, checked monthly for updates, and recorded in build history for each new image.
 - Dependabot checks GitHub Actions references weekly.
 - Manual releases now validate tagged `main` source, rebuild without cache, test the final image, scan and attest one SBOM, and create one GitHub release with both audit assets.
@@ -11,6 +16,10 @@
 
 ### Fixed
 
+- Rename collisions now re-roll random names up to three times, reject unresolved batch collisions before scrubbing, and transparently reassign late collisions without overwriting concurrent files or repeating the scrub.
+- Originals moved to `processed/` or `errors/` now use cross-filesystem-safe, atomic no-overwrite archival; occupied names receive random suffixes and archival failures leave the source recoverable.
+- Writable probes and state, preview, scrub, and archive temporary files are freshly and exclusively reserved instead of relying on predictable paths.
+- File-level scrub, preview, archive, and post-processing failures now consistently return a non-zero exit status; quiet mode replays buffered failure diagnostics to standard error.
 - Docker Hub tag-existence checks now fail closed on authentication or registry errors instead of treating lookup failures as permission to overwrite an immutable tag.
 - Refresh audit commits and annotated Git tags are pushed atomically.
 - Weekly refreshes now keep stable application source and current orchestration tooling in separate, validated checkouts.

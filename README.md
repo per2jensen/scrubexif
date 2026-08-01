@@ -207,6 +207,16 @@ docker run -it --rm \
 `--paranoia` implies `--rename "%r8"` when no `--rename` is given.  
 Common tokens: `%r` (random hex), `%u` (UUID), `%n` (sequential counter), `%Y` (year from EXIF), `%m` (month from EXIF).
 
+Before modifying any file, scrubexif builds a complete collision-checked rename
+plan in a bounded temporary SQLite database. It prints progress for long scans,
+re-rolls random/UUID collisions up to three times, and aborts the whole batch if
+a collision cannot be resolved. Final files are published with an atomic
+no-overwrite operation. If a destination appears concurrently, scrubexif logs
+the active-filesystem event, reserves another random name, and continues without
+repeating the scrub; the concurrent file is never replaced.
+Planning defaults to at most 250,000 files, 30 minutes, and 512 MiB of temporary
+storage; the corresponding `--rename-plan-*` options can tune those safeguards.
+
 Full specification → [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
 
 ### Batch workflow (PhotoPrism / intake style)
@@ -240,6 +250,13 @@ Originals → `$PWD/processed/` (or deleted with `--delete-original`)
 Duplicates → deleted by default; use `--on-duplicate move` to move them into `$PWD/errors/`  
 Failed scrubs (e.g., corrupted files) → logged as failures; originals are moved to `$PWD/processed/` for inspection  
 `errors/` is a misnomer today; it is only used for duplicates when `--on-duplicate move` is set. Will be fixed in a later version.
+
+Archive entries are never overwritten. If the usual filename is already occupied
+in `processed/` or `errors/`, scrubexif preserves it and publishes the incoming
+original under a fresh random-suffixed name. The source is removed only after the
+archive copy has been safely published; if archival fails, the source stays in
+place and the run reports an error. This also works when intake and archive are
+on different filesystems or mounts.
 
 ### Data flow overview (auto mode: `--from-input`)
 
@@ -356,6 +373,9 @@ SBOM and SARIF files stored under `doc/`.
     --from-input          auto mode
     --clean-inline        in-place scrub (destructive)
     --rename FORMAT       rename output files using a format string (see doc/rename-spec.md)
+    --rename-plan-max-files N      planning file-count circuit breaker (default: 250000)
+    --rename-plan-timeout-seconds S planning time circuit breaker (default: 1800)
+    --rename-plan-max-mib MIB       planning storage circuit breaker (default: 512)
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             no write, view only
@@ -368,6 +388,12 @@ SBOM and SARIF files stored under `doc/`.
     -o, --output DIR      write scrubbed files to DIR (default safe mode)
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
+
+The process exits `0` only when the run completes without scrub or
+post-processing errors. A failed file, failed preview, unresolved collision, or
+unsafe archive/delete operation returns `1`; handled skips and duplicates do
+not. With `--quiet`, successful runs remain silent, while failure diagnostics
+and the summary are replayed to standard error.
 
 ## Example setup
 

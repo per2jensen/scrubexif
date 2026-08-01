@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-scrubexif removes privacy-sensitive metadata from image files before sharing.
+scrubexif removes privacy-sensitive metadata from JPEG files before sharing.
 This document specifies the filename sanitisation subsystem, which complements
 EXIF/ICC stripping by also removing temporal and device-identifying information
 that may be encoded in filenames.
@@ -28,7 +28,7 @@ the format string.
 
 A single new flag is added:
 
-```
+```bash
 --rename FORMAT
 ```
 
@@ -158,13 +158,28 @@ This gives independent sequences `D80_0001`, `D80_0002`... and `Z50_0001`,
 
 ## 7. Collision Handling
 
-- **`%r` and `%u`**: collision probability is negligible for batch sizes up to
-  ~100k files with `%r8`. If a collision is detected the random component is
-  re-rolled up to 3 times before raising an error.
-- **`%n`**: monotonically increasing within a run — collisions within a single
-  invocation are impossible.
-- If a collision cannot be resolved, scrubexif exits with a non-zero status and
-  reports the conflicting filename. No partial rename is applied to the batch.
+- Before scrubbing starts, all sources and destinations are indexed in a
+  temporary, disk-backed SQLite plan. The two-pass design detects existing
+  destinations, collisions with unprocessed sources, and duplicate destinations
+  across the whole batch without retaining the full hierarchy in memory.
+- **`%r`, `%u`, and UUID fallbacks**: if a generated destination is occupied,
+  the random name is re-rolled up to 3 times before the plan fails.
+- **Deterministic names**: `%n` is unique within one plan, but an existing `%n`,
+  date-derived, or literal destination cannot be re-rolled and fails the plan.
+- If a collision cannot be resolved, scrubexif exits non-zero and reports the
+  conflicting filename. Because execution starts only after the plan completes,
+  no partial scrub or rename is applied due to a planning failure.
+- Final publication is atomic and refuses to replace a destination that appears
+  after planning. For a random or UUID-based format, this is logged as normal
+  active-filesystem activity: the plan reserves another safe name and publication
+  retries with the already-scrubbed temporary output. It is an error only when
+  no safe alternative can be generated.
+
+Planning prints an immediate warning that large hierarchies may take time and
+periodically reports files checked, elapsed time, and temporary-index size.
+Circuit breakers stop planning before file mutation at 250,000 files, 1,800
+seconds, or 512 MiB by default. Use `--rename-plan-max-files`,
+`--rename-plan-timeout-seconds`, and `--rename-plan-max-mib` to adjust them.
 
 ---
 
@@ -389,51 +404,30 @@ def _read_datetime_original(input_path: Path) -> Optional[str]:
 This keeps the rename concern isolated from `extract_wanted_tags()` and avoids
 coupling the tag whitelist to the rename feature.
 
-### 10.4  Where output_path is constructed in scrub_file
+### 10.4  Disk-backed planning and atomic publication
 
-The critical line is in `scrub_file()` (line 882):
+`rename_planner.py` owns batch planning. Each mode streams eligible source paths
+into `build_rename_plan()`, which inventories sources and then reserves resolved
+destinations in SQLite. Only a completed `RenamePlan` may be passed to
+`scrub_file()` through `planned_rename_path`.
 
-```python
-output_file = output_path / input_path.name if output_path else input_path
-```
-
-This is where `input_path.name` becomes the output filename. The rename logic
-must replace `input_path.name` with the expanded format string result here.
-The extension must be preserved from `input_path.suffix`.
-
-Proposed change:
-
-```python
-stem = expand_rename(rename_format, input_path, counter) if rename_format else input_path.stem
-output_file = (output_path / (stem + input_path.suffix)) if output_path else input_path
-```
-
-For `--clean-inline` mode (`output_path is None`), the file is scrubbed in
-place and then renamed in the same directory using `os.rename()`:
-
-```python
-if rename_format and in_place:
-    new_name = stem + input_path.suffix
-    new_path = input_path.parent / new_name
-    os.rename(input_path, new_path)
-```
-
-The user has already explicitly opted into destructive in-place modification
-with `--clean-inline`, so also opting into rename with `--rename` is consistent
-and intentional. The original path will disappear — this is expected.
-
-**Important:** the current code terminates early if both `--clean-inline` and
-`--rename` are passed together. That guard must be removed. Collision handling
-applies as normal within the same directory.
+Scrub output is first written to a unique temporary file in the destination
+directory. `_publish_no_clobber()` then creates the final directory entry with
+an atomic hard link and removes the temporary name. Unlike `os.rename()` or
+`os.replace()`, this fails with `FileExistsError` rather than replacing a name
+created by another process. `RenamePlan.reassign_destination()` then reserves a
+new plan-safe random name and publication retries using the same temporary file.
+For `--clean-inline`, the original is removed only after the scrubbed destination
+has been published successfully.
 
 ### 10.5  Passing the counter through the call stack
 
 `%n` requires a counter that is shared across all files in a single batch run
-and scoped per invocation. The simplest implementation is a mutable dict
-`{'n': 0}` created once in `_run_inner()` and passed through:
+and scoped per invocation. A mutable dict `{'n': 0}` is created once in
+`_run_inner()` and consumed while destinations are planned:
 
 ```
-_run_inner → auto_scrub / manual_scrub / simple_scrub → scrub_file → resolve_rename
+_run_inner → auto_scrub / manual_scrub / simple_scrub → build_rename_plan → resolve_rename
 ```
 
 This avoids globals and is easy to test.
@@ -446,16 +440,9 @@ The dry-run path in `scrub_file()` (line 927) currently prints:
 print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
 ```
 
-When `rename_format` is set, extend this to also resolve and print the proposed
-output filename:
-
-```python
-proposed_name = resolve_rename(rename_format, input_path, counter) + input_path.suffix
-print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)} → {proposed_name}")
-```
-
-The same applies to the dry-run print statements in `auto_scrub()` (line 1121),
-`simple_scrub()` (line 1274), and `manual_scrub()` (line 1391).
+When `rename_format` is set, dry-run uses the same completed collision-safe plan
+as execution and prints each source-to-destination mapping. It closes and
+deletes the temporary plan without scrubbing or renaming any source.
 
 ### 10.7  Validation order in validate_rename_format()
 

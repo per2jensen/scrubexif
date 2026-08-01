@@ -6,12 +6,14 @@ JPEG fixtures to verify end-to-end rename behaviour.
 
 import re
 import shutil
+from functools import partial
 from pathlib import Path
 
 import pytest
 
 import scrubexif.scrub as scrub
 from scrubexif.scrub import main, scrub_file
+from scrubexif.rename_planner import RenamePlanLimits, build_rename_plan
 
 _UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -346,6 +348,239 @@ def test_clean_inline_cli_rename_multi_file(tmp_path: Path, monkeypatch) -> None
     for f in remaining:
         assert re.match(r"^850_[0-9a-f]{6}$", f.stem), f"Unexpected stem: {f.stem!r}"
         assert f.suffix == ".jpg"
+
+
+@pytest.mark.integration
+def test_clean_inline_cli_random_collision_rerolls_without_overwrite(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An occupied random name is preserved and a new name is generated."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    occupied = tmp_path / "taken.jpg"
+    occupied.write_bytes(b"do-not-overwrite")
+    generated = iter(("taken", "fresh"))
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
+    # Random collisions cannot be triggered deterministically through real entropy.
+    monkeypatch.setattr(
+        "scrubexif.rename_planner.resolve_rename",
+        lambda _format, _source, _counter: next(generated),
+    )
+
+    rc = main(["--clean-inline", "--rename", "%r5", str(src)])
+
+    assert rc == 0
+    assert occupied.read_bytes() == b"do-not-overwrite"
+    assert not src.exists()
+    assert (tmp_path / "fresh.jpg").is_file()
+
+
+@pytest.mark.integration
+def test_clean_inline_cli_unresolved_collision_aborts_before_scrub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exhausted random retries leave both source and destination unchanged."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    source_bytes = src.read_bytes()
+    occupied = tmp_path / "taken.jpg"
+    occupied.write_bytes(b"do-not-overwrite")
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
+    # Random collisions cannot be triggered deterministically through real entropy.
+    monkeypatch.setattr(
+        "scrubexif.rename_planner.resolve_rename",
+        lambda _format, _source, _counter: "taken",
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--clean-inline", "--rename", "%r5", str(src)])
+
+    assert exc_info.value.code == 1
+    assert src.read_bytes() == source_bytes
+    assert occupied.read_bytes() == b"do-not-overwrite"
+
+
+@pytest.mark.integration
+def test_clean_inline_cli_batch_collision_aborts_before_any_scrub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A deterministic batch collision cannot leave a partially renamed batch."""
+    sources = [tmp_path / "one.jpg", tmp_path / "two.jpg"]
+    for source in sources:
+        shutil.copy(FIXTURE_WITH_EXIF, source)
+    original_bytes = {source: source.read_bytes() for source in sources}
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["--clean-inline", "--rename", "fixed", *map(str, sources)])
+
+    assert exc_info.value.code == 1
+    assert {source: source.read_bytes() for source in sources} == original_bytes
+    assert not (tmp_path / "fixed.jpg").exists()
+
+
+@pytest.mark.integration
+def test_clean_inline_cli_rename_preview_preserves_source_and_shows_plan(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Rename preview uses the real planner and scrubs only a disposable copy."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    source_bytes = src.read_bytes()
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
+
+    rc = main(["--clean-inline", "--rename", "%r8", "--preview", str(src)])
+
+    output = capsys.readouterr().out
+    assert rc == 0
+    assert src.read_bytes() == source_bytes
+    assert [path for path in tmp_path.iterdir() if path.is_file()] == [src]
+    assert "Rename plan ready" in output
+    assert "Would scrub:" in output
+    assert "Preview complete" in output
+
+
+@pytest.mark.integration
+def test_clean_inline_late_pre_scrub_collision_reassigns_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A destination occupied after planning is harmless when it can be re-rolled."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    generated = iter(("initial", "replacement"))
+    # Random collisions cannot be triggered deterministically through real entropy.
+    monkeypatch.setattr(
+        "scrubexif.rename_planner.resolve_rename",
+        lambda _format, _source, _counter: next(generated),
+    )
+
+    with build_rename_plan(
+        [src],
+        "%r11",
+        None,
+        {"n": 0},
+        RenamePlanLimits(),
+    ) as plan:
+        entry = next(iter(plan))
+        entry.destination_path.write_bytes(b"active-filesystem")
+        result = scrub_file(
+            src,
+            output_path=None,
+            planned_rename_path=entry.destination_path,
+            rename_destination_allocator=partial(
+                plan.reassign_destination,
+                entry.entry_id,
+            ),
+        )
+
+    output = capsys.readouterr().out
+    assert result.status == "scrubbed"
+    assert result.output_path == tmp_path / "replacement.jpg"
+    assert entry.destination_path.read_bytes() == b"active-filesystem"
+    assert not src.exists()
+    assert "active filesystem" in output
+
+
+@pytest.mark.integration
+def test_clean_inline_publication_race_reuses_scrubbed_temp_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A publication-time collision reassigns without overwriting or re-scrubbing."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    generated = iter(("initial", "replacement"))
+    published_temp_paths: list[Path] = []
+    real_publish = scrub._publish_no_clobber
+
+    monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
+    # Random collisions cannot be triggered deterministically through real entropy.
+    monkeypatch.setattr(
+        "scrubexif.rename_planner.resolve_rename",
+        lambda _format, _source, _counter: next(generated),
+    )
+
+    def publish_with_one_race(temp_output: Path, destination: Path) -> None:
+        """Inject one otherwise non-deterministic publication race."""
+        published_temp_paths.append(temp_output)
+        if len(published_temp_paths) == 1:
+            destination.write_bytes(b"active-filesystem")
+        real_publish(temp_output, destination)
+
+    monkeypatch.setattr(scrub, "_publish_no_clobber", publish_with_one_race)
+
+    rc = main(["--clean-inline", "--rename", "%r11", str(src)])
+
+    output = capsys.readouterr().out
+    assert rc == 0
+    assert len(published_temp_paths) == 2
+    assert published_temp_paths[0] == published_temp_paths[1]
+    assert (tmp_path / "initial.jpg").read_bytes() == b"active-filesystem"
+    assert (tmp_path / "replacement.jpg").is_file()
+    assert not src.exists()
+    assert "active filesystem" in output
+
+
+@pytest.mark.integration
+def test_clean_inline_continuous_publication_collisions_stop_safely(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Continuously occupied replacements eventually stop without losing the source."""
+    src = tmp_path / "photo.jpg"
+    shutil.copy(FIXTURE_WITH_EXIF, src)
+    source_bytes = src.read_bytes()
+    destinations = iter(
+        tmp_path / f"replacement-{index}.jpg"
+        for index in range(1, 5)
+    )
+    real_publish = scrub._publish_no_clobber
+
+    # Repeated publication races cannot be triggered reliably on a real filesystem.
+    def publish_with_continuous_race(temp_output: Path, destination: Path) -> None:
+        """Occupy every destination immediately before atomic publication."""
+        destination.write_bytes(b"active-filesystem")
+        real_publish(temp_output, destination)
+
+    def allocate_replacement(_occupied: Path) -> Path:
+        """Return the next replacement destination for the race simulation."""
+        return next(destinations)
+
+    monkeypatch.setattr(scrub, "_publish_no_clobber", publish_with_continuous_race)
+
+    result = scrub_file(
+        src,
+        output_path=None,
+        planned_rename_path=tmp_path / "initial.jpg",
+        rename_destination_allocator=allocate_replacement,
+    )
+
+    assert result.status == "conflict"
+    assert src.read_bytes() == source_bytes
+    assert all(
+        path.read_bytes() == b"active-filesystem"
+        for path in [
+            tmp_path / "initial.jpg",
+            tmp_path / "replacement-1.jpg",
+            tmp_path / "replacement-2.jpg",
+            tmp_path / "replacement-3.jpg",
+        ]
+    )
+    assert not any(
+        path.name.startswith(".scrubexif_tmp_")
+        for path in tmp_path.iterdir()
+    )
 
 
 # ---------------------------------------------------------------------------

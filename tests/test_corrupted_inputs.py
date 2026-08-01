@@ -117,7 +117,7 @@ def test_corrupted_inputs_moved_to_processed(tmp_path):
     print(cp.stdout)
     print(cp.stderr)
 
-    assert cp.returncode == 0, f"Docker exited with {cp.returncode}:\n{cp.stderr}\n{cp.stdout}"
+    assert cp.returncode == 1, f"Docker exited with {cp.returncode}:\n{cp.stderr}\n{cp.stdout}"
 
     processed_names = {p.name for p in processed_dir.glob("*.jpg")}
     expected_names = {f.name for f in good_files} | {f.name for f in damaged_files}
@@ -156,7 +156,7 @@ def test_corrupted_input_never_written_to_output(tmp_path: Path):
     print(cp.stdout)
     print(cp.stderr)
 
-    assert cp.returncode == 0, f"Container failed:\n{cp.stderr}\n{cp.stdout}"
+    assert cp.returncode == 1, f"Expected scrub failure exit:\n{cp.stderr}\n{cp.stdout}"
 
     assert not (output_dir / bad.name).exists(), "Corrupted input must not appear in output/"
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir()), "Temp files leaked to output/"
