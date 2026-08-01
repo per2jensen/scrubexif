@@ -20,6 +20,7 @@
 - Originals moved to `processed/` or `errors/` now use cross-filesystem-safe, atomic no-overwrite archival; occupied names receive random suffixes and archival failures leave the source recoverable.
 - Writable probes and state, preview, scrub, and archive temporary files are freshly and exclusively reserved instead of relying on predictable paths.
 - File-level scrub, preview, archive, and post-processing failures now consistently return a non-zero exit status; quiet mode replays buffered failure diagnostics to standard error.
+- `--version` now prints the version and complete license text directly from `scrubexif/__about__.py`, without initializing runtime state.
 - Docker Hub tag-existence checks now fail closed on authentication or registry errors instead of treating lookup failures as permission to overwrite an immutable tag.
 - Refresh audit commits and annotated Git tags are pushed atomically.
 - Weekly refreshes now keep stable application source and current orchestration tooling in separate, validated checkouts.

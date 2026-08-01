@@ -25,7 +25,7 @@ from functools import partial
 from pathlib import Path
 from typing import Optional
 
-from .__about__ import __version__
+from .__about__ import __license__, __version__
 from .renaming import validate_rename_format
 from .rename_planner import (
     DEFAULT_MAX_PLAN_BYTES,
@@ -40,10 +40,6 @@ from .rename_planner import (
 )
 
 sys.stdout.reconfigure(line_buffering=True)
-
-__license__ = '''Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
-THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-See section 15 and section 16 in the supplied "LICENSE" file.'''
 
 
 # ----------------------------
@@ -270,10 +266,13 @@ DEBUG_ENV_VARS = (
 )
 
 
-def show_version():
-    script_name = os.path.basename(sys.argv[0])
-    print(f"{script_name} {__version__}")
-    print(f"{script_name} source code is here: https://github.com/per2jensen/scrubexif")
+def show_version() -> None:
+    """Print version and license values sourced from ``__about__.py``.
+
+    Returns:
+        None.
+    """
+    print(f"scrubexif {__version__}")
     print(__license__)
 
 
@@ -455,7 +454,7 @@ def _validate_writable_path(p: Path) -> Optional[Path]:
         return None
 
 
-STATE_FILE: Optional[Path] = _resolve_state_path_from_env()
+STATE_FILE: Optional[Path] = None
 _warned_state_disabled = False
 
 
@@ -2388,6 +2387,8 @@ def require_force_for_root():
 # ----------------------------
 
 def _run(args: argparse.Namespace) -> int:
+    if args.version:
+        return _run_inner(args)
     if args.quiet:
         args.log_level = "crit"
         args.debug = False
@@ -2407,6 +2408,10 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _run_inner(args: argparse.Namespace) -> int:
+    if args.version:
+        show_version()
+        return 0
+
     require_force_for_root()
     global log
     global OUTPUT_DIR
@@ -2449,10 +2454,6 @@ def _run_inner(args: argparse.Namespace) -> int:
     else:
         # Re-evaluate env/defaults in case calling context changed
         STATE_FILE = _resolve_state_path_from_env()
-
-    if args.version:
-        show_version()
-        sys.exit(0)
 
     check_jpegtran()
 

@@ -30,15 +30,28 @@
 
 **Docker Hub**: [per2jensen/scrubexif](https://hub.docker.com/r/per2jensen/scrubexif)
 
-**High‑trust EXIF removal with a transparent supply chain.**
+## License
 
-Removes GPS, serial numbers, maker notes, and all private metadata using a two‑stage process: a byte‑level APP wipe via `jpegtran`, followed by an allowlisted EXIF rebuild via `ExifTool`. This closes the gap parser‑based tools leave open for unknown or proprietary segments and makes `scrubexif` ideal for privacy‑safe publishing and automated pipelines.
+GPL-3.0-or-later
+
+Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
+
+THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+See section 15 and section 16 in the supplied "LICENSE" file.
+
+## High‑trust EXIF removal with a transparent supply chain
+
+Removes common privacy-sensitive JPEG metadata—including GPS coordinates, serial numbers, and maker notes—using a byte-level APP wipe followed by an allowlisted metadata rebuild.
 
 Verify the integrity and origin of every build using industry-standard Sigstore signatures and automated vulnerability scanning.
 
-> **Promise:** scrubexif will not write an unscrubbed JPEG into an output directory.  
-If a scrub fails for any reason, **no output file is created** for that JPEG.
-<sub>This is true when writing scrubbed JPEGs to an output directory, **not** if you scrub JPEGs inline. The jpegtran byte-level strip ensures removal of all APP segments, including unknown or proprietary ones that parser-based tools cannot see.</sub>
+**Output safety behavior**: `scrubexif` creates output files from the completed scrubbing pipeline; it does not copy a failed input directly into the output directory. If the JPEG scrubbing pipeline fails, the command reports an error and does not publish that JPEG to its intended output path. In output-directory modes, existing destination entries are never overwritten.
+
+This is a failure-handling safeguard, **not a guarantee** that an image contains no privacy-sensitive information. Default mode preserves a few selected technical tags and the ICC profile. `--paranoia` removes JPEG APP metadata more aggressively, but scrubexif does not inspect visible image content, filenames unless `--rename` is used, sidecar files, or unsupported future formats. Always check the command’s exit status before publishing output.
+
+
+> **High-stakes use**: Independently verify the resulting files before publishing or distributing them.
+
 
 **Full documentation moved** → [`DETAILS.md`](doc/DETAILS.md)  
  This README is intentionally short for Docker Hub visibility.
@@ -62,7 +75,8 @@ docker run --rm \
   per2jensen/scrubexif:0.7.24
 ````
 
-*Verify the results:* <sub>Check the output/ directory for your cleaned images. All GPS data and camera metadata have now been stripped.</sub>
+**Verify the results:**
+Verify that the sensitive metadata you expect to remove is absent and that only the intended technical tags remain.
 
 Worth noting:
 
@@ -74,7 +88,7 @@ Worth noting:
 
 ### Demo script
 
-The [demo script](scripts/scrubexif-demo.sh) shows how to non-structively scrub JPEGs in a directory and output the scrubbed JPEGs to another directory. Features:
+The [demo script](scripts/scrubexif-demo.sh) shows how to non-destructively scrub JPEGs in a directory and output the scrubbed JPEGs to another directory. Features:
 
 - Run as the user calling the script, root is not allowed
 - write a log in /tmp/scrubexif.log (keep it under 100k)
@@ -133,13 +147,13 @@ Scrubbed photos end up in `/tmp/scrub-test/` on the host.
 
 ### Failure handling (important)
 
-scrubexif is designed to **never place an unscrubbed JPEG into an output directory**.
-If a scrub fails for any reason, **no output file is created for that JPEG** and the run continues for the rest.
+`Scrubexif` is designed to not place an unscrubbed JPEG into an output directory.
+If a scrub fails, no output file should be created for that JPEG and the run continues for the rest, and the final exit status in nonzero.
 
 What happens on failed scrubs depends on the mode `scrubexif` is run in:
 
 - **Default safe mode** (the one-liner): failed files stay in the original directory, and **no file is written to the output directory** for those failures.
-- **Auto mode** (`--from-input`): failed files are moved to `processed/` for inspection, and **no file is written to `output/`** for those failures.
+- **Auto mode** (`--from-input`): Failed files are archived in processed/ for inspection when possible. If archival also fails, the original remains in place and the run reports an error.
 - **Manual (destructive) in-place** (`--clean-inline`): a failure leaves the original unchanged; there is no output directory involved.
 
 ### Hardened (destructive) in-line scrub (current directory)
@@ -320,8 +334,8 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 
 - Scrubexif is JPEG‑only by design. This avoids format‑specific edge cases and ensures predictable behavior.
 - Allowlist-based scrubbing: jpegtran strips all JPEG APP segments at the byte level (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation)
-- Removes GPS, serial numbers, maker notes, and all other private metadata — including segments invisible to parser-based tools
-- Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the jpegtran strip
+- Removes common privacy-sensitive metadata, including GPS coordinates, serial numbers, and maker notes
+- Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the `jpegtran` strip
 - Auto mode with duplicate handling (`--on-duplicate delete|move`)
 - Optional stability gate for hot upload directories  (e.g., PhotoSync, rclone, FTP uploads) (`--stable-seconds`, `--state-file`)
 - Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
@@ -339,7 +353,7 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
   
 ## Supply Chain Transparency
 
-Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied directly to the specific GitHub Actions run that built the image, ensuring there are no long-lived signing keys that could be compromised.. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
+Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied directly to the specific GitHub Actions run that built the image, ensuring there are no long-lived signing keys that could be compromised. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
 
 **Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
@@ -379,7 +393,7 @@ SBOM and SARIF files stored under `doc/`.
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             no write, view only
-    --paranoia            byte-level wipe via jpegtran only — zero metadata survives (no EXIF, no ICC)
+    --paranoia            byte-level wipe via jpegtran only — removes JPEG APP metadata, including EXIF and ICC profiles
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP
     --on-duplicate        delete | move
@@ -446,15 +460,6 @@ You can see my (anonymized) script in [the Github scrubexif repo](https://github
     make dev-clean   # remove dev image
     make test        # make dev image and run full test suite
     pytest -m soak   # optional 10 min run or try scripts/soak.sh
-
-## License
-
-GPL-3.0-or-later
-
-Licensed under GNU GENERAL PUBLIC LICENSE v3, see the supplied file "LICENSE" for details.
-
-THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY APPLICABLE LAW, not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-See section 15 and section 16 in the supplied "LICENSE" file.
 
 ---
 
