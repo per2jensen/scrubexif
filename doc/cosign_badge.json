@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
   "label": "cosign",
-  "message": "ok",
-  "color": "f77f00"
+  "message": "failed",
+  "color": "9e9e9e"
 }
