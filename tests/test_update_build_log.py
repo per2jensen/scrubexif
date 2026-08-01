@@ -351,12 +351,14 @@ class TestBuildProvenance:
                 "--build-runner", "Linux-X64",
                 "--github-run-id", "9876543210",
                 "--github-run-url", run_url,
+                "--controller-git-rev", "def5678",
             ],
             tmp_path,
         )
         assert entry["build"]["runner"] == "Linux-X64"
         assert entry["build"]["github_run_id"] == "9876543210"
         assert entry["build"]["github_run_url"] == run_url
+        assert entry["build"]["controller_git_revision"] == "def5678"
 
     def test_build_block_absent_when_no_flags(self, tmp_path):
         entry = _run(_base_argv(), tmp_path)
@@ -369,6 +371,28 @@ class TestBuildProvenance:
             tmp_path,
         )
         assert entry["build"] == {"github_run_id": "42"}
+
+    def test_controller_revision_absent_when_not_provided(self, tmp_path):
+        """Controller provenance is omitted outside multi-revision builds."""
+        entry = _run(
+            _base_argv() + ["--github-run-id", "42"],
+            tmp_path,
+        )
+
+        assert "controller_git_revision" not in entry["build"]
+
+    def test_invalid_controller_revision_raises_systemexit(self, tmp_path):
+        """Malformed controller provenance is rejected."""
+        log = tmp_path / "build-history.json"
+        argv = [
+            "update_build_log.py",
+            "--log",
+            str(log),
+        ] + _base_argv() + ["--controller-git-rev", "not-a-revision"]
+
+        with _stub_grype(return_value=None), patch.object(sys, "argv", argv):
+            with pytest.raises(SystemExit):
+                runpy.run_path(str(SCRIPT), run_name="__main__")
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,26 @@ from typing import Any, Dict, List
 from grype_sarif_summary import summarize as summarize_grype
 
 SECURITY_TOOL_VERSION_PATTERN = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
+GIT_REVISION_PATTERN = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _git_revision(value: str) -> str:
+    """Validate a short or full hexadecimal Git revision.
+
+    Args:
+        value: Candidate Git revision.
+
+    Returns:
+        Validated Git revision.
+
+    Raises:
+        argparse.ArgumentTypeError: If the revision is malformed.
+    """
+    if not isinstance(value, str) or not GIT_REVISION_PATTERN.fullmatch(value):
+        raise argparse.ArgumentTypeError(
+            "controller Git revision must contain 7 to 64 lowercase hex characters",
+        )
+    return value
 
 
 def _security_tool_version(value: str) -> str:
@@ -92,6 +112,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--github-run-url", default="",
         help="Full URL to the GitHub Actions run",
+    )
+    parser.add_argument(
+        "--controller-git-rev",
+        default=None,
+        type=_git_revision,
+        help="Git revision of the workflow and refresh tooling",
     )
 
     # ── security tools ────────────────────────────────────────────────────────
@@ -187,6 +213,8 @@ def main() -> None:
         build_prov["github_run_id"] = args.github_run_id
     if args.github_run_url:
         build_prov["github_run_url"] = args.github_run_url
+    if args.controller_git_rev:
+        build_prov["controller_git_revision"] = args.controller_git_rev
     if build_prov:
         entry["build"] = build_prov
 

@@ -24,12 +24,19 @@ jobs:
   refresh:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: controller
+    env:
+      CONTROLLER_DIR: ${{ github.workspace }}/controller
+      STABLE_SOURCE_DIR: ${{ github.workspace }}/stable-source
 
     steps:
-      - name: Checkout full Git history
+      - name: Checkout refresh controller
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          path: controller
 
       - name: Compute refresh version
         id: versions
@@ -59,16 +66,20 @@ jobs:
           echo "SARIF_ARCHIVE=doc/sarif/grype-scrubexif-${{ steps.versions.outputs.refresh_version }}-${TIMESTAMP}.sarif.gz" >> "${GITHUB_ENV}"
 
       - name: Checkout stable release source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          path: stable-source
+          ref: "v${{ steps.versions.outputs.base_version }}"
+
+      - name: Validate revision boundaries
         run: |
           set -euo pipefail
-          git checkout "v${BASE_VERSION}"
-          # Refresh support lives on main but must orchestrate the exact source
-          # from the stable release tag.
-          git checkout origin/main -- \
-            Makefile \
-            scripts/dockerhub_manifest.py \
-            scripts/remove_dockerhub_tag.py
-          echo "Building source from v${BASE_VERSION}"
+          EXPECTED_SOURCE_COMMIT=$(git rev-parse "v${BASE_VERSION}^{commit}")
+          make \
+            SOURCE_DIR="${STABLE_SOURCE_DIR}" \
+            EXPECTED_SOURCE_COMMIT="${EXPECTED_SOURCE_COMMIT}" \
+            validate-refresh-source
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -81,18 +92,29 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y exiftool libjpeg-turbo-progs
           python -m pip install --upgrade pip
-          pip install ".[test]" --break-system-packages
+          pip install "${STABLE_SOURCE_DIR}[test]" --break-system-packages
+
+      - name: Test refresh controller
+        run: make test-refresh-controller
 
       - name: Build refreshed image from scratch
         run: |
           set -euo pipefail
           make \
             FINAL_VERSION="${REFRESH_VERSION}" \
+            SOURCE_DIR="${STABLE_SOURCE_DIR}" \
+            EXPECTED_SOURCE_COMMIT="$(git rev-parse "v${BASE_VERSION}^{commit}")" \
             DOCKER_BUILD_FLAGS="--pull --no-cache" \
-            final
+            refresh-final
 
       - name: Test refreshed image
-        run: make FINAL_VERSION="${REFRESH_VERSION}" test-release
+        run: |
+          set -euo pipefail
+          make \
+            FINAL_VERSION="${REFRESH_VERSION}" \
+            SOURCE_DIR="${STABLE_SOURCE_DIR}" \
+            EXPECTED_SOURCE_COMMIT="$(git rev-parse "v${BASE_VERSION}^{commit}")" \
+            refresh-test
 
       - name: Verify application version
         run: |
@@ -155,7 +177,7 @@ jobs:
         if: always() && steps.grype_scan.outcome != 'skipped'
         uses: github/codeql-action/upload-sarif@v3.28.21
         with:
-          sarif_file: ${{ env.SARIF_FILE }}
+          sarif_file: ${{ env.CONTROLLER_DIR }}/${{ env.SARIF_FILE }}
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload refresh audit artifacts
@@ -164,8 +186,8 @@ jobs:
         with:
           name: refresh-audit-${{ env.REFRESH_VERSION }}
           path: |
-            ${{ env.SBOM_FILE }}
-            ${{ env.SARIF_FILE }}
+            ${{ env.CONTROLLER_DIR }}/${{ env.SBOM_FILE }}
+            ${{ env.CONTROLLER_DIR }}/${{ env.SARIF_FILE }}
 
       - name: Log in to Docker Hub
         run: |
@@ -273,8 +295,8 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          # This is a disposable Actions checkout. Force-switching drops the
-          # stable-source overrides while preserving untracked audit artifacts.
+          # The controller checkout is independent from the immutable source.
+          # Move the complete controller worktree to the latest main revision.
           git checkout -f -B main origin/main
           git pull --rebase origin main
 
@@ -310,6 +332,7 @@ jobs:
             --build-runner "${{ runner.os }}-${{ runner.arch }}" \
             --github-run-id "${{ github.run_id }}" \
             --github-run-url "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --controller-git-rev "${GITHUB_SHA}" \
             --syft-version "${SYFT_VERSION}" \
             --grype-version "${GRYPE_VERSION}"
 

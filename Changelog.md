@@ -13,6 +13,7 @@
 
 - Docker Hub tag-existence checks now fail closed on authentication or registry errors instead of treating lookup failures as permission to overwrite an immutable tag.
 - Refresh audit commits and annotated Git tags are pushed atomically.
+- Weekly refreshes now keep stable application source and current orchestration tooling in separate, validated checkouts.
 
 ## 0.7.25 - 2026-07-29
 

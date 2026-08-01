@@ -62,6 +62,27 @@ def test_image_refresh_workflow_records_dereferenced_source_commit() -> None:
     assert 'git rev-parse --short "v${BASE_VERSION}")' not in workflow
 
 
+def test_image_refresh_workflow_keeps_source_and_controller_isolated() -> None:
+    """Stable source and controller tooling use independent complete checkouts."""
+    workflow = _workflow_text()
+
+    assert "path: controller" in workflow
+    assert "path: stable-source" in workflow
+    assert 'working-directory: controller' in workflow
+    assert 'SOURCE_DIR="${STABLE_SOURCE_DIR}"' in workflow
+    assert "validate-refresh-source" in workflow
+    assert "test-refresh-controller" in workflow
+    assert "git checkout origin/main --" not in workflow
+
+
+def test_image_refresh_workflow_records_both_revisions() -> None:
+    """Refresh audit metadata identifies source and controller revisions."""
+    workflow = _workflow_text()
+
+    assert 'SOURCE_GIT_REV=$(git rev-parse --short "v${BASE_VERSION}^{commit}")' in workflow
+    assert '--controller-git-rev "${GITHUB_SHA}"' in workflow
+
+
 def test_image_refresh_workflow_shares_release_concurrency_group() -> None:
     """Manual releases and refreshes cannot publish images concurrently."""
     refresh_workflow = _workflow_text()

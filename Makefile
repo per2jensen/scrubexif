@@ -32,6 +32,18 @@ BUILD_LOG_PATH := $(BUILD_LOG_DIR)/$(BUILD_LOG_FILE)
 EXPECTED_CLI_VERSION ?= $(FINAL_VERSION)
 BUILD_GIT_REV ?=
 PUSHED_IMAGE_DIGEST ?=
+SOURCE_DIR ?= .
+EXPECTED_SOURCE_COMMIT ?=
+
+REFRESH_CONTROLLER_TESTS := \
+	tests/test_compute_refresh_version.py \
+	tests/test_dockerhub_manifest.py \
+	tests/test_grype_sarif_summary.py \
+	tests/test_image_refresh_workflow.py \
+	tests/test_refresh_source_boundary.py \
+	tests/test_remove_dockerhub_tag.py \
+	tests/test_security_tool_versions.py \
+	tests/test_update_build_log.py
 
 export SCRUBEXIF_STABLE_SECONDS ?= 0
 export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
@@ -40,6 +52,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 # Declare phony targets (they don't correspond to files)
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
+  validate-refresh-source refresh-final refresh-test test-refresh-controller \
   test-release dry-run-release _dryrun-release-internal \
   log-build-json update-readme-version update-scrub-version update-details-version update-index-html-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
@@ -67,14 +80,68 @@ validate:
 	@command -v docker >/dev/null || { echo "❌ docker not found"; exit 1; }
 
 
+validate-refresh-source:
+	@if [ -z "$(SOURCE_DIR)" ]; then \
+		echo "❌ SOURCE_DIR must be a non-empty path"; \
+		exit 1; \
+	fi
+	@if [ -z "$(EXPECTED_SOURCE_COMMIT)" ]; then \
+		echo "❌ EXPECTED_SOURCE_COMMIT must be set for a refresh build"; \
+		exit 1; \
+	fi
+	@if [ ! -d "$(SOURCE_DIR)" ]; then \
+		echo "❌ Refresh source directory does not exist: $(SOURCE_DIR)"; \
+		exit 1; \
+	fi
+	@controller_dir="$$(realpath "$(CURDIR)")"; \
+	source_dir="$$(realpath "$(SOURCE_DIR)")"; \
+	if [ "$$controller_dir" = "$$source_dir" ]; then \
+		echo "❌ Refresh source must be isolated from the controller checkout"; \
+		exit 1; \
+	fi
+	@if ! git -C "$(SOURCE_DIR)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+		echo "❌ Refresh source is not a Git worktree: $(SOURCE_DIR)"; \
+		exit 1; \
+	fi
+	@source_dir="$$(realpath "$(SOURCE_DIR)")"; \
+	source_root="$$(git -C "$(SOURCE_DIR)" rev-parse --show-toplevel)"; \
+	if [ "$$source_dir" != "$$source_root" ]; then \
+		echo "❌ SOURCE_DIR must be the root of the stable source worktree"; \
+		exit 1; \
+	fi
+	@actual_commit="$$(git -C "$(SOURCE_DIR)" rev-parse HEAD)"; \
+	expected_commit="$$(git -C "$(SOURCE_DIR)" rev-parse "$(EXPECTED_SOURCE_COMMIT)^{commit}")"; \
+	if [ "$$actual_commit" != "$$expected_commit" ]; then \
+		echo "❌ Refresh source commit mismatch: expected $$expected_commit, found $$actual_commit"; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git -C "$(SOURCE_DIR)" status --porcelain --untracked-files=all)" ]; then \
+		echo "❌ Refresh source worktree contains modifications or untracked files"; \
+		git -C "$(SOURCE_DIR)" status --short; \
+		exit 1; \
+	fi
+	@echo "✅ Refresh source is an isolated, clean checkout of $(EXPECTED_SOURCE_COMMIT)"
+
+
+refresh-final: validate-refresh-source final
+
+
+refresh-test: validate-refresh-source test-release
+
+
+test-refresh-controller:
+	@echo "🧪 Running refresh controller tests from $(CURDIR)"
+	PYTHONPATH=. pytest $(REFRESH_CONTROLLER_TESTS)
+
+
 final: check_version validate
 	$(eval DATE := $(shell date -u +%Y-%m-%dT%H:%M:%SZ))
-	$(eval GIT_REV := $(shell git rev-parse --short HEAD))
+	$(eval GIT_REV := $(shell git -C "$(SOURCE_DIR)" rev-parse --short HEAD))
 	$(eval FINAL_TAG := $(FINAL_IMAGE_NAME):$(FINAL_VERSION))
 	$(eval DOCKERHUB_TAG := $(DOCKERHUB_REPO):$(FINAL_VERSION))
 	$(eval DOCKERHUB_LATEST := $(DOCKERHUB_REPO):latest)
 	@echo "Building final image: $(FINAL_TAG)"
-	$(DOCKER) build $(DOCKER_BUILD_FLAGS) -f Dockerfile \
+	$(DOCKER) build $(DOCKER_BUILD_FLAGS) -f "$(SOURCE_DIR)/Dockerfile" \
 		--build-arg VERSION=$(FINAL_VERSION) \
 		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
 		--label org.opencontainers.image.created="$(DATE)" \
@@ -90,7 +157,7 @@ final: check_version validate
 		--label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
 		-t $(FINAL_TAG) \
 		-t $(DOCKERHUB_TAG) \
-		-t $(DOCKERHUB_LATEST) .
+		-t $(DOCKERHUB_LATEST) "$(SOURCE_DIR)"
 
 
 verify-labels:
@@ -139,7 +206,8 @@ verify-cli-version: check_version
 
 test-release: check_version
 	@echo "🧪 Running test suite against image: $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"
-	SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
+	cd "$(SOURCE_DIR)" && \
+		SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
 
 
 
