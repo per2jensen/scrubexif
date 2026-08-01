@@ -92,7 +92,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y exiftool libjpeg-turbo-progs
           python -m pip install --upgrade pip
-          pip install "${STABLE_SOURCE_DIR}[test]" --break-system-packages
+          make \
+            SOURCE_DIR="${STABLE_SOURCE_DIR}" \
+            EXPECTED_SOURCE_COMMIT="$(git rev-parse "v${BASE_VERSION}^{commit}")" \
+            install-refresh-test-dependencies
 
       - name: Test refresh controller
         run: make test-refresh-controller

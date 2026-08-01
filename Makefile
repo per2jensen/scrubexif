@@ -13,6 +13,7 @@
 SHELL := /bin/bash
 
 DOCKER ?= docker
+PYTHON ?= python3
 DOCKER_BUILD_FLAGS ?=
 DOCKER_RUN := $(DOCKER) run --read-only --security-opt no-new-privileges --rm $(if $(CI),,-it) \
   --tmpfs /tmp:rw,exec,nosuid,size=64m \
@@ -52,7 +53,8 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 # Declare phony targets (they don't correspond to files)
 .PHONY: \
   check_version validate base final verify-labels verify-cli-version \
-  validate-refresh-source refresh-final refresh-test test-refresh-controller \
+  validate-refresh-source install-refresh-test-dependencies \
+  refresh-final refresh-test test-refresh-controller \
   test-release dry-run-release _dryrun-release-internal \
   log-build-json update-readme-version update-scrub-version update-details-version update-index-html-version \
   push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
@@ -121,6 +123,18 @@ validate-refresh-source:
 		exit 1; \
 	fi
 	@echo "✅ Refresh source is an isolated, clean checkout of $(EXPECTED_SOURCE_COMMIT)"
+
+
+install-refresh-test-dependencies: validate-refresh-source
+	@set -euo pipefail; \
+	dependency_source="$$(mktemp -d)"; \
+	cleanup() { \
+		rm -rf -- "$$dependency_source"; \
+	}; \
+	trap cleanup EXIT; \
+	git -C "$(SOURCE_DIR)" archive "$(EXPECTED_SOURCE_COMMIT)^{commit}" \
+		| tar -x -C "$$dependency_source"; \
+	"$(PYTHON)" -m pip install "$${dependency_source}[test]" --break-system-packages
 
 
 refresh-final: validate-refresh-source final

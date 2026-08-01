@@ -211,3 +211,50 @@ def test_refresh_final_uses_stable_source_context_and_revision(tmp_path: Path) -
     assert str(stable_source / "Dockerfile") in arguments
     assert arguments[-1] == str(stable_source)
     assert f"org.opencontainers.image.revision={stable_commit[:7]}" in arguments
+
+
+@needs_tools
+def test_install_refresh_dependencies_builds_in_temporary_export(
+    tmp_path: Path,
+) -> None:
+    """Keep dependency-build artifacts outside the stable source worktree.
+
+    Args:
+        tmp_path: Fresh pytest temporary directory.
+
+    Returns:
+        None.
+    """
+    controller, stable_source, stable_commit = _create_revision_pair(tmp_path)
+    python_arguments = tmp_path / "python-arguments.txt"
+    fake_python = tmp_path / "python"
+    fake_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail\n"
+        f"printf '%s\\n' \"$@\" > \"{python_arguments}\"\n"
+        "install_source=\"${4%\\[test\\]}\"\n"
+        "mkdir -p \"${install_source}/build\" "
+        "\"${install_source}/scrubexif.egg-info\"\n",
+        encoding="utf-8",
+    )
+    fake_python.chmod(0o755)
+
+    result = _run(
+        [
+            MAKE,
+            f"--makefile={MAKEFILE}",
+            f"PYTHON={fake_python}",
+            f"SOURCE_DIR={stable_source}",
+            f"EXPECTED_SOURCE_COMMIT={stable_commit}",
+            "install-refresh-test-dependencies",
+        ],
+        controller,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    arguments = python_arguments.read_text(encoding="utf-8").splitlines()
+    assert arguments[:3] == ["-m", "pip", "install"]
+    install_source = Path(arguments[3].removesuffix("[test]"))
+    assert install_source != stable_source
+    assert not install_source.exists()
+    assert _validate_source(controller, stable_source, stable_commit).returncode == 0

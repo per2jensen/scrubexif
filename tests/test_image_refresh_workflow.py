@@ -71,8 +71,10 @@ def test_image_refresh_workflow_keeps_source_and_controller_isolated() -> None:
     assert 'working-directory: controller' in workflow
     assert 'SOURCE_DIR="${STABLE_SOURCE_DIR}"' in workflow
     assert "validate-refresh-source" in workflow
+    assert "install-refresh-test-dependencies" in workflow
     assert "test-refresh-controller" in workflow
     assert "git checkout origin/main --" not in workflow
+    assert 'pip install "${STABLE_SOURCE_DIR}[test]"' not in workflow
 
 
 def test_image_refresh_workflow_records_both_revisions() -> None:
