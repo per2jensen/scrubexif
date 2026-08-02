@@ -49,9 +49,7 @@ Verify the integrity and origin of every published release and refresh image usi
 
 This is a failure-handling safeguard, **not a guarantee** that an image contains no privacy-sensitive information. Default mode preserves a few selected technical tags and the ICC profile. `--paranoia` removes JPEG APP metadata more aggressively, but scrubexif does not inspect visible image content, filenames unless `--rename` is used, sidecar files, or unsupported future formats. Always check the command’s exit status before publishing output.
 
-
 > **High-stakes use**: Independently verify the resulting files before publishing or distributing them.
-
 
 **Full documentation moved** → [`DETAILS.md`](doc/DETAILS.md)  
  This README is intentionally short for Docker Hub visibility.
@@ -88,7 +86,7 @@ Worth noting:
 
 ### Demo script
 
-The [demo script](scripts/scrubexif-demo.sh) shows how to non-destructively scrub JPEGs in a directory and output the scrubbed JPEGs to another directory. Features:
+The [demo script](https://github.com/per2jensen/scrubexif/blob/main/scripts/scrubexif-demo.sh) shows how to non-destructively scrub JPEGs in a directory and output the scrubbed JPEGs to another directory. Features:
 
 - Run as the user calling the script, root is not allowed
 - write a log in /tmp/scrubexif.log (keep it under 100k)
