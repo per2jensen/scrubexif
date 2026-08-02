@@ -43,7 +43,7 @@ See section 15 and section 16 in the supplied "LICENSE" file.
 
 Removes common privacy-sensitive JPEG metadata—including GPS coordinates, serial numbers, and maker notes—using a byte-level APP wipe followed by an allowlisted metadata rebuild.
 
-Verify the integrity and origin of every build using industry-standard Sigstore signatures and automated vulnerability scanning.
+Verify the integrity and origin of every published release and refresh image using Sigstore signatures, and review the accompanying vulnerability scan.
 
 **Output safety behavior**: `scrubexif` creates output files from the completed scrubbing pipeline; it does not copy a failed input directly into the output directory. If the JPEG scrubbing pipeline fails, the command reports an error and does not publish that JPEG to its intended output path. In output-directory modes, existing destination entries are never overwritten.
 
@@ -148,7 +148,7 @@ Scrubbed photos end up in `/tmp/scrub-test/` on the host.
 ### Failure handling (important)
 
 `Scrubexif` is designed to not place an unscrubbed JPEG into an output directory.
-If a scrub fails, no output file should be created for that JPEG and the run continues for the rest, and the final exit status in nonzero.
+If a scrub fails, no output file should be created for that JPEG; processing continues for the remaining files, and the final exit status is nonzero.
 
 What happens on failed scrubs depends on the mode `scrubexif` is run in:
 
@@ -186,10 +186,10 @@ Example of Gnome File Manager (Nautilus) integration can be seen in my [file man
 Filenames can leak as much as EXIF. A name like `2026-04-07_11-13-45.jpeg`
 reveals the exact capture time, and prefixes like `D80_` identify the camera
 body. `--rename` replaces the output filename with a format string of your
-choice so nothing identifying survives.
+choice so the original identifying filename does not survive.
 
 ```bash
-# Fully anonymous — 8-character random hex name
+# Randomized filename — 8-character random hex name
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
 RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
 if [ "$RUN_AS_UID" -eq 0 ]; then
@@ -295,7 +295,7 @@ Meaning:
     New JPEGs arrive here (e.g. from uploads, for example PhotoSync).
 
 - `output/`
-    Scrubbed JPEGs with safe EXIF metadata.
+    Scrubbed JPEGs with allowlisted technical metadata.
 
 - `processed/`
     Original JPEGs moved here after scrub (or deleted when requested).
