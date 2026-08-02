@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import random
 import shutil
 from pathlib import Path
 
@@ -14,17 +13,28 @@ from ._docker import mk_mounts, run_container
 ASSETS_DIR = Path(__file__).parent / "assets"
 SOURCE_IMAGE = ASSETS_DIR / "sample_with_exif.jpg"
 TOTAL_IMAGES = 15
-LIGHT_CORRUPTION_RATIO = 0.3
 
 
-def _prepare_jpegs(root: Path) -> tuple[list[Path], list[Path], list[Path]]:
-    """Return (good_files, corrupted_files, lightly_corrupted_files) under root/input."""
+def _prepare_jpegs(root: Path) -> tuple[list[Path], list[Path]]:
+    """Create deterministic valid and invalid JPEG test inputs.
+
+    Args:
+        root: Existing temporary test directory.
+
+    Returns:
+        Valid and invalid input paths, respectively.
+
+    Raises:
+        ValueError: If root is not an existing directory.
+    """
+    if not root.is_dir():
+        raise ValueError(f"root must be an existing directory: {root}")
+
     input_dir = root / "input"
     input_dir.mkdir()
 
     good: list[Path] = []
     corrupted: list[Path] = []
-    lightly_corrupted: list[Path] = []
 
     for idx in range(TOTAL_IMAGES):
         target = input_dir / f"photo_{idx:02d}.jpg"
@@ -34,71 +44,63 @@ def _prepare_jpegs(root: Path) -> tuple[list[Path], list[Path], list[Path]]:
             good.append(target)
             continue
 
-        _corrupt_file(target, seed=idx)
+        _corrupt_file(target, variant=idx)
         corrupted.append(target)
 
-    # Apply lighter random mutations to ~30% of files (preferably ones that should still scrub)
-    mutation_count = max(1, int(TOTAL_IMAGES * LIGHT_CORRUPTION_RATIO))
-    rng = random.Random(42)
-    mutation_candidates = rng.sample(good, k=min(mutation_count, len(good)))
-    for idx, target in enumerate(mutation_candidates):
-        if _lightly_corrupt_file(target, seed=100 + idx):
-            lightly_corrupted.append(target)
-
-    return good, corrupted, lightly_corrupted
+    return good, corrupted
 
 
-def _corrupt_file(path: Path, seed: int) -> None:
-    """Smear random data across the file to simulate broken JPEGs."""
+def _corrupt_file(path: Path, variant: int) -> None:
+    """Replace a JPEG with one of two unambiguously invalid payloads.
+
+    Args:
+        path: Existing JPEG fixture to corrupt.
+        variant: Non-negative value selecting the invalid payload.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If path is not a file or variant is negative.
+    """
+    if not path.is_file():
+        raise ValueError(f"path must be an existing file: {path}")
+    if variant < 0:
+        raise ValueError("variant must be non-negative")
+
+    if variant % 4 == 1:
+        path.write_bytes(f"not-a-jpeg-{variant}".encode("ascii"))
+        return
+
+    # Alternate invalid inputs retain the JPEG body but cannot have a valid SOI.
     data = bytearray(path.read_bytes())
-    rng = random.Random(seed)
-    if len(data) >= 4:
-        # Clobber SOI marker to ensure the decoder complains
-        data[0:2] = b"\x00\x00"
-        data[-2:] = b"\x00\x00"
-    # Overwrite several random segments to resemble partial corruption.
-    mutations = max(6, len(data) // 128)
-    for _ in range(mutations):
-        if len(data) < 2:
-            break
-        start = rng.randrange(0, len(data) - 1)
-        span = rng.randrange(1, min(128, len(data) - start))
-        for offset in range(span):
-            data[start + offset] = rng.randrange(0, 256)
+    if len(data) < 2:
+        raise ValueError(f"JPEG fixture is too short to corrupt: {path}")
+    data[0:2] = b"\x00\x00"
     path.write_bytes(data)
 
-
-def _lightly_corrupt_file(path: Path, seed: int) -> bool:
-    """Inject random single-byte mutations without destroying JPEG structure."""
-    original = path.read_bytes()
-    data = bytearray(original)
-    if len(data) < 4096:
-        return False
-
-    rng = random.Random(seed)
-    mutations = max(10, len(data) // 4096)
-    for _ in range(mutations):
-        start = rng.randrange(512, len(data) - 512)
-        data[start] = rng.randrange(0, 256)
-
-    path.write_bytes(data)
-    try:
-        from PIL import Image
-
-        with Image.open(path) as img:
-            img.verify()
-        return True
-    except Exception:
-        path.write_bytes(original)
-        return False
 
 @pytest.mark.nightly
 @pytest.mark.docker
-def test_corrupted_inputs_moved_to_processed(tmp_path):
-    if not SOURCE_IMAGE.exists():
-        pytest.skip("sample_with_exif.jpg fixture missing")
+def test_corrupted_inputs_moved_to_processed(tmp_path: Path) -> None:
+    """Process valid files while safely retaining every original input.
 
-    good_files, damaged_files, lightly_corrupted = _prepare_jpegs(tmp_path)
+    Args:
+        tmp_path: Isolated pytest temporary directory.
+
+    Returns:
+        None.
+    """
+    assert SOURCE_IMAGE.is_file(), (
+        f"Required JPEG fixture is missing: {SOURCE_IMAGE}"
+    )
+
+    good_files, damaged_files = _prepare_jpegs(tmp_path)
+    all_files = good_files + damaged_files
+    original_contents = {path.name: path.read_bytes() for path in all_files}
+    good_names = {path.name for path in good_files}
+    damaged_names = {path.name for path in damaged_files}
+    expected_names = good_names | damaged_names
 
     output_dir = tmp_path / "output"
     processed_dir = tmp_path / "processed"
@@ -119,25 +121,61 @@ def test_corrupted_inputs_moved_to_processed(tmp_path):
 
     assert cp.returncode == 1, f"Docker exited with {cp.returncode}:\n{cp.stderr}\n{cp.stdout}"
 
-    processed_names = {p.name for p in processed_dir.glob("*.jpg")}
-    expected_names = {f.name for f in good_files} | {f.name for f in damaged_files}
+    processed_names = {path.name for path in processed_dir.iterdir()}
     assert processed_names == expected_names, "Expected all originals retained in processed/"
+    for name, original_content in original_contents.items():
+        assert (processed_dir / name).read_bytes() == original_content, (
+            f"Archived original was modified: {name}"
+        )
 
-    output_names = {p.name for p in output_dir.glob("*.jpg")}
-    assert {f.name for f in good_files} <= output_names, "Scrubbed output missing known good files"
-    assert not ({f.name for f in damaged_files} & output_names), "Damaged files should not appear in output/"
-    assert {f.name for f in lightly_corrupted} <= output_names, "Lightly corrupted files should still scrub successfully"
+    output_names = {path.name for path in output_dir.iterdir()}
+    assert output_names == good_names, "Output must contain exactly the scrubbed valid files"
 
     assert not any((tmp_path / "input").iterdir()), "Input directory should be emptied after processing"
+    assert not any(errors_dir.iterdir()), "No files should be moved to errors/"
+
+    stdout = cp.stdout or ""
+    summary_line = next(
+        (line for line in stdout.splitlines() if line.startswith("SCRUBEXIF_SUMMARY ")),
+        None,
+    )
+    assert summary_line is not None, f"Machine-readable summary missing:\n{stdout}"
+    summary_fields = dict(
+        field.split("=", 1)
+        for field in summary_line.removeprefix("SCRUBEXIF_SUMMARY ").split()
+        if "=" in field
+    )
+    duration = summary_fields.pop("duration", None)
+    assert duration is not None, f"Summary duration missing: {summary_line}"
+    assert summary_fields == {
+        "total": str(TOTAL_IMAGES),
+        "scrubbed": str(len(good_files)),
+        "skipped": "0",
+        "errors": str(len(damaged_files)),
+        "duplicates_deleted": "0",
+        "duplicates_moved": "0",
+    }
+    assert float(duration) >= 0.0
 
     for damaged in damaged_files:
-        expected_fragment = f"Scrub failed for {damaged.name}; moved original"
-        assert expected_fragment in (cp.stdout or ""), f"Missing failure notice for {damaged.name}"
+        expected_fragment = (
+            f"Scrub failed for /photos/input/{damaged.name}; "
+            f"moved original to /photos/processed/{damaged.name} for inspection"
+        )
+        assert expected_fragment in stdout, f"Missing failure notice for {damaged.name}"
 
 
 @pytest.mark.smoke
 @pytest.mark.docker
-def test_corrupted_input_never_written_to_output(tmp_path: Path):
+def test_corrupted_input_never_written_to_output(tmp_path: Path) -> None:
+    """Reject an invalid JPEG without modifying its archived payload.
+
+    Args:
+        tmp_path: Isolated pytest temporary directory.
+
+    Returns:
+        None.
+    """
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     processed_dir = tmp_path / "processed"
@@ -158,9 +196,9 @@ def test_corrupted_input_never_written_to_output(tmp_path: Path):
 
     assert cp.returncode == 1, f"Expected scrub failure exit:\n{cp.stderr}\n{cp.stdout}"
 
-    assert not (output_dir / bad.name).exists(), "Corrupted input must not appear in output/"
-    assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir()), "Temp files leaked to output/"
+    assert not any(output_dir.iterdir()), "Corrupted input or temporary file leaked to output/"
     assert (processed_dir / bad.name).exists(), "Corrupted input should be moved to processed/"
+    assert (processed_dir / bad.name).read_bytes() == b"not-a-jpeg"
     assert not bad.exists(), "Corrupted input should not remain in input/"
     assert "Scrub failed" in (cp.stdout or ""), "Expected failure message in output"
     assert bad.name in (cp.stdout or ""), "Expected filename in failure output"

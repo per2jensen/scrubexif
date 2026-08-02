@@ -5,6 +5,9 @@
 ### Added
 
 - Docker integration coverage now executes successful, conflicting, and resource-limited rename plans through the packaged CLI.
+- Private real-photo coverage now verifies exact EXIF and ICC preservation, complete privacy stripping, embedded-image removal, rendered pixels, container batching, and byte-for-byte idempotency.
+- A fail-closed standard-library JPEG/TIFF/ICC auditor now cross-checks ExifTool on real photos and rejects malformed marker, IFD, and ICC structures.
+- Corrupted-input coverage now uses deterministic invalid JPEGs and verifies exact outputs, archive integrity, diagnostics, and summary counters.
 
 ### Changed
 
