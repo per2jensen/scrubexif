@@ -148,7 +148,7 @@ jobs:
         run: mkdir -p doc/sbom doc/sarif
 
       - name: Cache Grype database
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/grype/db
           key: grype-db-${{ runner.os }}-${{ env.GRYPE_VERSION }}-${{ env.UBUNTU_VERSION }}-${{ github.run_id }}
