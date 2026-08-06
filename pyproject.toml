@@ -4,6 +4,8 @@ name = "scrubexif"
 dynamic = ["version"]
 description = "CLI tool to scrub JPEG metadata and preserve a few technical tags."
 authors = [{ name = "Per Jensen", email = "per2jensen@gmail.com" }]
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
@@ -13,7 +15,7 @@ test = [
 ]
 
 [build-system]
-requires = ["setuptools"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]

@@ -1160,8 +1160,29 @@ make test
 
 ## See version and license
 
+The `--version` option prints the version and a short license notice:
+
 ```bash
 docker run --rm per2jensen/scrubexif:latest --version
+```
+
+The complete `LICENSE` file is packaged in the installed Python distribution at
+`scrubexif-<version>.dist-info/licenses/LICENSE`. It is not copied into the
+`scrubexif` package beside `scrub.py`.
+
+To print the complete license from the image:
+
+```bash
+docker run --rm --entrypoint python3 per2jensen/scrubexif:latest -c \
+  'from importlib.metadata import distribution; package = distribution("scrubexif"); license_text = package.read_text("licenses/LICENSE"); assert license_text is not None, "packaged LICENSE not found"; print(license_text, end="")'
+```
+
+From a shell inside the container, use the same Python lookup without the
+`docker run` prefix:
+
+```bash
+python3 -c \
+  'from importlib.metadata import distribution; package = distribution("scrubexif"); license_text = package.read_text("licenses/LICENSE"); assert license_text is not None, "packaged LICENSE not found"; print(license_text, end="")'
 ```
 
 ## License
