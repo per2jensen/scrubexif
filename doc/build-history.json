@@ -1192,5 +1192,47 @@
       "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/34673759584",
       "controller_git_revision": "04de29dc890435f45f435658b28ea256bef66e04"
     }
+  },
+  {
+    "build_number": 47,
+    "tag": "0.7.27",
+    "base_image": "scrubexif-base:24.04-0.7.27",
+    "git_revision": "320eace",
+    "created": "2026-09-12T08:17:22Z",
+    "dockerhub_tag_url": "https://hub.docker.com/r/per2jensen/scrubexif/tags/0.7.27",
+    "digest": "sha256:164d0c1da4291f807d05cffbe81e3dcd3533ec16c6bbaeb602720eb54df75e29",
+    "image_id": "sha256:a8242ab195cdf89661f8a7eb7b7beea5e78c71933bc3a3ca6c73a76a17e19855",
+    "security_tools": {
+      "syft": "v1.50.0",
+      "grype": "v0.116.1"
+    },
+    "grype_scan": {
+      "file": "grype-results-0.7.27.sarif",
+      "total": 160,
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 149,
+        "low": 11,
+        "negligible": 0,
+        "warning": 0,
+        "note": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    "sbom": {
+      "file": "sbom-0.7.27.spdx.json",
+      "release_asset_url": "https://github.com/per2jensen/scrubexif/releases/download/v0.7.27/sbom-0.7.27.spdx.json"
+    },
+    "cosign": {
+      "signed": true,
+      "rekor_log_entry": "https://search.sigstore.dev/?logIndex=2804938269",
+      "image_digest": "per2jensen/scrubexif@sha256:164d0c1da4291f807d05cffbe81e3dcd3533ec16c6bbaeb602720eb54df75e29"
+    },
+    "build": {
+      "runner": "Linux-X64",
+      "github_run_id": "34682692053"
+    }
   }
 ]
