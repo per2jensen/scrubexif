@@ -1335,7 +1335,7 @@ def scrub_file(
     dry_run=False,
     show_tags_mode: str | None = None,
     paranoia: bool = True,
-    on_duplicate: str = "move",
+    on_duplicate: str | None = "move",
     copyright_text: str | None = None,
     comment_text: str | None = None,
     rename_format: str | None = None,
@@ -1343,7 +1343,14 @@ def scrub_file(
     planned_rename_path: Path | None = None,
     rename_destination_allocator: Callable[[Path], Path] | None = None,
 ) -> ScrubResult:
-    if on_duplicate not in {"move", "fail", "delete", "skip"}:
+    if on_duplicate is None and output_path is not None:
+        raise ValueError(
+            "on_duplicate may be None only for in-place/manual operation"
+        )
+    if (
+        on_duplicate is not None
+        and on_duplicate not in {"move", "fail", "delete", "skip"}
+    ):
         raise ValueError(
             "on_duplicate must be one of: move, fail, delete, skip"
         )

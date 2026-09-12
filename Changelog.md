@@ -17,6 +17,7 @@
 - Same-name files with different scrubbed content are now preserved in `errors/`, reported as collisions, and make the run fail; they are never treated as duplicates.
 - Existing outputs that fail the privacy audit are left untouched, while the incoming source remains in `input/` and the run fails closed.
 - ExifTool warnings, unexpected tag keys, invalid tag values, write-back warnings, and non-allowlisted output metadata now fail the scrub instead of being accepted silently.
+- Manual and clean-inline modes now accept their explicit “duplicate policy not applicable” sentinel while output-directory modes still require a validated policy.
 
 ## 0.7.26 - 2026-08-01
 

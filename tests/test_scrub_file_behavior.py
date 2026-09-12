@@ -26,6 +26,41 @@ def test_scrub_file_rejects_unknown_duplicate_policy(tmp_path: Path) -> None:
         scrub.scrub_file(source, on_duplicate="discard")
 
 
+def test_scrub_file_accepts_no_duplicate_policy_for_manual_dry_run(
+    tmp_path: Path,
+) -> None:
+    """Manual in-place mode may explicitly mark duplicate handling inapplicable."""
+    source = tmp_path / "source.jpg"
+    source.write_bytes(SAFE_JPEG_BYTES)
+
+    result = scrub.scrub_file(
+        source,
+        output_path=None,
+        on_duplicate=None,
+        dry_run=True,
+    )
+
+    assert result.status == "scrubbed"
+    assert source.read_bytes() == SAFE_JPEG_BYTES
+
+
+def test_scrub_file_rejects_no_duplicate_policy_for_output_mode(
+    tmp_path: Path,
+) -> None:
+    """Copy-to-output mode must always have an explicit duplicate policy."""
+    source = tmp_path / "source.jpg"
+    output_directory = tmp_path / "output"
+    source.write_bytes(SAFE_JPEG_BYTES)
+    output_directory.mkdir()
+
+    with pytest.raises(ValueError, match="only for in-place/manual"):
+        scrub.scrub_file(
+            source,
+            output_path=output_directory,
+            on_duplicate=None,
+        )
+
+
 def test_scrub_file_stages_source_bytes_outside_output_directory(tmp_path, monkeypatch):
     """Ensure jpegtran writes privately before audited bytes enter output."""
     input_file = tmp_path / "sample.jpg"
