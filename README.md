@@ -45,7 +45,12 @@ Removes common privacy-sensitive JPEG metadata—including GPS coordinates, seri
 
 Verify the integrity and origin of every published release and refresh image using Sigstore signatures, and review the accompanying vulnerability scan.
 
-**Output safety behavior**: `scrubexif` creates output files from the completed scrubbing pipeline; it does not copy a failed input directly into the output directory. If the JPEG scrubbing pipeline fails, the command reports an error and does not publish that JPEG to its intended output path. In output-directory modes, existing destination entries are never overwritten.
+**Output safety behavior**: `scrubexif` builds each JPEG in a private temporary
+directory outside the output folder, then independently parses the completed
+JPEG against the active metadata policy. Only those audited bytes are copied to
+a hidden `.part` file in the output folder and atomically published. A failed or
+non-compliant result is never published under its intended output filename. In
+output-directory modes, existing destination entries are never overwritten.
 
 This is a failure-handling safeguard, **not a guarantee** that an image contains no privacy-sensitive information. Default mode preserves a few selected technical tags and the ICC profile. `--paranoia` removes JPEG APP metadata more aggressively, but scrubexif does not inspect visible image content, filenames unless `--rename` is used, sidecar files, or unsupported future formats. Always check the command’s exit status before publishing output.
 
@@ -259,9 +264,13 @@ These are the physical directories used on your file system:
 Uploads → `$PWD/input/`  
 Scrubbed → `$PWD/scrubbed/`  
 Originals → `$PWD/processed/` (or deleted with `--delete-original`)  
-Duplicates → deleted by default; use `--on-duplicate move` to move them into `$PWD/errors/`  
-Failed scrubs (e.g., corrupted files) → logged as failures; originals are moved to `$PWD/processed/` for inspection  
-`errors/` is a misnomer today; it is only used for duplicates when `--on-duplicate move` is set. Will be fixed in a later version.
+Verified duplicates → moved to `$PWD/errors/` by default; use explicit `--on-duplicate delete` to delete them
+
+Same filename, different content → incoming original moved to `$PWD/errors/`; reported as a collision with a nonzero exit
+
+Failed scrubs (e.g., corrupted files) → logged as failures; originals are moved to `$PWD/processed/` for inspection
+
+Existing output that fails its privacy audit → left untouched; incoming source stays in `$PWD/input/`; run exits nonzero
 
 Archive entries are never overwritten. If the usual filename is already occupied
 in `processed/` or `errors/`, scrubexif preserves it and publishes the incoming
@@ -283,8 +292,8 @@ Please observe these directories are named like this **inside the container**. Y
                  +-->  [processed/]   (original JPEGs moved here after successful scrub,
                                        unless --delete-original is used)
                  |
-                 +-->  [errors/]      (duplicates only — only used when
-                                       --on-duplicate move)
+                 +-->  [errors/]      (verified duplicates and same-name
+                                       content collisions)
 ```
 
 Meaning:
@@ -299,7 +308,8 @@ Meaning:
     Original JPEGs moved here after scrub (or deleted when requested).
 
 - `errors/`
-    Only created/used when `--on-duplicate move` is enabled.
+    Receives verified duplicates under the default `move` policy and preserves
+    same-name/different-content collisions for inspection.
 
 ### Build & Run Locally
 
@@ -334,7 +344,7 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 - Allowlist-based scrubbing: jpegtran strips all JPEG APP segments at the byte level (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation)
 - Removes common privacy-sensitive metadata, including GPS coordinates, serial numbers, and maker notes
 - Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the `jpegtran` strip
-- Auto mode with duplicate handling (`--on-duplicate delete|move`)
+- Auto mode audits and compares same-name files before applying duplicate handling (`--on-duplicate move|fail|delete`; default `move`)
 - Optional stability gate for hot upload directories  (e.g., PhotoSync, rclone, FTP uploads) (`--stable-seconds`, `--state-file`)
 - Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
 - Optional stamping of copyright and comment into EXIF/XMP (`--copyright`, `--comment`)
@@ -394,18 +404,22 @@ SBOM and SARIF files stored under `doc/`.
     --paranoia            byte-level wipe via jpegtran only — removes JPEG APP metadata, including EXIF and ICC profiles
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP
-    --on-duplicate        delete | move
+    --on-duplicate        move | fail | delete (default: move)
     --stable-seconds N    intake stability window
     --state-file PATH     override queue DB
     -o, --output DIR      write scrubbed files to DIR (default safe mode)
 
 Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
-The process exits `0` only when the run completes without scrub or
-post-processing errors. A failed file, failed preview, unresolved collision, or
-unsafe archive/delete operation returns `1`; handled skips and duplicates do
-not. With `--quiet`, successful runs remain silent, while failure diagnostics
-and the summary are replayed to standard error.
+The process exits `0` only when the run completes without scrub, audit, or
+post-processing errors. A failed file, failed preview, same-name content
+collision, unsafe existing output, or unsafe archive/delete operation returns
+`1`; handled skips and verified duplicates do not. With `--quiet`, successful
+runs remain silent, while failure diagnostics and the summary are replayed to
+standard error.
+
+The implementation decisions and acceptance criteria are recorded in the
+[output safety plan](doc/output-safety-plan.md).
 
 ## Example setup
 

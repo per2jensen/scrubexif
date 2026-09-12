@@ -27,7 +27,7 @@ import pytest
 
 from scrubexif.scrub import TAGS_TO_EXTRACT, _do_scrub_pipeline, run_jpegtran
 from tests._docker import mk_mounts, run_container
-from tests._jpeg_audit import JpegAudit, audit_jpeg, normal_mode_violations
+from scrubexif.jpeg_audit import JpegAudit, audit_jpeg, normal_mode_violations
 
 PRIVATE_ASSETS_DIR = Path(__file__).resolve().parent / "private-assets"
 EXIFTOOL = shutil.which("exiftool")

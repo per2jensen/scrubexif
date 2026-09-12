@@ -19,6 +19,13 @@ import pytest
 from scrubexif import scrub
 
 
+SAFE_JPEG_BYTES = (
+    b"\xff\xd8"
+    b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+    b"\x11\xff\xd9"
+)
+
+
 def _setup_simple_env(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
     """
     Create a fake /photos tree under tmp_path and point scrub.py globals at it.
@@ -66,7 +73,7 @@ def test_simple_mode_creates_output_and_processes_all_jpeg_extensions(tmp_path, 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         commands.append(cmd)
         if "-outfile" in cmd:
-            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(SAFE_JPEG_BYTES)
         class R:
             returncode = 0
             stdout = ""
@@ -117,7 +124,7 @@ def test_simple_mode_does_not_modify_original_files(tmp_path, monkeypatch):
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         if "-outfile" in cmd:
-            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(SAFE_JPEG_BYTES)
         class R:
             returncode = 0
             stdout = ""
@@ -187,7 +194,7 @@ def test_explicit_output_accepts_preexisting_directory(tmp_path, monkeypatch):
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         if "-outfile" in cmd:
-            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(SAFE_JPEG_BYTES)
         class R:
             returncode = 0
             stdout = ""
@@ -200,7 +207,7 @@ def test_explicit_output_accepts_preexisting_directory(tmp_path, monkeypatch):
     scrub.simple_scrub(summary=summary, output_explicit=True)
 
     assert summary.scrubbed == 1
-    assert (output_dir / "photo.jpg").read_bytes() == b"scrubbed"
+    assert (output_dir / "photo.jpg").read_bytes() == SAFE_JPEG_BYTES
 
 
 def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
@@ -214,7 +221,7 @@ def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
 
     def fake_run(cmd, capture_output=False, text=False, encoding=None, errors=None):
         if "-outfile" in cmd:
-            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(SAFE_JPEG_BYTES)
         class R:
             returncode = 0
             stdout = ""
@@ -237,32 +244,35 @@ def test_simple_mode_allows_custom_output_dir(tmp_path, monkeypatch):
     assert summary.scrubbed == 1
 
 
-def test_simple_scrub_second_run_skips_and_preserves_originals(tmp_path, monkeypatch):
-    """On a second run into the same output directory, simple_scrub must skip files
-    whose output already exists and leave originals byte-for-byte intact."""
+def test_simple_scrub_verified_duplicate_skips_and_preserves_original(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A byte-identical audited destination is skipped after a real comparison."""
     photos_root, output_dir = _setup_simple_env(tmp_path, monkeypatch)
     output_dir.mkdir(parents=True)
 
-    original_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    original_bytes = SAFE_JPEG_BYTES
     photo = photos_root / "photo.jpg"
     photo.write_bytes(original_bytes)
-    # Simulate a previous run: output already exists
-    (output_dir / photo.name).write_bytes(b"previously-scrubbed")
+    (output_dir / photo.name).write_bytes(SAFE_JPEG_BYTES)
 
-    scrub_called = False
+    def fake_pipeline(
+        input_path: Path,
+        output_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Produce the same audited bytes as the existing destination."""
+        del input_path, kwargs
+        output_path.write_bytes(SAFE_JPEG_BYTES)
 
-    def fake_run(*_a, **_kw):
-        nonlocal scrub_called
-        scrub_called = True
-
-    monkeypatch.setattr(scrub.subprocess, "run", fake_run)
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
 
     summary = scrub.ScrubSummary()
     scrub.simple_scrub(summary=summary, output_explicit=True)
 
-    assert not scrub_called, "Subprocess (jpegtran/exiftool) must not run when output already exists"
     assert photo.read_bytes() == original_bytes, "Original must be byte-identical after skipping"
-    assert (output_dir / photo.name).read_bytes() == b"previously-scrubbed", \
+    assert (output_dir / photo.name).read_bytes() == SAFE_JPEG_BYTES, \
         "Existing output must not be overwritten"
     assert summary.scrubbed == 0
     assert summary.skipped == 1
@@ -323,7 +333,7 @@ def test_simple_scrub_explicit_files_processes_only_named_files(tmp_path, monkey
 
     def fake_pipeline(input_path, output_path, **kwargs):
         """Write sentinel bytes so scrub_file can rename temp → final."""
-        output_path.write_bytes(b"scrubbed")
+        output_path.write_bytes(SAFE_JPEG_BYTES)
 
     monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
 
@@ -336,7 +346,7 @@ def test_simple_scrub_explicit_files_processes_only_named_files(tmp_path, monkey
 
     assert summary.scrubbed == 1
     assert summary.errors == 0
-    assert (output_dir / "wanted.jpg").read_bytes() == b"scrubbed"
+    assert (output_dir / "wanted.jpg").read_bytes() == SAFE_JPEG_BYTES
     assert not (output_dir / "ignored.jpg").exists()
 
 
@@ -357,7 +367,7 @@ def test_simple_scrub_explicit_files_positional_args_without_clean_inline(tmp_pa
     other.write_bytes(b"jpeg-two")
 
     def fake_pipeline(input_path, output_path, **kwargs):
-        output_path.write_bytes(b"scrubbed")
+        output_path.write_bytes(SAFE_JPEG_BYTES)
 
     monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
     monkeypatch.setattr(sys, "argv", ["scrub", "-o", str(custom_output), str(photo)])
@@ -367,5 +377,5 @@ def test_simple_scrub_explicit_files_positional_args_without_clean_inline(tmp_pa
     rc = scrub.main()
 
     assert rc == 0
-    assert (custom_output / "one.jpg").read_bytes() == b"scrubbed"
+    assert (custom_output / "one.jpg").read_bytes() == SAFE_JPEG_BYTES
     assert not (custom_output / "two.jpg").exists()

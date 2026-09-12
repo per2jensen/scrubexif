@@ -6,7 +6,9 @@ Duplicate-handling integration tests for scrubexif in auto mode.
 Covers:
   - Unique files are scrubbed and originals moved to /processed
   - Re-uploaded duplicate moved to /errors with --on-duplicate move
-  - Re-uploaded duplicate deleted with default (delete)
+  - Re-uploaded verified duplicate moved to /errors by default
+  - Strict fail policy preserves a verified duplicate in /input
+  - Same-name different content reported as a collision
 """
 
 from __future__ import annotations
@@ -87,7 +89,7 @@ def test_scrub_and_move_duplicate(tmp_path: Path):
     print(second.stdout)
     print(second.stderr)
     assert second.returncode == 0
-    assert "Moved duplicate to" in second.stdout or "📦 Moved duplicate to" in second.stdout
+    assert "Verified duplicate moved to" in second.stdout
 
     # Duplicate should be moved to errors/
     # Allow for collision suffixes (_1, _2, ...) created by the implementation
@@ -95,7 +97,7 @@ def test_scrub_and_move_duplicate(tmp_path: Path):
     assert moved_candidates, "Expected duplicate moved into /errors"
 
 
-def test_scrub_and_delete_duplicate(tmp_path: Path):
+def test_default_policy_moves_verified_duplicate(tmp_path: Path):
     input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
 
     # First pass processes the file
@@ -111,7 +113,7 @@ def test_scrub_and_delete_duplicate(tmp_path: Path):
     assert (output_dir / "photo.jpg").exists()
     assert (processed_dir / "photo.jpg").exists()
 
-    # Second pass re-uploads same name — default duplicate policy is 'delete'
+    # Second pass re-uploads same content — default duplicate policy is 'move'
     create_fake_jpeg(input_dir / "photo.jpg", "black")
     second = run_container(
         mounts=mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir),
@@ -122,7 +124,94 @@ def test_scrub_and_delete_duplicate(tmp_path: Path):
     print(second.stderr)
     assert second.returncode == 0
 
-    # Input duplicate should have been deleted by the tool
-    assert not (input_dir / "photo.jpg").exists(), "Expected duplicate to be deleted from /input"
-    # And nothing new should appear in errors/
-    assert not list(errors_dir.glob("photo*.jpg")), "Did not expect a moved duplicate in /errors for delete policy"
+    assert not (input_dir / "photo.jpg").exists()
+    moved_candidates = list(errors_dir.glob("photo*.jpg"))
+    assert moved_candidates, "Expected default policy to preserve duplicate in /errors"
+
+
+def test_same_filename_different_content_is_nonzero_collision(
+    tmp_path: Path,
+) -> None:
+    """A different photo with a reused name is preserved and reported."""
+    input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
+    mounts = mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir)
+
+    create_fake_jpeg(input_dir / "photo.jpg", "red")
+    first = run_container(
+        mounts=mounts,
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+    assert first.returncode == 0
+
+    create_fake_jpeg(input_dir / "photo.jpg", "blue")
+    incoming_bytes = (input_dir / "photo.jpg").read_bytes()
+    second = run_container(
+        mounts=mounts,
+        args=["--from-input", "--log-level", "debug"],
+        capture_output=True,
+    )
+
+    assert second.returncode == 1
+    assert "Collision, not a duplicate" in second.stdout
+    moved_candidates = [
+        path for path in errors_dir.glob("photo*.jpg")
+        if path.read_bytes() == incoming_bytes
+    ]
+    assert moved_candidates, "Collision source was not preserved in /errors"
+
+
+def test_fail_policy_preserves_verified_duplicate_and_returns_nonzero(
+    tmp_path: Path,
+) -> None:
+    """The strict duplicate policy fails without moving or deleting the source."""
+    input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
+    mounts = mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir)
+
+    create_fake_jpeg(input_dir / "photo.jpg", "green")
+    first = run_container(
+        mounts=mounts,
+        args=["--from-input"],
+        capture_output=True,
+    )
+    assert first.returncode == 0
+
+    create_fake_jpeg(input_dir / "photo.jpg", "green")
+    incoming_bytes = (input_dir / "photo.jpg").read_bytes()
+    second = run_container(
+        mounts=mounts,
+        args=["--from-input", "--on-duplicate", "fail"],
+        capture_output=True,
+    )
+
+    assert second.returncode == 1
+    assert "Verified duplicate rejected" in second.stdout
+    assert (input_dir / "photo.jpg").read_bytes() == incoming_bytes
+    assert not list(errors_dir.glob("photo*.jpg"))
+
+
+def test_unsafe_existing_output_keeps_source_and_batch_continues(
+    tmp_path: Path,
+) -> None:
+    """An unsafe destination fails closed without blocking unrelated files."""
+    input_dir, output_dir, processed_dir, errors_dir = prepare_common_dirs(tmp_path)
+    mounts = mounts_with_errors(input_dir, output_dir, processed_dir, errors_dir)
+
+    create_fake_jpeg(input_dir / "unsafe.jpg", "red")
+    create_fake_jpeg(input_dir / "safe.jpg", "blue")
+    unsafe_source_bytes = (input_dir / "unsafe.jpg").read_bytes()
+    unsafe_output_bytes = b"not-an-audited-jpeg"
+    (output_dir / "unsafe.jpg").write_bytes(unsafe_output_bytes)
+
+    result = run_container(
+        mounts=mounts,
+        args=["--from-input"],
+        capture_output=True,
+    )
+
+    assert result.returncode == 1
+    assert "Existing output failed privacy audit" in result.stdout
+    assert (output_dir / "unsafe.jpg").read_bytes() == unsafe_output_bytes
+    assert (input_dir / "unsafe.jpg").read_bytes() == unsafe_source_bytes
+    assert (output_dir / "safe.jpg").is_file()
+    assert (processed_dir / "safe.jpg").is_file()

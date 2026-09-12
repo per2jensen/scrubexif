@@ -1,12 +1,30 @@
 # Changelog
 
-## 0.7.26 - not released
+## 0.7.27 - 2026-09-12
+
+### Added
+
+- Every completed JPEG is now independently parsed against the active normal or paranoia metadata policy before publication.
+- Release testing now has an explicit fail-closed privacy gate covering malformed metadata, silent pipeline failures, duplicates, collisions, and corrupted input.
+
+### Changed
+
+- Scrub and ICC intermediates now stay outside the output directory; only independently audited bytes enter a hidden destination staging file before atomic publication.
+- Verified duplicates now move to `errors/` by default. Strict `--on-duplicate fail` retains the source and returns nonzero; explicit `delete` acts only after output audit and byte-identity verification.
+
+#### Fixed
+
+- Same-name files with different scrubbed content are now preserved in `errors/`, reported as collisions, and make the run fail; they are never treated as duplicates.
+- Existing outputs that fail the privacy audit are left untouched, while the incoming source remains in `input/` and the run fails closed.
+- ExifTool warnings, unexpected tag keys, invalid tag values, write-back warnings, and non-allowlisted output metadata now fail the scrub instead of being accepted silently.
+
+## 0.7.26 - 2026-08-01
 
 ### Added
 
 - Docker integration coverage now executes successful, conflicting, and resource-limited rename plans through the packaged CLI.
 - Private real-photo coverage now verifies exact EXIF and ICC preservation, complete privacy stripping, embedded-image removal, rendered pixels, container batching, and byte-for-byte idempotency.
-- A fail-closed standard-library JPEG/TIFF/ICC auditor now cross-checks ExifTool on real photos and rejects malformed marker, IFD, and ICC structures.
+- A fail-closed standard-library JPEG/TIFF/XMP/ICC auditor now cross-checks ExifTool on real photos and rejects malformed marker, IFD, XMP, and ICC structures.
 - Corrupted-input coverage now uses deterministic invalid JPEGs and verifies exact outputs, archive integrity, diagnostics, and summary counters.
 
 ### Changed

@@ -46,6 +46,13 @@ REFRESH_CONTROLLER_TESTS := \
 	tests/test_security_tool_versions.py \
 	tests/test_update_build_log.py
 
+PRIVACY_GATE_TESTS := \
+	tests/test_jpeg_audit.py \
+	tests/test_jpegtran.py \
+	tests/test_scrub_file_behavior.py \
+	tests/test_duplicate_handling.py \
+	tests/test_corrupted_inputs.py
+
 export SCRUBEXIF_STABLE_SECONDS ?= 0
 export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
 
@@ -222,6 +229,9 @@ test-release: check_version
 	@echo "🧪 Running test suite against image: $(FINAL_IMAGE_NAME):$(FINAL_VERSION)"
 	cd "$(SOURCE_DIR)" && \
 		SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest
+	@echo "🛡️  Running required fail-closed privacy gate"
+	cd "$(SOURCE_DIR)" && \
+		SCRUBEXIF_IMAGE=$(FINAL_IMAGE_NAME):$(FINAL_VERSION) PYTHONPATH=. pytest -q $(PRIVACY_GATE_TESTS)
 
 
 

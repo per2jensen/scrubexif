@@ -8,7 +8,12 @@ from fractions import Fraction
 
 import pytest
 
-from tests._jpeg_audit import audit_jpeg_bytes, normal_mode_violations
+from scrubexif.jpeg_audit import (
+    audit_jpeg_bytes,
+    normal_mode_violations,
+    paranoia_mode_violations,
+    scrubbed_output_violations,
+)
 
 
 def _segment(marker: int, payload: bytes) -> bytes:
@@ -208,6 +213,65 @@ def test_audit_big_endian_exif_valid_input_decodes_approved_value() -> None:
 
     assert normal_mode_violations(audit) == ()
     assert audit.approved_tag_values() == {"Orientation": (Fraction(8),)}
+
+
+def test_paranoia_policy_rejects_metadata_allowed_by_normal_mode() -> None:
+    """Paranoia rejects approved EXIF and ICC that normal mode permits."""
+    exif = _segment(0xE1, _allowed_exif_payload())
+    icc = _segment(0xE2, b"ICC_PROFILE\x00\x01\x01profile")
+    audit = audit_jpeg_bytes(_jpeg(exif, icc))
+
+    assert normal_mode_violations(audit) == ()
+    violations = paranoia_mode_violations(audit)
+    assert any("EXIF segments" in violation for violation in violations)
+    assert "ICC profile" in violations
+
+
+def test_requested_xmp_stamp_policy_rejects_unapproved_content() -> None:
+    """Requesting a stamp never permits arbitrary pre-existing XMP fields."""
+    packet_id = b"W5M0MpCehiHzreSzNTczkc9d"
+    xmp = _segment(
+        0xE1,
+        b"http://ns.adobe.com/xap/1.0/\x00"
+        b"<?xpacket begin='\xef\xbb\xbf' id='" + packet_id + b"'?>"
+        b"<x:xmpmeta xmlns:x='adobe:ns:meta/' "
+        b"x:xmptk='Image::ExifTool 12.76'><private>GPS secret</private>"
+        b"</x:xmpmeta><?xpacket end='w'?>",
+    )
+    audit = audit_jpeg_bytes(_jpeg(xmp))
+
+    violations = scrubbed_output_violations(
+        audit,
+        paranoia=False,
+        copyright_text=None,
+        comment_text="expected",
+    )
+
+    assert any("rdf:RDF" in violation for violation in violations)
+
+
+def test_requested_xmp_stamp_policy_rejects_hidden_processing_instruction() -> None:
+    """Arbitrary processing instructions cannot hide text in approved XMP."""
+    packet_id = b"W5M0MpCehiHzreSzNTczkc9d"
+    xmp = _segment(
+        0xE1,
+        b"http://ns.adobe.com/xap/1.0/\x00"
+        b"<?xpacket begin='\xef\xbb\xbf' id='" + packet_id + b"'?>"
+        b"<?private gps-secret?>"
+        b"<x:xmpmeta xmlns:x='adobe:ns:meta/' "
+        b"x:xmptk='Image::ExifTool 12.76'></x:xmpmeta>"
+        b"<?xpacket end='w'?>",
+    )
+    audit = audit_jpeg_bytes(_jpeg(xmp))
+
+    violations = scrubbed_output_violations(
+        audit,
+        paranoia=False,
+        copyright_text=None,
+        comment_text="expected",
+    )
+
+    assert any("processing instruction" in violation for violation in violations)
 
 
 def test_audit_forbidden_metadata_present_reports_every_category() -> None:

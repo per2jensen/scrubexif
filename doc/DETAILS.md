@@ -305,11 +305,12 @@ VERSION=latest; docker run -it --rm \
 
 Scrubs everything in a predefined input directory and saves output to another — useful for batch processing.
 
-You **must** mount three volumes:
+You **must** mount four volumes when using the default duplicate policy:
 
 - `/photos/input` — input directory (e.g. `$PWD/input`)
 - `/photos/output` — scrubbed files saved here
 - `/photos/processed` — originals are moved here (or deleted if `--delete-original` is used)
+- `/photos/errors` — verified duplicates and same-name content collisions are preserved here
 - Any file ExifTool cannot scrub (e.g. corrupted JPEG) is logged and moved to `/photos/processed` so it does not loop
 
 Moves into `/photos/processed` and `/photos/errors` use collision-safe archival.
@@ -336,20 +337,37 @@ VERSION=latest; docker run -it --rm \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
+  -v "$PWD/errors:/photos/errors" \
   per2jensen/scrubexif:$VERSION --from-input
 ```
 
 #### Duplicate Handling
 
-By default, if a file with the same name already exists in the output folder, it is treated as a **duplicate**:
+The filename alone never establishes that an upload is a duplicate. When the
+destination name already exists, scrubexif first audits the existing output,
+scrubs the incoming source in private staging, audits that result, and compares
+the two audited byte streams by SHA-256:
 
-- `--on-duplicate delete` (default): Skips scrubbing and deletes the original from input.
-- `--on-duplicate move`: Moves the duplicate file to `/photos/errors` for inspection.
+- **Verified duplicate (identical audited bytes):** `--on-duplicate move` is the
+  default and preserves the incoming original in `/photos/errors`. The run
+  succeeds. `--on-duplicate delete` must be selected explicitly and deletes the
+  source only after verification. `--on-duplicate fail` leaves the source in
+  input and returns nonzero for users who prefer that stricter behavior.
+- **Same filename, different content:** the default `move` policy preserves the
+  incoming original in `/photos/errors`, reports a collision—not a duplicate—and
+  returns a nonzero final status. With `delete`, scrubexif does not delete a
+  non-duplicate; it leaves the source in input and returns nonzero.
+- **Existing output fails audit:** scrubexif stops processing that file
+  fail-closed. It does not trust, replace, or modify the existing output, and it
+  leaves the incoming source in `/photos/input`. Other batch files may continue,
+  but the final status is nonzero.
 
-This ensures output is not overwritten and prevents silently skipping files.
+The `/photos/errors` mount is therefore required for the default `move` action.
+If preserving a duplicate or collision there fails, the source stays in input
+and the run reports an error.
 
 ```bash
-# Move duplicates to /photos/errors instead of deleting
+# Preserve verified duplicates and collisions in /photos/errors (the default)
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
 RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
 if [ "$RUN_AS_UID" -eq 0 ]; then
@@ -366,7 +384,7 @@ docker run --read-only --security-opt no-new-privileges \
   scrubexif:dev --from-input --on-duplicate move
 ```
 
-📌 **Observe** the `-v "$PWD/errors:/photos/errors"` volume specification needed for the `--on-duplicate move` option.
+📌 **Observe** the `-v "$PWD/errors:/photos/errors"` volume specification needed for the default `--on-duplicate move` policy.
 
 ## Options
 
@@ -375,7 +393,7 @@ docker run --read-only --security-opt no-new-privileges \
 - `--output PATH` — override output directory in default safe mode (not allowed with `--from-input` or `--clean-inline`)
 - `--rename FORMAT` — rename output files using a format string; see [Filename sanitisation](#filename-sanitisation---rename) and [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
 - `-q`, `--quiet` — suppress all output on success
-- `--on-duplicate {delete|move}` - delete or move a duplicate
+- `--on-duplicate {move|fail|delete}` - move verified duplicates by default, fail while retaining the source, or explicitly delete only after verification
 - `--dry-run` - show what would be scrubbed, but don’t write files
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
@@ -396,16 +414,22 @@ docker run --read-only --security-opt no-new-privileges \
 ## Exit status
 
 Exit status `0` means the run completed without scrub or post-processing
-errors. Exit status `1` is returned when any file fails to scrub, a preview
-fails, a destination conflict cannot be resolved, or an original cannot be
-archived/deleted safely. Expected skips and successfully handled duplicates are
-not errors. With `--quiet`, successful output is suppressed; on failure, the
-buffered diagnostics and final summary are written to standard error.
+errors. Exit status `1` is returned when any file fails to scrub or audit, a
+preview fails, a same-name file has different content, an existing output fails
+audit, a destination conflict cannot be resolved, or an original cannot be
+archived/deleted safely. Expected skips and verified duplicates handled by the
+selected policy are not errors. With `--quiet`, successful output is
+suppressed; on failure, the buffered diagnostics and final summary are written
+to standard error.
 
-Writable-directory probes, state updates, scrub outputs, previews, and archive
-copies reserve fresh temporary files with exclusive creation. They do not reuse
-fixed filenames, and cleanup only removes temporary paths owned by the current
-operation.
+The scrub pipeline and ICC extraction run in a fresh private system temporary
+directory outside the output folder. The completed JPEG is independently parsed
+against the active normal or paranoia policy before any of its bytes enter the
+output folder. Only audited bytes are copied to a fresh, exclusively created
+`.part` file on the destination filesystem, verified again by digest, and
+atomically published. Writable-directory probes, state updates, previews, and
+archive copies likewise reserve operation-owned temporary files and clean up
+only those paths.
 
 ## Environment variables
 
@@ -413,7 +437,7 @@ operation.
 |---------|--------|
 | `ALLOW_ROOT` | Permit execution as root (must be `1`) |
 | `SCRUBEXIF_AUTOBUILD` | Auto-build `scrubexif:dev` on first test run when running pytest |
-| `SCRUBEXIF_ON_DUPLICATE` | Default duplicate policy (`delete`/`move`) for auto mode |
+| `SCRUBEXIF_ON_DUPLICATE` | Duplicate policy (`move`/`fail`/`delete`) for auto mode; default `move` |
 | `SCRUBEXIF_STABLE_SECONDS` | Default stability window before scrubbing |
 | `SCRUBEXIF_STATE` | Path to persistent mtime state tracking (supports CLI override) |
 
@@ -1232,7 +1256,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--from-input` | Auto mode. Reads `/photos/input`, writes to `/photos/output`, and moves originals to `/photos/processed` (or deletes with `--delete-original`). |
 | `--log-level {debug,info,warn,error,crit}` | Set log verbosity (default: `info`). |
 | `--max-files N` | Limit number of eligible files scrubbed in the current run. |
-| `--on-duplicate {delete,move}` | Auto/default mode duplicate handling. `delete` removes input; `move` sends duplicates to `/photos/errors`. |
+| `--on-duplicate {move,fail,delete}` | Auto-mode policy for verified duplicates. Default `move` preserves them in `/photos/errors`; `fail` leaves the source in input and returns nonzero; explicit `delete` removes it only after output audit and byte-identity verification. Same-name different content is always a nonzero collision. |
 | `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
 | `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |
 | `--preview` | Preview scrub effect on one file without modifying it (implies `--dry-run` + `--show-tags both`). |

@@ -9,6 +9,7 @@ Designed for photographers who want to preserve camera details
 
 import argparse
 import contextlib
+import hashlib
 import io
 import itertools
 import json
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from .__about__ import __license__, __version__
+from .jpeg_audit import audit_jpeg, scrubbed_output_violations
 from .renaming import validate_rename_format
 from .rename_planner import (
     DEFAULT_MAX_PLAN_BYTES,
@@ -59,7 +61,9 @@ class ScrubResult:
     ):
         self.input_path = input_path
         self.output_path = output_path
-        self.status = status  # scrubbed, scrubbed_with_error, skipped, duplicate, conflict, error
+        # scrubbed, scrubbed_with_error, skipped, duplicate, collision,
+        # unsafe_output, duplicate_failed, conflict, error
+        self.status = status
         self.error_message = error_message
         self.duplicate_path = duplicate_path
 
@@ -98,7 +102,7 @@ class ScrubSummary:
                     self.duplicates_moved += 1
                 else:
                     self.duplicates_deleted += 1
-            case "conflict" | "error":
+            case "collision" | "unsafe_output" | "duplicate_failed" | "conflict" | "error":
                 self.errors += 1
 
     def print(self):
@@ -729,10 +733,34 @@ def extract_wanted_tags(input_path: Path) -> dict[str, object]:
         raise RuntimeError(
             f"exiftool tag extraction failed: {result.stderr.strip()}"
         )
-    data = json.loads(result.stdout)
+    if result.stderr.strip():
+        raise RuntimeError(
+            f"exiftool tag extraction emitted a warning: {result.stderr.strip()}"
+        )
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("exiftool tag extraction returned invalid JSON") from exc
     if not data:
         return {}
-    return {k: v for k, v in data[0].items() if k != "SourceFile"}
+    if len(data) != 1 or not isinstance(data[0], dict):
+        raise RuntimeError("exiftool tag extraction returned an unexpected JSON structure")
+
+    requested_tags = set(TAGS_TO_EXTRACT)
+    extracted = {k: v for k, v in data[0].items() if k != "SourceFile"}
+    unexpected_tags = sorted(set(extracted) - requested_tags)
+    if unexpected_tags:
+        raise RuntimeError(
+            "exiftool tag extraction returned unexpected keys: "
+            + ", ".join(unexpected_tags)
+        )
+    for tag, value in extracted.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise RuntimeError(
+                f"exiftool tag extraction returned an invalid value for {tag}: "
+                f"{type(value).__name__}"
+            )
+    return extracted
 
 
 def extract_icc_profile(input_path: Path, icc_path: Path) -> bool:
@@ -761,6 +789,12 @@ def extract_icc_profile(input_path: Path, icc_path: Path) -> bool:
         icc_path.unlink(missing_ok=True)
         raise RuntimeError(
             f"exiftool ICC extraction failed: "
+            f"{result.stderr.decode(errors='replace').strip()}"
+        )
+    if result.stderr.strip():
+        icc_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "exiftool ICC extraction emitted a warning: "
             f"{result.stderr.decode(errors='replace').strip()}"
         )
     if not icc_path.exists() or icc_path.stat().st_size == 0:
@@ -826,7 +860,7 @@ def build_tag_writeback_cmd(
     """
     # -n: write raw numeric values; without it exiftool mis-applies inverse
     # print-conversion on integer tags (e.g. Orientation=1 stores as 3).
-    cmd = ["exiftool", "-overwrite_original", "-P", "-m", "-n"]
+    cmd = ["exiftool", "-overwrite_original", "-P", "-n"]
     if icc_path is not None:
         cmd.append(f"-icc_profile<={icc_path.absolute()}")
     for tag, value in tags.items():
@@ -906,6 +940,10 @@ def _do_scrub_pipeline(
                 raise RuntimeError(
                     f"exiftool write-back failed: {wb_result.stderr.strip()}"
                 )
+            if wb_result.stderr.strip():
+                raise RuntimeError(
+                    f"exiftool write-back emitted a warning: {wb_result.stderr.strip()}"
+                )
     finally:
         if icc_tmp is not None:
             icc_tmp.unlink(missing_ok=True)
@@ -953,6 +991,151 @@ def _create_temp_output(dir_path: Path, suffix: str) -> Path:
     )
     os.close(descriptor)
     return Path(raw_path)
+
+
+def _audit_scrubbed_output(
+    output_path: Path,
+    paranoia: bool,
+    copyright_text: str | None,
+    comment_text: str | None,
+) -> str:
+    """Validate a completed JPEG and return its SHA-256 digest.
+
+    Args:
+        output_path: Completed private staging JPEG.
+        paranoia: Whether the zero-metadata policy applies.
+        copyright_text: Requested copyright stamp, if any.
+        comment_text: Requested comment stamp, if any.
+
+    Returns:
+        Hexadecimal SHA-256 digest of the audited bytes.
+
+    Raises:
+        RuntimeError: If parsing fails or the JPEG violates its scrub policy.
+        ValueError: If arguments are invalid.
+    """
+    if not isinstance(output_path, Path):
+        raise ValueError("output_path must be a pathlib.Path")
+    try:
+        audit = audit_jpeg(output_path)
+        violations = scrubbed_output_violations(
+            audit,
+            paranoia=paranoia,
+            copyright_text=(
+                _truncate_utf8("Copyright notice", copyright_text, MAX_COPYRIGHT_BYTES)
+                if copyright_text is not None
+                else None
+            ),
+            comment_text=(
+                _truncate_utf8("Comment", comment_text, MAX_COMMENT_BYTES)
+                if comment_text is not None
+                else None
+            ),
+        )
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(f"Independent output audit could not parse JPEG: {exc}") from exc
+    if violations:
+        raise RuntimeError(
+            "Independent output audit rejected JPEG: " + "; ".join(violations)
+        )
+    return _sha256_file(output_path)
+
+
+def _sha256_file(path: Path) -> str:
+    """Calculate a file's SHA-256 digest without loading it all into memory.
+
+    Args:
+        path: Existing regular file to hash.
+
+    Returns:
+        Lowercase hexadecimal SHA-256 digest.
+
+    Raises:
+        OSError: If the file cannot be read.
+        ValueError: If path is invalid.
+    """
+    if not isinstance(path, Path) or not path.is_file():
+        raise ValueError("path must be an existing regular file")
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _copy_audited_output_to_destination(
+    staged_output: Path,
+    destination_directory: Path,
+    expected_digest: str,
+) -> Path:
+    """Copy audited bytes into a durable destination-filesystem staging file.
+
+    Only bytes from a previously audited private staging file enter the output
+    directory. The returned ``.part`` file is ready for atomic publication.
+
+    Args:
+        staged_output: Privately staged and audited JPEG.
+        destination_directory: Directory containing the final destination.
+        expected_digest: SHA-256 digest calculated immediately after auditing.
+
+    Returns:
+        Owned temporary path on the destination filesystem.
+
+    Raises:
+        RuntimeError: If the copied bytes do not match the audited bytes.
+        OSError: If staging, copying, or cleanup fails.
+        ValueError: If arguments are invalid.
+    """
+    if not isinstance(staged_output, Path) or not staged_output.is_file():
+        raise ValueError("staged_output must be an existing regular file")
+    if not isinstance(destination_directory, Path) or not destination_directory.is_dir():
+        raise ValueError("destination_directory must be an existing directory")
+    if (
+        not isinstance(expected_digest, str)
+        or len(expected_digest) != 64
+        or any(character not in "0123456789abcdef" for character in expected_digest)
+    ):
+        raise ValueError("expected_digest must be a SHA-256 hexadecimal digest")
+
+    descriptor: int | None = None
+    temporary_path: Path | None = None
+    try:
+        descriptor, raw_path = tempfile.mkstemp(
+            dir=destination_directory,
+            prefix=".scrubexif_publish_",
+            suffix=".part",
+        )
+        temporary_path = Path(raw_path)
+        with staged_output.open("rb") as source, os.fdopen(descriptor, "wb") as target:
+            descriptor = None
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+            target.flush()
+            os.fsync(target.fileno())
+        actual_digest = _sha256_file(temporary_path)
+        if actual_digest != expected_digest:
+            raise RuntimeError(
+                "Destination staging digest differs from the independently audited JPEG"
+            )
+        return temporary_path
+    except (OSError, RuntimeError, ValueError):
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError as exc:
+                log.warning(
+                    "Failed to close destination staging descriptor: %s",
+                    exc,
+                )
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning(
+                    "Failed to remove destination staging file %s: %s",
+                    temporary_path,
+                    exc,
+                )
+        raise
 
 
 def _publish_no_clobber(temp_output: Path, destination: Path) -> None:
@@ -1152,7 +1335,7 @@ def scrub_file(
     dry_run=False,
     show_tags_mode: str | None = None,
     paranoia: bool = True,
-    on_duplicate: str = "delete",
+    on_duplicate: str = "move",
     copyright_text: str | None = None,
     comment_text: str | None = None,
     rename_format: str | None = None,
@@ -1160,6 +1343,10 @@ def scrub_file(
     planned_rename_path: Path | None = None,
     rename_destination_allocator: Callable[[Path], Path] | None = None,
 ) -> ScrubResult:
+    if on_duplicate not in {"move", "fail", "delete", "skip"}:
+        raise ValueError(
+            "on_duplicate must be one of: move, fail, delete, skip"
+        )
     print(f"scrub_file: input={_format_path_with_host(input_path)}, output={_format_path_with_host(output_path) if output_path else None}")
 
     # Resolve rename stem before the scrub pipeline runs so that EXIF tags
@@ -1318,56 +1505,23 @@ def scrub_file(
             error_message=msg,
         )
 
-    # duplicates
-    if os.path.lexists(output_file) and input_path.absolute() != output_file.absolute():
+    existing_destination = (
+        os.path.lexists(output_file)
+        and input_path.absolute() != output_file.absolute()
+    )
+    if existing_destination:
         print(
-            "⚠️ Duplicate logic triggered: "
+            "⚠️ Existing destination requires privacy audit and content comparison: "
             f"input={_format_path_with_host(input_path)}, "
             f"output={_format_path_with_host(output_file)}"
         )
 
         if dry_run:
-            print(f"🚫 [dry-run] Would detect duplicate: {_format_path_with_host(output_file)}")
-            return ScrubResult(input_path, output_file, status="duplicate")
-
-        if on_duplicate == "skip":
-            print(f"⏭️  Output already exists — skipping (original untouched): {_format_path_with_host(input_path)}")
-            return ScrubResult(input_path, output_file, status="skipped")
-
-        elif on_duplicate == "delete":
-            print(f"🗑️  Duplicate detected — deleting {_format_path_with_host(input_path)}")
-            try:
-                input_path.unlink(missing_ok=True)
-            except OSError as exc:
-                err_msg = f"Could not delete duplicate safely: {exc}"
-                print(f"❌ {err_msg}")
-                return ScrubResult(
-                    input_path,
-                    output_file,
-                    status="error",
-                    error_message=err_msg,
-                )
-            return ScrubResult(input_path, output_file, status="duplicate")
-
-        elif on_duplicate == "move":
-            try:
-                target = _archive_no_clobber(input_path, ERRORS_DIR)
-            except (ArchiveError, ValueError) as exc:
-                err_msg = f"Could not archive duplicate safely: {exc}"
-                print(f"❌ {err_msg}")
-                return ScrubResult(
-                    input_path,
-                    output_file,
-                    status="error",
-                    error_message=err_msg,
-                )
-            print(f"📦 Moved duplicate to: {_format_path_with_host(target)}")
-            return ScrubResult(
-                input_path,
-                output_file,
-                status="duplicate",
-                duplicate_path=target,
+            print(
+                "🔍 [dry-run] Would audit and compare existing destination: "
+                f"{_format_path_with_host(output_file)}"
             )
+            return ScrubResult(input_path, output_file, status="duplicate")
 
     # dry-run
     if dry_run:
@@ -1382,59 +1536,156 @@ def scrub_file(
             print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
         return ScrubResult(input_path, output_file, status="scrubbed")
 
-    # exiftool command
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
-    try:
-        temp_output = _create_temp_output(
-            input_path.parent if in_place else output_file.parent,
-            input_path.suffix,
-        )
-    except Exception as exc:
-        err_msg = str(exc)
-        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
-        return ScrubResult(
-            input_path=input_path,
-            output_path=output_file,
-            status="error",
-            error_message=err_msg
-        )
     if show_tags_mode in {"before", "both"}:
         print_tags(input_path, label="before")
 
+    destination_temp: Path | None = None
     try:
-        _do_scrub_pipeline(
-            input_path,
-            temp_output,
-            paranoia=paranoia,
-            copyright_text=copyright_text,
-            comment_text=comment_text,
-        )
-    except RuntimeError as exc:
-        temp_output.unlink(missing_ok=True)
-        err_msg = str(exc)
-        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
-        return ScrubResult(
-            input_path=input_path,
-            output_path=output_file,
-            status="error",
-            error_message=err_msg,
-        )
+        existing_digest: str | None = None
+        if existing_destination:
+            try:
+                existing_digest = _audit_scrubbed_output(
+                    output_file,
+                    paranoia,
+                    copyright_text,
+                    comment_text,
+                )
+            except (RuntimeError, ValueError) as exc:
+                err_msg = f"Existing output failed privacy audit: {exc}"
+                print(f"❌ {err_msg}: {_format_path_with_host(output_file)}")
+                print(
+                    "🛡️ Incoming source left untouched: "
+                    f"{_format_path_with_host(input_path)}"
+                )
+                return ScrubResult(
+                    input_path,
+                    output_file,
+                    status="unsafe_output",
+                    error_message=err_msg,
+                )
 
-    if not temp_output.exists():
-        err_msg = "Temp output missing after scrub"
-        print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
-        return ScrubResult(
-            input_path=input_path,
-            output_path=output_file,
-            status="error",
-            error_message=err_msg
-        )
+        with tempfile.TemporaryDirectory(prefix="scrubexif_operation_") as operation_dir:
+            staged_output = Path(operation_dir) / f"scrubbed{input_path.suffix}"
+            _do_scrub_pipeline(
+                input_path,
+                staged_output,
+                paranoia=paranoia,
+                copyright_text=copyright_text,
+                comment_text=comment_text,
+            )
+            staged_digest = _audit_scrubbed_output(
+                staged_output,
+                paranoia,
+                copyright_text,
+                comment_text,
+            )
 
-    try:
+            if existing_digest is not None:
+                if staged_digest == existing_digest:
+                    if on_duplicate == "fail":
+                        err_msg = (
+                            "Verified duplicate rejected by --on-duplicate fail; "
+                            "incoming original left untouched"
+                        )
+                        print(
+                            f"❌ {err_msg}: "
+                            f"{_format_path_with_host(input_path)}"
+                        )
+                        return ScrubResult(
+                            input_path,
+                            output_file,
+                            status="duplicate_failed",
+                            error_message=err_msg,
+                        )
+                    if on_duplicate == "skip":
+                        print(
+                            "⏭️ Verified duplicate — existing output passed audit; "
+                            f"original untouched: {_format_path_with_host(input_path)}"
+                        )
+                        return ScrubResult(input_path, output_file, status="skipped")
+                    if on_duplicate == "delete":
+                        print(
+                            "🗑️ Verified duplicate — deleting explicitly configured source: "
+                            f"{_format_path_with_host(input_path)}"
+                        )
+                        input_path.unlink()
+                        return ScrubResult(input_path, output_file, status="duplicate")
+                    if on_duplicate == "move":
+                        try:
+                            target = _archive_no_clobber(input_path, ERRORS_DIR)
+                        except (ArchiveError, ValueError) as exc:
+                            err_msg = f"Verified duplicate could not be moved safely: {exc}"
+                            print(f"❌ {err_msg}")
+                            return ScrubResult(
+                                input_path,
+                                output_file,
+                                status="conflict",
+                                error_message=err_msg,
+                            )
+                        print(
+                            "📦 Verified duplicate moved to: "
+                            f"{_format_path_with_host(target)}"
+                        )
+                        return ScrubResult(
+                            input_path,
+                            output_file,
+                            status="duplicate",
+                            duplicate_path=target,
+                        )
+                    raise ValueError(f"Unsupported duplicate policy: {on_duplicate}")
+
+                if on_duplicate == "move":
+                    try:
+                        target = _archive_no_clobber(input_path, ERRORS_DIR)
+                    except (ArchiveError, ValueError) as exc:
+                        err_msg = f"Collision source could not be moved safely: {exc}"
+                        print(f"❌ {err_msg}")
+                        return ScrubResult(
+                            input_path,
+                            output_file,
+                            status="collision",
+                            error_message=err_msg,
+                        )
+                    err_msg = (
+                        "Same filename has different content; incoming original moved "
+                        f"to {_format_path_with_host(target)}"
+                    )
+                    print(
+                        f"❌ Collision, not a duplicate: {_format_path_with_host(output_file)}"
+                    )
+                    print(f"📦 {err_msg}")
+                    return ScrubResult(
+                        input_path,
+                        output_file,
+                        status="collision",
+                        error_message=err_msg,
+                        duplicate_path=target,
+                    )
+
+                err_msg = "Same filename has different content; original left untouched"
+                print(
+                    f"❌ Collision, not a duplicate: {_format_path_with_host(output_file)}"
+                )
+                return ScrubResult(
+                    input_path,
+                    output_file,
+                    status="collision",
+                    error_message=err_msg,
+                )
+
+            destination_directory = input_path.parent if in_place else output_file.parent
+            destination_temp = _copy_audited_output_to_destination(
+                staged_output,
+                destination_directory,
+                staged_digest,
+            )
+
         if (in_place and output_file.absolute() != input_path.absolute()) or not in_place:
             while True:
                 try:
-                    _publish_no_clobber(temp_output, output_file)
+                    _publish_no_clobber(destination_temp, output_file)
+                    destination_temp = None
                     break
                 except FileExistsError:
                     if not rename_requested:
@@ -1442,9 +1693,9 @@ def scrub_file(
                     output_file = reassign_late_destination(output_file)
                     rename_stem = output_file.stem
         elif in_place:
-            os.replace(temp_output, input_path)
+            os.replace(destination_temp, input_path)
+            destination_temp = None
     except RenamePlanningError as exc:
-        temp_output.unlink(missing_ok=True)
         err_msg = str(exc)
         print(f"❌ Rename conflict for {_format_path_with_host(input_path)}: {err_msg}")
         return ScrubResult(
@@ -1454,7 +1705,6 @@ def scrub_file(
             error_message=err_msg,
         )
     except FileExistsError:
-        temp_output.unlink(missing_ok=True)
         err_msg = "Destination appeared during scrub; refusing to overwrite"
         print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
         return ScrubResult(
@@ -1464,7 +1714,6 @@ def scrub_file(
             error_message=err_msg,
         )
     except Exception as exc:
-        temp_output.unlink(missing_ok=True)
         err_msg = str(exc)
         print(f"❌ Failed to scrub {_format_path_with_host(input_path)}: {err_msg}")
         return ScrubResult(
@@ -1473,6 +1722,16 @@ def scrub_file(
             status="error",
             error_message=err_msg
         )
+    finally:
+        if destination_temp is not None:
+            try:
+                destination_temp.unlink(missing_ok=True)
+            except OSError as exc:
+                log.error(
+                    "Failed to remove destination staging file %s: %s",
+                    destination_temp,
+                    exc,
+                )
 
     if show_tags_mode in {"after", "both"}:
         print_tags(output_file, label="after")
@@ -1644,6 +1903,28 @@ def _finalize_auto_result(
             f"⚠️ Scrub output was created for {_format_path_with_host(file)}, "
             "but source post-processing failed; leaving the source in place"
         )
+    elif result.status == "unsafe_output":
+        print(
+            f"🛡️ Existing output is unsafe for {_format_path_with_host(file)}; "
+            "leaving the incoming source in place"
+        )
+    elif result.status == "collision":
+        if result.duplicate_path is not None:
+            print(
+                f"⚠️ Filename collision for {_format_path_with_host(file)}; "
+                f"incoming original preserved at "
+                f"{_format_path_with_host(result.duplicate_path)}"
+            )
+        else:
+            print(
+                f"⚠️ Filename collision for {_format_path_with_host(file)}; "
+                "leaving the incoming source in place"
+            )
+    elif result.status == "duplicate_failed":
+        print(
+            f"🛡️ Verified duplicate rejected for {_format_path_with_host(file)}; "
+            "leaving the incoming source in place"
+        )
     elif result.status == "conflict":
         print(
             f"⚠️ Rename destination conflict for {_format_path_with_host(file)}; "
@@ -1677,7 +1958,7 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                show_tags_mode: str | None = None,
                paranoia: bool = True,
                max_files: int | None = None,
-               on_duplicate: str = "delete",
+               on_duplicate: str = "move",
                stable_seconds: int = 120,
                copyright_text: str | None = None,
                comment_text: str | None = None,
@@ -2208,6 +2489,12 @@ def _preview_scrub(
             copyright_text=copyright_text,
             comment_text=comment_text,
         )
+        _audit_scrubbed_output(
+            preview_output,
+            paranoia,
+            copyright_text,
+            comment_text,
+        )
         if show_tags_mode in {"before", "both"}:
             print_tags(source_path, label="before")
         print_tags(preview_output, label="after")
@@ -2502,14 +2789,6 @@ def _run_inner(args: argparse.Namespace) -> int:
 
     summary = ScrubSummary()
 
-    if args.on_duplicate == "move":
-        try:
-            ERRORS_DIR.mkdir(parents=True, exist_ok=True)
-            check_dir_safety(ERRORS_DIR, "Errors")
-        except Exception as e:
-            print(f"❌ Failed to create errors directory: {_format_path_with_host(ERRORS_DIR)}\n{e}", file=sys.stderr)
-            sys.exit(1)
-
     if args.preview:
         args.dry_run = True
         args.show_tags = "both"
@@ -2672,9 +2951,12 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="List actions without performing them")
-    parser.add_argument("--on-duplicate", choices=["delete", "move"],
-                        default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "delete"),
-                        help="Duplicate handling in auto/default modes. 'delete' or 'move' to /photos/errors/")
+    parser.add_argument("--on-duplicate", choices=["move", "fail", "delete"],
+                        default=os.getenv("SCRUBEXIF_ON_DUPLICATE", "move"),
+                        help=("Verified duplicate handling in auto mode. "
+                              "Defaults to 'move' into /photos/errors; "
+                              "'fail' leaves the source untouched and returns nonzero; "
+                              "'delete' requires explicit selection."))
     parser.add_argument("--delete-original", action="store_true", help="Delete original after scrub (auto mode)")
     parser.add_argument("--copyright", metavar="TEXT",
                         help="Stamp a copyright notice into EXIF and XMP metadata")

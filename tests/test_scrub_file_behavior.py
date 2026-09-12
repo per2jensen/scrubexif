@@ -1,15 +1,33 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Focused unit tests for scrub_file behavior without requiring Docker."""
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
 from scrubexif import scrub
+from tests.conftest import create_fake_jpeg
 
 
-def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
-    """Ensure jpegtran receives the resolved temp output path when writing to a directory."""
+SAFE_JPEG_BYTES = (
+    b"\xff\xd8"
+    b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+    b"\x11\xff\xd9"
+)
+
+
+def test_scrub_file_rejects_unknown_duplicate_policy(tmp_path: Path) -> None:
+    """An unsupported duplicate policy is rejected before filesystem work."""
+    source = tmp_path / "source.jpg"
+    source.write_bytes(SAFE_JPEG_BYTES)
+
+    with pytest.raises(ValueError, match="on_duplicate must be one of"):
+        scrub.scrub_file(source, on_duplicate="discard")
+
+
+def test_scrub_file_stages_source_bytes_outside_output_directory(tmp_path, monkeypatch):
+    """Ensure jpegtran writes privately before audited bytes enter output."""
     input_file = tmp_path / "sample.jpg"
     input_file.write_bytes(b"jpeg-data")
     output_dir = tmp_path / "output"
@@ -21,7 +39,7 @@ def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
         commands.append(cmd)
         # Simulate jpegtran creating the output file so the pipeline proceeds.
         if "-outfile" in cmd:
-            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(b"scrubbed")
+            Path(cmd[cmd.index("-outfile") + 1]).write_bytes(SAFE_JPEG_BYTES)
 
         class Proc:
             returncode = 0
@@ -39,8 +57,11 @@ def test_scrub_file_passes_full_output_path(tmp_path, monkeypatch):
     cmd = commands[0]
     assert "-outfile" in cmd, "Expected jpegtran to receive -outfile argument"
     target = Path(cmd[cmd.index("-outfile") + 1])
-    assert target.parent == output_dir
+    assert target.parent != output_dir
     assert target != result.output_path
+    assert result.status == "scrubbed"
+    assert result.output_path.read_bytes() == SAFE_JPEG_BYTES
+    assert list(output_dir.iterdir()) == [result.output_path]
 
 
 def test_duplicate_reporting_uses_output_file(tmp_path):
@@ -101,22 +122,33 @@ def test_scrub_file_exception_does_not_create_output(tmp_path, monkeypatch):
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir())
 
 
-def test_scrub_file_skip_leaves_original_untouched(tmp_path):
+def test_scrub_file_skip_leaves_original_untouched(tmp_path, monkeypatch):
     """on_duplicate='skip': when the output already exists scrub_file must return
     status='skipped' and leave the original byte-for-byte intact."""
-    original_bytes = b"\xff\xd8\xff\xe0" + b"\x00" * 100
+    original_bytes = SAFE_JPEG_BYTES
     input_file = tmp_path / "photo.jpg"
     input_file.write_bytes(original_bytes)
     output_dir = tmp_path / "output"
     output_dir.mkdir()
     existing_output = output_dir / input_file.name
-    existing_output.write_bytes(b"previously-scrubbed")
+    existing_output.write_bytes(SAFE_JPEG_BYTES)
+
+    def fake_pipeline(
+        source_path: Path,
+        staged_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Produce byte-identical audited output for duplicate comparison."""
+        del source_path, kwargs
+        staged_path.write_bytes(SAFE_JPEG_BYTES)
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
 
     result = scrub.scrub_file(input_file, output_path=output_dir, on_duplicate="skip")
 
     assert result.status == "skipped", "Expected status='skipped' when output exists"
     assert input_file.read_bytes() == original_bytes, "Original must not be modified"
-    assert existing_output.read_bytes() == b"previously-scrubbed", "Existing output must not be overwritten"
+    assert existing_output.read_bytes() == SAFE_JPEG_BYTES, "Existing output must not be overwritten"
 
 
 def test_in_place_failure_keeps_original(tmp_path, monkeypatch):
@@ -223,8 +255,8 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
     output_directory.mkdir()
     input_file = input_directory / "photo.jpg"
     output_file = output_directory / input_file.name
-    input_file.write_bytes(b"duplicate-original")
-    output_file.write_bytes(b"existing-output")
+    input_file.write_bytes(SAFE_JPEG_BYTES)
+    output_file.write_bytes(SAFE_JPEG_BYTES)
     original_unlink = Path.unlink
 
     # Source unlink failure is an OS-level condition that cannot be induced
@@ -237,6 +269,17 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
 
     monkeypatch.setattr(Path, "unlink", fail_source_unlink)
 
+    def fake_pipeline(
+        source_path: Path,
+        staged_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Produce byte-identical audited output for duplicate comparison."""
+        del source_path, kwargs
+        staged_path.write_bytes(SAFE_JPEG_BYTES)
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
+
     result = scrub.scrub_file(
         input_file,
         output_path=output_directory,
@@ -244,8 +287,8 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
     )
 
     assert result.status == "error"
-    assert input_file.read_bytes() == b"duplicate-original"
-    assert output_file.read_bytes() == b"existing-output"
+    assert input_file.read_bytes() == SAFE_JPEG_BYTES
+    assert output_file.read_bytes() == SAFE_JPEG_BYTES
 
 
 def test_publish_no_clobber_publishes_new_destination_atomically(tmp_path: Path) -> None:
@@ -321,3 +364,192 @@ def test_auto_conflict_does_not_move_or_delete_intake_source(
     assert summary.errors == 1
     assert source.read_bytes() == b"original-source"
     assert list(processed.iterdir()) == []
+
+
+def test_silent_pipeline_privacy_failure_is_rejected_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A zero-error pipeline that returns the original JPEG cannot publish it."""
+    source = tmp_path / "source.jpg"
+    source.write_bytes((Path(__file__).parent / "assets" / "sample_with_exif.jpg").read_bytes())
+    output_directory = tmp_path / "output"
+    output_directory.mkdir()
+
+    def copy_unscrubbed_source(
+        input_path: Path,
+        output_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Simulate a dependency silently returning unscrubbed bytes."""
+        del kwargs
+        output_path.write_bytes(input_path.read_bytes())
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", copy_unscrubbed_source)
+
+    result = scrub.scrub_file(
+        source,
+        output_path=output_directory,
+        paranoia=True,
+    )
+
+    assert result.status == "error"
+    assert source.is_file()
+    assert list(output_directory.iterdir()) == []
+    assert "audit rejected" in (result.error_message or "")
+
+
+def test_existing_unsafe_output_leaves_incoming_source_in_input(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unauditable destination fails closed without moving either file."""
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    processed_directory = tmp_path / "processed"
+    for directory in (input_directory, output_directory, processed_directory):
+        directory.mkdir()
+    source = input_directory / "photo.jpg"
+    create_fake_jpeg(source, "red")
+    existing_output = output_directory / source.name
+    existing_output.write_bytes(b"unscrubbed-or-corrupt")
+    original_source = source.read_bytes()
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_directory)
+
+    result = scrub.scrub_file(source, output_path=output_directory, on_duplicate="move")
+    summary = scrub.ScrubSummary()
+    scrub._finalize_auto_result(source, result, summary, False, {})
+
+    assert result.status == "unsafe_output"
+    assert source.read_bytes() == original_source
+    assert existing_output.read_bytes() == b"unscrubbed-or-corrupt"
+    assert list(processed_directory.iterdir()) == []
+    assert summary.errors == 1
+
+
+def test_same_filename_different_content_moves_source_and_reports_collision(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A safe but different destination is a visible collision, not a duplicate."""
+    seed_directory = tmp_path / "seed"
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    errors_directory = tmp_path / "errors"
+    for directory in (seed_directory, input_directory, output_directory, errors_directory):
+        directory.mkdir()
+    seed = seed_directory / "photo.jpg"
+    create_fake_jpeg(seed, "red")
+    first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
+    assert first.status == "scrubbed"
+
+    incoming = input_directory / "photo.jpg"
+    create_fake_jpeg(incoming, "blue")
+    incoming_bytes = incoming.read_bytes()
+    existing_bytes = (output_directory / incoming.name).read_bytes()
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_directory)
+
+    result = scrub.scrub_file(
+        incoming,
+        output_path=output_directory,
+        on_duplicate="move",
+    )
+    summary = scrub.ScrubSummary()
+    summary.update(result)
+
+    assert result.status == "collision"
+    assert result.duplicate_path is not None
+    assert result.duplicate_path.read_bytes() == incoming_bytes
+    assert (output_directory / incoming.name).read_bytes() == existing_bytes
+    assert not incoming.exists()
+    assert summary.errors == 1
+
+
+def test_verified_duplicate_moves_to_errors_without_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A byte-identical audited result follows the default move policy."""
+    seed_directory = tmp_path / "seed"
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    errors_directory = tmp_path / "errors"
+    for directory in (seed_directory, input_directory, output_directory, errors_directory):
+        directory.mkdir()
+    seed = seed_directory / "photo.jpg"
+    create_fake_jpeg(seed, "green")
+    first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
+    assert first.status == "scrubbed"
+
+    incoming = input_directory / "photo.jpg"
+    incoming.write_bytes(seed.read_bytes())
+    incoming_bytes = incoming.read_bytes()
+    monkeypatch.setattr(scrub, "ERRORS_DIR", errors_directory)
+
+    result = scrub.scrub_file(
+        incoming,
+        output_path=output_directory,
+        on_duplicate="move",
+    )
+    summary = scrub.ScrubSummary()
+    summary.update(result)
+
+    assert result.status == "duplicate"
+    assert result.duplicate_path is not None
+    assert result.duplicate_path.read_bytes() == incoming_bytes
+    assert not incoming.exists()
+    assert summary.errors == 0
+    assert summary.duplicates_moved == 1
+
+
+def test_extract_wanted_tags_accepts_requested_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The extraction boundary accepts the explicitly requested allowlist."""
+    source = tmp_path / "source.jpg"
+    source.write_bytes(SAFE_JPEG_BYTES)
+
+    def return_requested_tags(
+        command: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        """Return one valid ExifTool JSON record."""
+        del kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='[{"SourceFile":"source.jpg","Orientation":1}]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(scrub.subprocess, "run", return_requested_tags)
+
+    assert scrub.extract_wanted_tags(source) == {"Orientation": 1}
+
+
+def test_extract_wanted_tags_rejects_unrequested_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected ExifTool key cannot expand the metadata allowlist."""
+    source = tmp_path / "source.jpg"
+    source.write_bytes(SAFE_JPEG_BYTES)
+
+    def return_unrequested_tag(
+        command: list[str],
+        **kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        """Simulate a zero-exit dependency returning a forbidden key."""
+        del kwargs
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout='[{"SourceFile":"source.jpg","GPSLatitude":55.0}]',
+            stderr="",
+        )
+
+    monkeypatch.setattr(scrub.subprocess, "run", return_unrequested_tag)
+
+    with pytest.raises(RuntimeError, match="unexpected keys: GPSLatitude"):
+        scrub.extract_wanted_tags(source)

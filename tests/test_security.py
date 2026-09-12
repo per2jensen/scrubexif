@@ -373,6 +373,8 @@ def test_auto_mode_scrubs_with_hardening_flags(tmp_path):
         "--read-only",
         "--security-opt",
         "no-new-privileges",
+        "--tmpfs",
+        "/tmp:rw,exec,nosuid,size=64m",
     ] + user_flag + [
         "-v",
         f"{input_dir}:/photos/input",

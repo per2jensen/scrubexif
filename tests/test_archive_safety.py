@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
+from tests.conftest import create_fake_jpeg
 
 
 def test_archive_no_clobber_uses_original_name_when_available(tmp_path: Path) -> None:
@@ -185,13 +186,17 @@ def test_auto_finalization_keeps_repeated_original_names_without_overwrite(
 def test_duplicate_move_preserves_occupied_errors_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Duplicate archival never replaces an existing errors-directory entry."""
     input_directory = tmp_path / "input"
+    seed_directory = tmp_path / "seed"
     output_directory = tmp_path / "output"
     errors_directory = tmp_path / "errors"
-    for directory in (input_directory, output_directory, errors_directory):
+    for directory in (input_directory, seed_directory, output_directory, errors_directory):
         directory.mkdir()
+    seed = seed_directory / "photo.jpg"
+    create_fake_jpeg(seed, "purple")
+    first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
+    assert first.status == "scrubbed"
     source = input_directory / "photo.jpg"
-    source.write_bytes(b"duplicate-original")
-    (output_directory / source.name).write_bytes(b"scrubbed-output")
+    source.write_bytes(seed.read_bytes())
     occupied = errors_directory / source.name
     occupied.write_bytes(b"older-duplicate")
     monkeypatch.setattr(scrub, "ERRORS_DIR", errors_directory)
@@ -206,5 +211,5 @@ def test_duplicate_move_preserves_occupied_errors_name(tmp_path: Path, monkeypat
     assert result.status == "duplicate"
     assert occupied.read_bytes() == b"older-duplicate"
     assert len(archived) == 1
-    assert archived[0].read_bytes() == b"duplicate-original"
+    assert archived[0].read_bytes() == seed.read_bytes()
     assert not source.exists()

@@ -38,7 +38,20 @@ def run_container_manual(args: list[str], mounts: list[str] = None):
     user_flag = ["--user", str(os.getuid())] if os.getuid() != 0 else []
     mounts = mounts or []
     return subprocess.run(
-        ["docker", "run", "--read-only", "--security-opt", "no-new-privileges", "--rm"] + user_flag + mounts + [IMAGE] + args,
+        [
+            "docker",
+            "run",
+            "--read-only",
+            "--security-opt",
+            "no-new-privileges",
+            "--tmpfs",
+            "/tmp:rw,exec,nosuid,size=64m",
+            "--rm",
+        ]
+        + user_flag
+        + mounts
+        + [IMAGE]
+        + args,
         capture_output=True, text=True
     )
 
