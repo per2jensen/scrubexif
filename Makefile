@@ -170,7 +170,7 @@ final: check_version validate
 		--label org.opencontainers.image.title="scrubexif" \
 		--label org.opencontainers.image.version="$(FINAL_VERSION)" \
 		--label org.opencontainers.image.ref.name="$(DOCKERHUB_REPO):$(FINAL_VERSION)" \
-		--label org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using ExifTool" \
+		--label org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using various tools" \
 		--label org.opencontainers.image.licenses="GPL-3.0-or-later" \
 		--label org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>" \
 		--label org.opencontainers.image.base.name="ubuntu" \
