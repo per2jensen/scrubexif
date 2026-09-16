@@ -45,12 +45,12 @@
       "label": "Rel. 0.7.27"
     },
     {
-      "date": "2025-12-03",
-      "label": "Daily max: 180"
+      "date": "2026-09-14",
+      "label": "Daily max: 189"
     }
   ],
-  "total_clones": 9364,
-  "unique_clones": 4443,
+  "total_clones": 9553,
+  "unique_clones": 4483,
   "daily": [
     {
       "count": 41,
@@ -2186,6 +2186,11 @@
       "timestamp": "2026-09-13T00:00:00Z",
       "count": 42,
       "uniques": 30
+    },
+    {
+      "timestamp": "2026-09-14T00:00:00Z",
+      "count": 189,
+      "uniques": 40
     }
   ]
 }
