@@ -154,6 +154,8 @@ def test_corrupted_inputs_moved_to_processed(tmp_path: Path) -> None:
         "errors": str(len(damaged_files)),
         "duplicates_deleted": "0",
         "duplicates_moved": "0",
+        "unsupported": "0",
+        "examined": str(TOTAL_IMAGES),
     }
     assert float(duration) >= 0.0
 

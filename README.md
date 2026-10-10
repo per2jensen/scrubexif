@@ -416,7 +416,9 @@ post-processing errors. A failed file, failed preview, same-name content
 collision, unsafe existing output, or unsafe archive/delete operation returns
 `1`; handled skips and verified duplicates do not. With `--quiet`, successful
 runs remain silent, while failure diagnostics and the summary are replayed to
-standard error.
+standard error. The machine-readable summary retains `total` as the number of
+JPEG candidates and adds `unsupported` plus `examined`, where
+`examined = total + unsupported`.
 
 The implementation decisions and acceptance criteria are recorded in the
 [output safety plan](doc/output-safety-plan.md).

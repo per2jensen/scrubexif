@@ -77,17 +77,38 @@ class ScrubResult:
 
 
 class ScrubSummary:
-    def __init__(self):
+    """Accumulate per-run file outcomes for human and machine reporting."""
+
+    def __init__(self) -> None:
+        """Initialize all counters for a fresh scrub operation."""
         self.total = 0
         self.scrubbed = 0
         self.skipped = 0
         self.duplicates_deleted = 0
         self.duplicates_moved = 0
         self.errors = 0
+        self.unsupported = 0
         # Track wall-clock duration of the whole run
         self.started_at = time.time()
 
-    def update(self, result: ScrubResult):
+    @property
+    def examined(self) -> int:
+        """Return the number of supported and unsupported files examined.
+
+        Returns:
+            Sum of JPEG candidates and unsupported regular files.
+        """
+        return self.total + self.unsupported
+
+    def update(self, result: ScrubResult) -> None:
+        """Add one JPEG processing result to the summary.
+
+        Args:
+            result: Completed JPEG processing result.
+
+        Returns:
+            None.
+        """
         self.total += 1
         match result.status:
             case "scrubbed":
@@ -105,13 +126,20 @@ class ScrubSummary:
             case "collision" | "unsafe_output" | "duplicate_failed" | "conflict" | "error":
                 self.errors += 1
 
-    def print(self):
+    def print(self) -> None:
+        """Print human-readable and machine-readable run summaries.
+
+        Returns:
+            None.
+        """
         duration = time.time() - self.started_at
         print("📊 Summary:")
         print(f"  Total JPEGs found        : {self.total}")
         print(f"  Successfully scrubbed    : {self.scrubbed}")
         print(f"  Skipped (unstable/temp)  : {self.skipped}")
         print(f"  Errors                   : {self.errors}")
+        print(f"  Unsupported files        : {self.unsupported}")
+        print(f"  Files examined           : {self.examined}")
         if self.duplicates_deleted:
             print(f"  Duplicates deleted       : {self.duplicates_deleted}")
         if self.duplicates_moved:
@@ -126,6 +154,8 @@ class ScrubSummary:
             f"errors={self.errors} "
             f"duplicates_deleted={self.duplicates_deleted} "
             f"duplicates_moved={self.duplicates_moved} "
+            f"unsupported={self.unsupported} "
+            f"examined={self.examined} "
             f"duration={duration:.3f}"
         )
 
@@ -1778,6 +1808,96 @@ def scrub_file(
     return ScrubResult(input_path, output_file, status="scrubbed")
 
 
+def _iter_regular_files_in_dir(
+    dir_path: Path,
+    recursive: bool = False,
+) -> Iterator[Path]:
+    """Stream non-symlink regular files from a directory.
+
+    Args:
+        dir_path: Directory to scan.
+        recursive: Whether to descend into subdirectories.
+
+    Yields:
+        Regular, non-symlink paths in filesystem traversal order.
+
+    Raises:
+        ValueError: If dir_path is not a pathlib.Path.
+    """
+    if not isinstance(dir_path, Path):
+        raise ValueError("dir_path must be a pathlib.Path")
+    if not dir_path.is_dir():
+        return
+    search_func = dir_path.rglob if recursive else dir_path.glob
+    for path in search_func("*"):
+        if path.is_symlink():
+            log.debug("Skipping symlinked file: %s", path)
+            continue
+        if path.is_file():
+            yield path
+
+
+def _count_unsupported_files_in_dir(
+    dir_path: Path,
+    recursive: bool = False,
+    exclude_pipeline_paths: bool = False,
+) -> int:
+    """Count regular files whose extensions do not declare JPEG content.
+
+    Args:
+        dir_path: Directory to scan.
+        recursive: Whether to descend into subdirectories.
+        exclude_pipeline_paths: Whether internal scrubexif paths are excluded.
+
+    Returns:
+        Number of non-JPEG regular files in scope.
+
+    Raises:
+        ValueError: If dir_path is not a pathlib.Path.
+    """
+    unsupported = 0
+    for path in _iter_regular_files_in_dir(dir_path, recursive=recursive):
+        if exclude_pipeline_paths and _is_pipeline_path(path):
+            continue
+        if path.suffix.lower() not in (".jpg", ".jpeg"):
+            unsupported += 1
+    return unsupported
+
+
+def _count_unsupported_inputs(
+    paths: Iterable[Path],
+    recursive: bool,
+    exclude_pipeline_paths: bool = False,
+) -> int:
+    """Count unsupported files from explicit file and directory inputs.
+
+    Args:
+        paths: Explicit file or directory paths.
+        recursive: Whether directory scans recurse.
+        exclude_pipeline_paths: Whether internal scrubexif paths are excluded.
+
+    Returns:
+        Number of non-JPEG regular files in scope.
+    """
+    unsupported = 0
+    for path in paths:
+        if path.is_symlink():
+            continue
+        if path.is_file():
+            if exclude_pipeline_paths and _is_pipeline_path(path):
+                continue
+            if path.suffix.lower() not in (".jpg", ".jpeg"):
+                unsupported += 1
+            continue
+        if path.is_dir():
+            unsupported += _count_unsupported_files_in_dir(
+                path,
+                recursive=recursive,
+                exclude_pipeline_paths=exclude_pipeline_paths,
+            )
+    return unsupported
+
+
 def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
     """Collect non-symlink JPEG files from a directory.
 
@@ -1804,17 +1924,9 @@ def iter_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> Iterator[Path]
     Raises:
         ValueError: If dir_path is not a pathlib.Path.
     """
-    if not isinstance(dir_path, Path):
-        raise ValueError("dir_path must be a pathlib.Path")
-    if not dir_path.is_dir():
-        return
-    search_func = dir_path.rglob if recursive else dir_path.glob
-    for f in search_func("*"):
-        if f.is_symlink():
-            log.debug("Skipping symlinked file: %s", f)
-            continue
-        if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg"):
-            yield f
+    for path in _iter_regular_files_in_dir(dir_path, recursive=recursive):
+        if path.suffix.lower() in (".jpg", ".jpeg"):
+            yield path
 
 
 def _limit_paths(paths: Iterable[Path], max_files: int | None) -> Iterator[Path]:
@@ -1991,6 +2103,11 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             "Auto mode directories: input=%s output=%s processed=%s errors=%s",
             INPUT_DIR, OUTPUT_DIR, PROCESSED_DIR, ERRORS_DIR
         )
+
+    summary.unsupported += _count_unsupported_files_in_dir(
+        INPUT_DIR,
+        recursive=False,
+    )
 
     state = load_state()
     prune_state(state)
@@ -2281,6 +2398,19 @@ def simple_scrub(summary: ScrubSummary,
 
     check_dir_safety(OUTPUT_DIR, "Output")
 
+    if explicit_files is None:
+        summary.unsupported += _count_unsupported_files_in_dir(
+            PHOTOS_ROOT,
+            recursive=recursive,
+            exclude_pipeline_paths=True,
+        )
+    else:
+        summary.unsupported += _count_unsupported_inputs(
+            explicit_files,
+            recursive=recursive,
+            exclude_pipeline_paths=True,
+        )
+
     if rename_format is not None:
         counter = rename_counter if rename_counter is not None else {"n": 0}
         limits = rename_plan_limits or RenamePlanLimits()
@@ -2533,6 +2663,11 @@ def manual_scrub(files: list[Path],
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return summary
+
+    summary.unsupported += _count_unsupported_inputs(
+        files,
+        recursive=recursive,
+    )
 
     if rename_format is not None:
         counter = rename_counter if rename_counter is not None else {"n": 0}

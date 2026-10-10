@@ -5,7 +5,8 @@
 Verifies that:
   * Human-readable summary lines are printed.
   * Machine-readable SCRUBEXIF_SUMMARY line is present.
-  * total/scrubbed/skipped/errors/duplicates_* fields reflect reality.
+  * total/scrubbed/skipped/errors/duplicates_*/unsupported/examined fields
+    reflect reality.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ def _setup_summary_env(tmp_path: Path, count: int = 3):
     # create a small, known number of unique JPEGs
     for idx in range(count):
         create_fake_jpeg(input_dir / f"photo_{idx+1}.jpg")
+    (input_dir / "ignored.png").write_bytes(b"unsupported PNG placeholder")
 
     return input_dir, output_dir, processed_dir
 
@@ -85,13 +87,15 @@ def test_auto_mode_summary_counters_and_output(tmp_path: Path):
         key, value = part.split("=", 1)
         fields[key] = value
 
-    # We created exactly three unique JPEGs and no duplicates
+    # We created exactly three unique JPEGs, one unsupported PNG, and no duplicates
     assert fields.get("total") == "3"
     assert fields.get("scrubbed") == "3"
     assert fields.get("skipped") == "0"
     assert fields.get("errors") == "0"
     assert fields.get("duplicates_deleted", "0") == "0"
     assert fields.get("duplicates_moved", "0") == "0"
+    assert fields.get("unsupported") == "1"
+    assert fields.get("examined") == "4"
 
     # Duration is a non-negative float
     assert "duration" in fields

@@ -2,6 +2,15 @@
 
 ## 0.7.28 - not released
 
+### Added
+
+- Run summaries now report unsupported regular files and a reconciled examined-file count without changing the existing JPEG `total` meaning.
+
+### Changed
+
+- Desktop notifications now distinguish clean success, warnings, errors, duplicate-only runs, and unsupported-only runs with appropriate icons and urgency.
+- The demo wrapper parses only the current invocation and preserves the Docker exit status instead of risking reuse of an older logged summary.
+
 ## 0.7.27 - 2026-09-12
 
 ### Added

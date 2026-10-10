@@ -149,9 +149,17 @@ VERSION=latest; docker run -it --rm  \
   Successfully scrubbed    : 2
   Skipped (unstable/temp)  : 0
   Errors                   : 0
+  Unsupported files        : 0
+  Files examined           : 2
   Duration                 : 0.48s
-SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 duration=0.482
+SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 unsupported=0 examined=2 duration=0.482
 ```
+
+`total` remains the number of JPEG candidates for compatibility. Unsupported
+regular files are counted separately, and `examined` reconciles the input as
+`total + unsupported`. Classification follows the filename extension: a `.png`
+is unsupported, while invalid content named `.jpg` or `.jpeg` is a processing
+error.
 
 ---
 Scrub named files, they are saved in a specified directory using the `-o` option
@@ -177,8 +185,10 @@ VERSION=latest; docker run -it --rm \
   Successfully scrubbed    : 2
   Skipped (unstable/temp)  : 0
   Errors                   : 0
+  Unsupported files        : 0
+  Files examined           : 2
   Duration                 : 0.49s
-SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 duration=0.485
+SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 unsupported=0 examined=2 duration=0.485
 ```
 
 ---

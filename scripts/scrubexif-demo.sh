@@ -1,103 +1,227 @@
-#! /bin/bash
+#!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
-# License
-# All scripts are licensed under the
-# GNU Public License v3.0 or later.
-# See license details here: https://www.gnu.org/licenses/gpl-3.0.html
 #
-# Demo script for `scrubexif` — scrubs all JPEGs in a directory and writes
-# cleaned copies to a separate output directory (non-destructive).
-#
-# As -o option to `scrubexif` is used to specify the output directory,
-# repeated runs of the script will overwrite the output directory.
-#
-# The Docker image is developed here: https://github.com/per2jensen/scrubexif
-#
-# Usage:
-#   ./scrubexif-demo.sh <originals directory>  <scrubbed output directory> 
-#
-# Both the originals and scrubbed output directories must exist before running the script.
-#
-# Scrubbed JPEGs are written to <scrubbed output directory>/
-# The originals in <originals directory>/ are left untouched.
+# Demo wrapper for non-destructive JPEG scrubbing with desktop notifications.
+# Usage: ./scrubexif-demo.sh <originals directory> <scrubbed output directory>
 
-LOGFILE=/tmp/scrubexif.log
-MAX_LOG=102400   # 100k
-HALF_LOG=51200   #  50k
+set -euo pipefail
+
+LOGFILE="${SCRUBEXIF_LOGFILE:-/tmp/scrubexif.log}"
+MAX_LOG=102400
+HALF_LOG=51200
+RUN_LOG=""
 
 log() {
-    echo "$*" | tee -a "$LOGFILE"
+    echo "$*" | tee -a "${LOGFILE}"
+}
+
+cleanup() {
+    if [[ -n "${RUN_LOG}" && -f "${RUN_LOG}" ]]; then
+        rm -f "${RUN_LOG}"
+    fi
 }
 
 abort() {
-    log "$0: ERROR: $*"
-    notify-send -u critical "scrubexif ❌" "$*"
+    local message="${1:-Unknown failure}"
+
+    echo "$0: ERROR: ${message}" | tee -a "${LOGFILE}" >&2
+    if ! notify-send -u critical -i dialog-error "scrubexif ❌" "${message}"; then
+        echo "$0: WARNING: desktop notification failed" | tee -a "${LOGFILE}" >&2
+    fi
     exit 1
 }
 
-# Trim the log file if it exceeds the max size, keeping only the last half
-if [ -f "$LOGFILE" ] && [ "$(stat -c%s "$LOGFILE")" -gt "$MAX_LOG" ]; then
-    tail -c $HALF_LOG "$LOGFILE" | tail -n +2 > "$LOGFILE.tmp" && mv "$LOGFILE.tmp" "$LOGFILE"
-fi
+summary_value() {
+    local summary_line="${1:-}"
+    local key="${2:-}"
 
-log "===>>> $(date --iso-8601=seconds) - running $0"
+    if [[ -z "${summary_line}" || -z "${key}" ]]; then
+        return 1
+    fi
 
-# Guard: directory argument required
-PHOTO_DIR="${1}"
-[[ -z "$PHOTO_DIR" ]] && abort "No directory supplied. Usage: $0  <originals directory>  <scrubbed output directory> "
-[[ -d "$PHOTO_DIR" ]] || abort "Directory not found: $PHOTO_DIR"
+    printf '%s\n' "${summary_line}" | awk -v wanted="${key}" '
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ ("^" wanted "=")) {
+                    split($i, value, "=")
+                    print value[2]
+                    exit
+                }
+            }
+        }
+    '
+}
 
-# Guard: directory argument required
-OUTPUT_DIR="${2}"
-[[ -z "$OUTPUT_DIR" ]] && abort "No directory supplied. Usage: $0  <originals directory>  <scrubbed output directory>"
-[[ -d "$OUTPUT_DIR" ]] || abort "Directory not found: $OUTPUT_DIR"
+validate_count() {
+    local name="${1:-}"
+    local value="${2:-}"
 
+    if [[ -z "${name}" || ! "${value}" =~ ^[0-9]+$ ]]; then
+        abort "Invalid ${name} count in scrubexif summary: '${value}'"
+    fi
+}
 
+send_summary_notification() {
+    local total="${1}"
+    local scrubbed="${2}"
+    local skipped="${3}"
+    local errors="${4}"
+    local unsupported="${5}"
+    local examined="${6}"
+    local duplicates_deleted="${7}"
+    local duplicates_moved="${8}"
+    local output_dir="${9}"
+    local duplicates_handled=$((duplicates_deleted + duplicates_moved))
+    local body=""
+    local duplicate_detail=""
 
-# Resolve to absolute path
-PHOTO_DIR=$(realpath "$PHOTO_DIR")
-OUTPUT_DIR=$(realpath "$OUTPUT_DIR")
+    if ((duplicates_handled > 0)); then
+        duplicate_detail="; duplicates: ${duplicates_handled}"
+    fi
 
-log "Input:  $PHOTO_DIR"
-log "Output: $OUTPUT_DIR"
+    if ((errors > 0)); then
+        body="Examined ${examined} files — scrubbed ${scrubbed}/${total} JPEGs; skipped: ${skipped}, errors: ${errors}${duplicate_detail}; unsupported: ${unsupported}"
+        notify-send -u critical -i dialog-error "scrubexif ❌ Completed with errors" "${body}"
+        return
+    fi
 
-# Check docker is available
-command -v docker &>/dev/null || abort "docker is not installed or not in PATH"
-docker info &>/dev/null       || abort "docker daemon is not running or current user cannot reach it"
+    if ((skipped > 0)); then
+        body="Examined ${examined} files — scrubbed ${scrubbed}/${total} JPEGs; skipped: ${skipped}${duplicate_detail}; unsupported: ${unsupported}"
+        notify-send -u normal -i dialog-warning "scrubexif ⚠️ Completed with warnings" "${body}"
+        return
+    fi
 
-# UID/GID handling — run the container as the current user
-RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
-RUN_AS_GID=${RUN_AS_GID:-$(id -g)}
+    if ((total == 0)); then
+        if ((unsupported == 1)); then
+            body="Nothing processed — 1 unsupported file examined"
+        elif ((unsupported > 1)); then
+            body="Nothing processed — ${unsupported} unsupported files examined"
+        else
+            body="Nothing to do — no files examined"
+        fi
+        notify-send -u low -i dialog-information "scrubexif ℹ️" "${body}"
+        return
+    fi
 
-if [ "$RUN_AS_UID" -eq 0 ]; then
-    abort "Running as root is not allowed"
-fi
+    if ((scrubbed == 0 && duplicates_handled > 0)); then
+        if ((duplicates_handled == 1)); then
+            body="No new output — 1 duplicate handled; examined: ${examined}"
+        else
+            body="No new output — ${duplicates_handled} duplicates handled; examined: ${examined}"
+        fi
+        notify-send -u low -i dialog-information "scrubexif ℹ️" "${body}"
+        return
+    fi
 
-log "Running as UID=$RUN_AS_UID GID=$RUN_AS_GID"
+    if ((scrubbed == 0)); then
+        body="Completed — no files changed; examined: ${examined}"
+        notify-send -u low -i dialog-information "scrubexif ℹ️" "${body}"
+        return
+    fi
 
-docker run --rm \
-    --user "$RUN_AS_UID:$RUN_AS_GID" \
-    --read-only --security-opt no-new-privileges \
-    --tmpfs /tmp \
-    -v "$PHOTO_DIR:/photos" \
-    -v "$OUTPUT_DIR:/scrubbed" \
-    per2jensen/scrubexif:latest \
-    -o /scrubbed | tee -a "$LOGFILE"
+    body="Examined ${examined} files — scrubbed ${scrubbed}/${total} JPEGs${duplicate_detail}; unsupported: ${unsupported}; output: ${output_dir}"
+    notify-send -u normal -i emblem-default "scrubexif ✅ Scrubbing complete" "${body}"
+}
 
-# Parse the SCRUBEXIF_SUMMARY line
-SUMMARY_LINE=$(grep "SCRUBEXIF_SUMMARY" "$LOGFILE" | tail -1)
-SCRUBBED=$(echo "$SUMMARY_LINE" | grep -oP 'scrubbed=\K[0-9]+')
-SKIPPED=$(echo "$SUMMARY_LINE"  | grep -oP 'skipped=\K[0-9]+')
-ERRORS=$(echo "$SUMMARY_LINE"   | grep -oP 'errors=\K[0-9]+')
-TOTAL=$(echo "$SUMMARY_LINE"    | grep -oP 'total=\K[0-9]+')
+rotate_log_if_needed() {
+    local rotated_log=""
 
-# Check we actually got a summary — if not, docker or scrubexif likely failed
-if [[ -z "$TOTAL" ]]; then
-    abort "No summary line found — scrubexif may have failed. Check log: $LOGFILE"
-fi
+    if [[ ! -f "${LOGFILE}" ]] || (( $(stat -c%s "${LOGFILE}") <= MAX_LOG )); then
+        return
+    fi
 
-if [[ "$ERRORS" -gt 0 || "$SKIPPED" -gt 0 ]]; then
-    notify-send -u critical "scrubexif ❌" "Scrubbed $SCRUBBED/$TOTAL files — skipped: $SKIPPED, errors: $ERRORS"
-else
-    notify-send "scrubexif ✅" "Scrubbed $SCRUBBED/$TOTAL files successfully — output: $OUTPUT_DIR"
+    rotated_log="$(mktemp --tmpdir="$(dirname "${LOGFILE}")" scrubexif-log.XXXXXX)"
+    if ! tail -c "${HALF_LOG}" "${LOGFILE}" | tail -n +2 > "${rotated_log}"; then
+        rm -f "${rotated_log}"
+        abort "Unable to rotate log: ${LOGFILE}"
+    fi
+    mv "${rotated_log}" "${LOGFILE}"
+}
+
+main() {
+    local photo_dir="${1:-}"
+    local output_dir="${2:-}"
+    local run_as_uid="${RUN_AS_UID:-$(id -u)}"
+    local run_as_gid="${RUN_AS_GID:-$(id -g)}"
+    local docker_status=0
+    local summary_line=""
+    local total=""
+    local scrubbed=""
+    local skipped=""
+    local errors=""
+    local unsupported=""
+    local examined=""
+    local duplicates_deleted=""
+    local duplicates_moved=""
+
+    trap cleanup EXIT
+    rotate_log_if_needed
+    log "===>>> $(date --iso-8601=seconds) - running $0"
+
+    [[ -n "${photo_dir}" ]] || abort "No directory supplied. Usage: $0 <originals directory> <scrubbed output directory>"
+    [[ -d "${photo_dir}" ]] || abort "Directory not found: ${photo_dir}"
+    [[ -n "${output_dir}" ]] || abort "No output directory supplied. Usage: $0 <originals directory> <scrubbed output directory>"
+    [[ -d "${output_dir}" ]] || abort "Directory not found: ${output_dir}"
+
+    photo_dir="$(realpath "${photo_dir}")"
+    output_dir="$(realpath "${output_dir}")"
+    log "Input:  ${photo_dir}"
+    log "Output: ${output_dir}"
+
+    command -v docker &>/dev/null || abort "docker is not installed or not in PATH"
+    docker info &>/dev/null || abort "docker daemon is not running or current user cannot reach it"
+    if ((run_as_uid == 0)); then
+        abort "Running as root is not allowed"
+    fi
+
+    log "Running as UID=${run_as_uid} GID=${run_as_gid}"
+    RUN_LOG="$(mktemp --tmpdir scrubexif-run.XXXXXX)"
+
+    set +e
+    docker run --rm \
+        --user "${run_as_uid}:${run_as_gid}" \
+        --read-only --security-opt no-new-privileges \
+        --tmpfs /tmp \
+        -v "${photo_dir}:/photos" \
+        -v "${output_dir}:/scrubbed" \
+        per2jensen/scrubexif:latest \
+        -o /scrubbed 2>&1 | tee -a "${LOGFILE}" "${RUN_LOG}"
+    docker_status="${PIPESTATUS[0]}"
+    set -e
+
+    summary_line="$(awk '/^SCRUBEXIF_SUMMARY / { line=$0 } END { print line }' "${RUN_LOG}")"
+    [[ -n "${summary_line}" ]] || abort "No summary line found — scrubexif may have failed. Check log: ${LOGFILE}"
+
+    total="$(summary_value "${summary_line}" total)"
+    scrubbed="$(summary_value "${summary_line}" scrubbed)"
+    skipped="$(summary_value "${summary_line}" skipped)"
+    errors="$(summary_value "${summary_line}" errors)"
+    duplicates_deleted="$(summary_value "${summary_line}" duplicates_deleted)"
+    duplicates_moved="$(summary_value "${summary_line}" duplicates_moved)"
+    unsupported="$(summary_value "${summary_line}" unsupported)"
+    examined="$(summary_value "${summary_line}" examined)"
+
+    unsupported="${unsupported:-0}"
+    validate_count total "${total}"
+    validate_count scrubbed "${scrubbed}"
+    validate_count skipped "${skipped}"
+    validate_count errors "${errors}"
+    validate_count duplicates_deleted "${duplicates_deleted}"
+    validate_count duplicates_moved "${duplicates_moved}"
+    validate_count unsupported "${unsupported}"
+    examined="${examined:-$((total + unsupported))}"
+    validate_count examined "${examined}"
+
+    send_summary_notification \
+        "${total}" "${scrubbed}" "${skipped}" "${errors}" \
+        "${unsupported}" "${examined}" "${duplicates_deleted}" \
+        "${duplicates_moved}" "${output_dir}"
+
+    if ((docker_status != 0)); then
+        exit "${docker_status}"
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
 fi

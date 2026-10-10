@@ -379,3 +379,124 @@ def test_simple_scrub_explicit_files_positional_args_without_clean_inline(tmp_pa
     assert rc == 0
     assert (custom_output / "one.jpg").read_bytes() == SAFE_JPEG_BYTES
     assert not (custom_output / "two.jpg").exists()
+
+
+def test_simple_scrub_mixed_inputs_counts_unsupported_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A successful JPEG and ordinary PNG reconcile in the summary counts.
+
+    Args:
+        tmp_path: Isolated test directory.
+        monkeypatch: Pytest patch helper.
+        capsys: Pytest output capture helper.
+
+    Returns:
+        None.
+    """
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    (photos_root / "photo.jpg").write_bytes(b"jpeg")
+    (photos_root / "diagram.png").write_bytes(b"png")
+
+    def fake_pipeline(
+        input_path: Path,
+        output_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Write a valid scrubbed JPEG for the supported input.
+
+        Args:
+            input_path: Source path, unused by this controlled pipeline.
+            output_path: Temporary output path to populate.
+            **kwargs: Scrub settings, unused by this controlled pipeline.
+
+        Returns:
+            None.
+        """
+        del input_path, kwargs
+        output_path.write_bytes(SAFE_JPEG_BYTES)
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary)
+    summary.print()
+
+    assert summary.total == 1
+    assert summary.scrubbed == 1
+    assert summary.unsupported == 1
+    assert summary.examined == 2
+    assert "unsupported=1 examined=2" in capsys.readouterr().out
+
+
+def test_simple_scrub_unsupported_only_reports_no_jpeg_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An ordinary PNG is unsupported without becoming a processing error.
+
+    Args:
+        tmp_path: Isolated test directory.
+        monkeypatch: Pytest patch helper.
+
+    Returns:
+        None.
+    """
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    (photos_root / "diagram.png").write_bytes(b"png")
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary)
+
+    assert summary.total == 0
+    assert summary.errors == 0
+    assert summary.unsupported == 1
+    assert summary.examined == 1
+
+
+def test_simple_scrub_png_named_jpg_remains_processing_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-JPEG payload declaring a JPEG extension remains an error.
+
+    Args:
+        tmp_path: Isolated test directory.
+        monkeypatch: Pytest patch helper.
+
+    Returns:
+        None.
+    """
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    (photos_root / "disguised.jpg").write_bytes(b"not-a-jpeg")
+
+    def reject_invalid_jpeg(
+        input_path: Path,
+        output_path: Path,
+        **kwargs: object,
+    ) -> None:
+        """Simulate JPEG validation rejecting the disguised PNG.
+
+        Args:
+            input_path: Invalid JPEG-declared source path.
+            output_path: Reserved output path, unused on failure.
+            **kwargs: Scrub settings, unused on failure.
+
+        Raises:
+            RuntimeError: Always, because the payload is not a JPEG.
+        """
+        del input_path, output_path, kwargs
+        raise RuntimeError("invalid JPEG payload")
+
+    monkeypatch.setattr(scrub, "_do_scrub_pipeline", reject_invalid_jpeg)
+
+    summary = scrub.ScrubSummary()
+    scrub.simple_scrub(summary=summary)
+
+    assert summary.total == 1
+    assert summary.scrubbed == 0
+    assert summary.errors == 1
+    assert summary.unsupported == 0
+    assert summary.examined == 1
