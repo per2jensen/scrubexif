@@ -1366,5 +1366,49 @@
       "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/37097745192",
       "controller_git_revision": "797ebdfdf0be8e6ee03e922fb216cd77b705ab70"
     }
+  },
+  {
+    "build_number": 51,
+    "tag": "0.7.27-4",
+    "base_image": "ubuntu:24.04",
+    "git_revision": "320eace",
+    "created": "2026-10-10T04:53:38Z",
+    "dockerhub_tag_url": "https://hub.docker.com/layers/per2jensen/scrubexif/0.7.27-4/images/sha256:5e137233471aa477a4a481d9eb6a5b9d1d3e5c6d0d6db2b85f62c77ef1a32383",
+    "digest": "sha256:5e137233471aa477a4a481d9eb6a5b9d1d3e5c6d0d6db2b85f62c77ef1a32383",
+    "image_id": "sha256:90eba138b28af62325d089906e6c67c29852554cb215a913293b50601df18730",
+    "security_tools": {
+      "syft": "v1.50.0",
+      "grype": "v0.116.1"
+    },
+    "grype_scan": {
+      "file": "grype-scrubexif-0.7.27-4-2026-10-10T04-49-26Z.sarif.gz",
+      "total": 183,
+      "counts": {
+        "critical": 0,
+        "high": 0,
+        "medium": 171,
+        "low": 12,
+        "negligible": 0,
+        "warning": 0,
+        "note": 0,
+        "info": 0,
+        "unknown": 0
+      }
+    },
+    "sbom": {
+      "file": "doc/sbom/sbom-scrubexif-0.7.27-4-2026-10-10T04-49-26Z.spdx.json.gz",
+      "release_asset_url": "no release asset - scheduled image refresh"
+    },
+    "cosign": {
+      "signed": true,
+      "rekor_log_entry": "https://search.sigstore.dev/?logIndex=3178930276",
+      "image_digest": "per2jensen/scrubexif@sha256:5e137233471aa477a4a481d9eb6a5b9d1d3e5c6d0d6db2b85f62c77ef1a32383"
+    },
+    "build": {
+      "runner": "Linux-X64",
+      "github_run_id": "38025389957",
+      "github_run_url": "https://github.com/per2jensen/scrubexif/actions/runs/38025389957",
+      "controller_git_revision": "48e3c7b8246e6f66f861478855650902fe1963b6"
+    }
   }
 ]
