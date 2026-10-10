@@ -180,9 +180,13 @@ docker run -it --rm \
 
 ---
 
-#### Nautilus integration
+### GNOME Files (Nautilus) wrapper
 
-Example of Gnome File Manager (Nautilus) integration can be seen in my [file manager scripts](https://github.com/per2jensen/file-manager-scripts/blob/main/scripts/scrubexif.sh)
+I also maintain a [scrubexif wrapper for GNOME Files](https://github.com/per2jensen/file-manager-scripts/blob/main/scripts/scrubexif.sh), which I use myself almost every day. It lets you select one or more JPEGs and run `scrubexif` from the file manager's right-click **Scripts** menu.
+
+The wrapper validates the selection, processes all selected files in one Docker run, handles FUSE/NFS/CIFS locations through a temporary local directory, and reports the result with a desktop notification and log. It uses destructive `--clean-inline` mode, so the selected files are replaced by their scrubbed versions.
+
+See the [file-manager-scripts repository](https://github.com/per2jensen/file-manager-scripts) for prerequisites and installation instructions. The script belongs in `~/.local/share/nautilus/scripts/` and must be executable.
 
 ### Filename sanitisation (`--rename`)
 

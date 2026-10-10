@@ -5,6 +5,7 @@
 ### Added
 
 - Run summaries now report unsupported regular files and a reconciled examined-file count without changing the existing JPEG `total` meaning.
+- README documentation for the GNOME Files (Nautilus) wrapper and its right-click workflow.
 
 ### Changed
 
