@@ -75,7 +75,7 @@ fi
 docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.27
+  per2jensen/scrubexif:0.7.28
 ````
 
 **Verify the results:**
@@ -114,7 +114,7 @@ fi
 docker run --rm \
     --user "$RUN_AS_UID:$RUN_AS_GID" \
     -v "$PWD:/photos" \
-    per2jensen/scrubexif:0.7.27 \
+    per2jensen/scrubexif:0.7.28 \
     -o scrubbed
 ````
 
@@ -134,7 +134,7 @@ docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   -v "$PWD:/photos" \
   -v "/tmp/scrub-test:/scrubbed" \
-  per2jensen/scrubexif:0.7.27 \
+  per2jensen/scrubexif:0.7.28 \
   -o /scrubbed
 ````
 
@@ -175,7 +175,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.27 --clean-inline
+  per2jensen/scrubexif:0.7.28 --clean-inline
 ```
 
 ---
@@ -208,7 +208,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.27 --clean-inline --rename "%r8" --recursive
+  per2jensen/scrubexif:0.7.28 --clean-inline --rename "%r8" --recursive
 
 # Keep your camera prefix, remove the timestamp
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -222,7 +222,7 @@ docker run -it --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:0.7.27 --clean-inline --rename "D80_%r6" --recursive
+  per2jensen/scrubexif:0.7.28 --clean-inline --rename "D80_%r6" --recursive
 ```
 
 `--paranoia` implies `--rename "%r8"` when no `--rename` is given.  
@@ -260,7 +260,7 @@ docker run -it --rm \
   -v "$PWD/scrubbed:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
   -v "$PWD/errors:/photos/errors" \
-  per2jensen/scrubexif:0.7.27 --from-input
+  per2jensen/scrubexif:0.7.28 --from-input
 ```
 
 These are the physical directories used on your file system:
@@ -370,7 +370,7 @@ Every release image is **cryptographically signed** using [cosign](https://githu
 **Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
 ```bash
-cosign verify per2jensen/scrubexif:0.7.27 \
+cosign verify per2jensen/scrubexif:0.7.28 \
   --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
@@ -383,7 +383,7 @@ Full details on installation, verification, and what the certificate fields mean
 
 The `:latest` image is rebuilt every Saturday from the exact source of the
 latest stable release. A successful refresh is tested, scanned, signed, and
-published with an immutable numeric suffix such as `:0.7.27`. Weekly
+published with an immutable numeric suffix such as `:0.7.28`. Weekly
 refreshes do not change the stable release version shown in this README; their
 complete audit trail is recorded in `doc/build-history.json`, with compressed
 SBOM and SARIF files stored under `doc/`.
@@ -450,7 +450,7 @@ One use case is to quickly show dog owners photos at exhibitions.
       -v /some/directory:/photos/input \
       -v /photoprism/sooc:/photos/output \
       -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.27 --from-input --stable-seconds 10
+      per2jensen/scrubexif:0.7.28 --from-input --stable-seconds 10
 ```
 
 `/etc/systemd/system/scrubexif.timer`:
