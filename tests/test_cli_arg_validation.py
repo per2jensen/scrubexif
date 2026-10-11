@@ -177,6 +177,26 @@ def test_files_with_clean_inline_accepted(tmp_path, monkeypatch):
     assert photo.resolve() in scrub_calls[0], "Resolved photo path must be forwarded"
 
 
+def test_preview_with_auto_mode_is_rejected(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Preview rejects the auto-mode intake and source-finalization workflow.
+
+    Args:
+        capsys: Pytest output capture fixture.
+
+    Returns:
+        None.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        scrub.main(["--preview", "--from-input"])
+
+    assert exc_info.value.code == 1
+    assert "--preview cannot be used with --from-input auto mode" in (
+        capsys.readouterr().err
+    )
+
+
 # ---------------------------------------------------------------------------
 # Constraint: --clean-inline and --from-input are mutually exclusive
 # ---------------------------------------------------------------------------

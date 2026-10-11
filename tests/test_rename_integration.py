@@ -432,26 +432,35 @@ def test_clean_inline_cli_batch_collision_aborts_before_any_scrub(
 
 
 @pytest.mark.integration
-def test_clean_inline_cli_rename_preview_preserves_source_and_shows_plan(
+def test_clean_inline_cli_rename_preview_processes_all_and_shows_plan(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Rename preview uses the real planner and scrubs only a disposable copy."""
-    src = tmp_path / "photo.jpg"
-    shutil.copy(FIXTURE_WITH_EXIF, src)
-    source_bytes = src.read_bytes()
+    """Rename preview plans and previews every source without publication."""
+    sources = [tmp_path / "first.jpg", tmp_path / "second.jpeg"]
+    for source in sources:
+        shutil.copy(FIXTURE_WITH_EXIF, source)
+    source_bytes = {source: source.read_bytes() for source in sources}
     monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
 
-    rc = main(["--clean-inline", "--rename", "%r8", "--preview", str(src)])
+    rc = main(
+        [
+            "--clean-inline",
+            "--rename",
+            "%r8",
+            "--preview",
+            *map(str, sources),
+        ]
+    )
 
     output = capsys.readouterr().out
     assert rc == 0
-    assert src.read_bytes() == source_bytes
-    assert [path for path in tmp_path.iterdir() if path.is_file()] == [src]
+    assert {source: source.read_bytes() for source in sources} == source_bytes
+    assert sorted(path for path in tmp_path.iterdir() if path.is_file()) == sources
     assert "Rename plan ready" in output
-    assert "Would scrub:" in output
-    assert "Preview complete" in output
+    assert output.count("Would scrub:") == 2
+    assert output.count("Preview complete for ") == 2
 
 
 @pytest.mark.integration
@@ -574,7 +583,7 @@ def test_clean_inline_continuous_publication_collisions_stop_safely(
     )
 
     assert result.kind is OutcomeKind.FAILED
-    assert result.reason_code == "rename_destination_conflict"
+    assert result.reason_code == "rename_publication_conflict"
     assert src.read_bytes() == source_bytes
     assert all(
         path.read_bytes() == b"active-filesystem"

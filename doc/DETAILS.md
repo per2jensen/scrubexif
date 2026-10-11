@@ -409,7 +409,7 @@ docker run --read-only --security-opt no-new-privileges \
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
 - `--max-files N` - limit JPEG operation attempts; unsupported, temporary, unstable, and other skipped files do not consume the limit
 - `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
-- `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
+- `--preview` - scrub and audit every in-scope JPEG in temporary storage without publishing output or modifying sources; unavailable with `--from-input`
 - `--copyright` - stamp a copyright notice into EXIF and XMP (replaces existing values)
 - `--comment` - stamp a comment into EXIF and XMP (replaces existing values)
 - `--show-container-paths` - include container paths alongside host paths in output
@@ -417,7 +417,7 @@ docker run --read-only --security-opt no-new-privileges \
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
 - `--stable-seconds` <secs> - Number of seconds a file must not change before being processed. Default is 120 secs
 - `--state-file PATH|disabled` — Override stability tracking path or disable persistence entirely
-- positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); requires `--clean-inline`
+- positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); default mode writes copies while `--clean-inline` replaces sources
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
 - `-v`, `--version` - show version and license
 
@@ -605,15 +605,34 @@ docker run --rm \
 
 ### Preview Mode (`--preview`)
 
-The `--preview` option lets you **safely simulate** the scrubbing process on a **single** JPEG **without modifying the original file**.
+The `--preview` option lets you **safely run and audit** the scrubbing process
+on every JPEG selected by a normal non-auto invocation **without modifying the
+original files or publishing output**. It works in default safe mode and with
+`--clean-inline`; scrubexif rejects it only with `--from-input` auto mode,
+whose stability, duplicate handling, state updates, and source-finalization
+workflow is outside preview scope.
+
+Preview is distinct from `--dry-run`: only explicit `--preview` runs the scrub
+pipeline on a disposable copy of each admitted JPEG. A dry run records the
+intended operations without running the pipeline or producing after-scrub
+metadata, even when `--show-tags after` or `--show-tags both` is requested.
+Preview uses normal discovery, recursion, filtering, and rename planning. It
+attempts every eligible JPEG in scope unless `--max-files` sets a smaller bound;
+unsupported and skipped files do not consume that bound.
 
 This mode:
 
-- Copies the original image to a temporary file
-- Scrubs the copy to a temporary output file
+- Copies each original image to fresh temporary storage
+- Scrubs and audits each temporary output with the selected policy
 - Shows metadata **before and/or after** scrubbing
-- Deletes the temp files automatically
-- Never alters the original image
+- Reports the destination and filename the equivalent real run would use
+- Deletes all temporary files automatically
+- Never creates the planned output directory, publishes output, alters sources,
+  performs duplicate actions, or updates auto-mode state
+
+The scrubbed preview files are intentionally not retained. After reviewing the
+report, rerun the same command without `--preview` to publish the outputs or,
+with `--clean-inline`, replace the selected sources.
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -627,7 +646,7 @@ docker run --rm \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev --clean-inline test.jpg --preview
+  scrubexif:dev --preview --recursive --max-files 25 .
 ```
 
 🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed.
@@ -1284,7 +1303,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--on-duplicate {move,fail,delete}` | Auto-mode policy for verified duplicates. Default `move` preserves them in `/photos/errors`; `fail` leaves the source in input and returns nonzero; explicit `delete` removes it only after output audit and byte-identity verification. Same-name different content is always a nonzero collision. |
 | `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
 | `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |
-| `--preview` | Preview scrub effect on one file without modifying it (implies `--dry-run` + `--show-tags both`). |
+| `--preview` | Scrub and audit every in-scope JPEG in disposable storage without publishing output or modifying sources. Honors `--max-files`; unavailable with `--from-input`. |
 | `-q`, `--quiet` | Suppress all output on success. |
 | `-r`, `--recursive` | Recurse into directories when scanning. |
 | `--rename FORMAT` | Rename output files using a format string. Tokens: `%r` (hex), `%u` (UUID), `%n` (counter), `%Y` (year from EXIF), `%m` (month from EXIF). See [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md). |
@@ -1300,4 +1319,5 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 **Constraints**
 
 - `--from-input` cannot be used with `--clean-inline` or `--output`.
-- Positional `files...` require `--clean-inline`.
+- `--preview` cannot be used with `--from-input` auto mode.
+- Positional `files...` use default safe copy mode unless `--clean-inline` is supplied.

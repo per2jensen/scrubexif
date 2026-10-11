@@ -77,6 +77,7 @@ _SCRUB_RESULT_REASON_KINDS = MappingProxyType({
     "rename_destination_conflict": OutcomeKind.FAILED,
     "rename_destination_symlink": OutcomeKind.FAILED,
     "rename_planning_failed": OutcomeKind.FAILED,
+    "rename_publication_conflict": OutcomeKind.FAILED,
     "rename_reassignment_failed": OutcomeKind.FAILED,
     "renamed_source_removal_failed": OutcomeKind.FAILED,
     "scrub_failed": OutcomeKind.FAILED,
@@ -294,21 +295,24 @@ def _scrub_result_to_file_outcome(
     }
     phase = ProcessingPhase.SCRUB
     if result.kind is OutcomeKind.PLANNED or result.reason_code in {
+        "rename_destination_conflict",
+        "rename_destination_symlink",
         "rename_planning_failed",
         "rename_reassignment_failed",
     }:
         phase = ProcessingPhase.PLANNING
     elif result.reason_code in duplicate_reasons:
         phase = ProcessingPhase.DUPLICATE_HANDLING
-    elif result.reason_code == "existing_output_unsafe":
+    elif result.reason_code in {
+        "destination_collision",
+        "existing_output_unsafe",
+    }:
         phase = ProcessingPhase.VERIFICATION
     elif result.kind is OutcomeKind.SCRUBBED or result.reason_code in {
         "destination_appeared",
-        "destination_collision",
         "destination_symlink",
         "rename_destination_appeared",
-        "rename_destination_conflict",
-        "rename_destination_symlink",
+        "rename_publication_conflict",
     }:
         phase = ProcessingPhase.PUBLICATION
     if result.reason_code in post_publication_reasons:
@@ -2159,7 +2163,7 @@ def scrub_file(
             input_path=input_path,
             output_path=output_file,
             kind=OutcomeKind.FAILED,
-            reason_code="rename_destination_conflict",
+            reason_code="rename_publication_conflict",
             error_message=err_msg,
         )
     except FileExistsError:
@@ -2784,6 +2788,7 @@ def _finalize_auto_result(
         "rename_destination_conflict",
         "rename_destination_symlink",
         "rename_planning_failed",
+        "rename_publication_conflict",
     }:
         print(
             f"⚠️ Rename destination conflict for {_format_path_with_host(file)}; "
@@ -3082,8 +3087,9 @@ def simple_scrub(
     rename_counter: dict[str, int] | None = None,
     rename_plan_limits: RenamePlanLimits | None = None,
     explicit_files: list[Path] | None = None,
+    preview: bool = False,
 ) -> ScrubSummary:
-    """Write scrubbed copies while leaving default-mode sources unchanged.
+    """Write or preview scrubbed copies while leaving sources unchanged.
 
     Args:
         summary: Report-backed summary owned by this invocation.
@@ -3103,6 +3109,7 @@ def simple_scrub(
         rename_plan_limits: Resource limits for disk-backed rename planning.
         explicit_files: When set, process only these resolved paths instead of
             scanning PHOTOS_ROOT. Internal pipeline directories remain excluded.
+        preview: Whether admitted JPEGs are scrubbed only in temporary storage.
 
     Returns:
         The supplied summary after all discovered outcomes are recorded.
@@ -3111,30 +3118,43 @@ def simple_scrub(
         SystemExit: If directory safety validation or rename planning fails.
         ValueError: If a discovery or processing argument is invalid.
     """
+    if not isinstance(preview, bool):
+        raise ValueError("preview must be a boolean")
+
     host_root = _resolve_mount_source(PHOTOS_ROOT)
     if explicit_files is not None:
-        print(f"🚀 Default safe mode: Scrubbing {len(explicit_files)} explicit file(s)")
+        operation = "Previewing" if preview else "Scrubbing"
+        print(
+            f"🚀 Default safe mode: {operation} "
+            f"{len(explicit_files)} explicit file(s)"
+        )
     else:
-        print(f"🚀 Default safe mode: Scrubbing JPEGs in {_format_path_with_host(PHOTOS_ROOT)}")
-    print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
+        operation = "Previewing" if preview else "Scrubbing"
+        print(
+            f"🚀 Default safe mode: {operation} JPEGs in "
+            f"{_format_path_with_host(PHOTOS_ROOT)}"
+        )
+    output_label = "Planned output directory" if preview else "Output directory"
+    print(f"📁 {output_label}: {_format_path_with_host(OUTPUT_DIR)}")
 
     # Safety: /photos must exist and be usable
     check_dir_safety(PHOTOS_ROOT, "Photos root")
 
-    if OUTPUT_DIR.exists():
-        if not output_explicit:
-            print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
-            print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
-            sys.exit(1)
-        # output_explicit=True: user passed -o, pre-existing directory is intentional
-    else:
-        try:
-            OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
-        except Exception as exc:
-            print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
-            sys.exit(1)
+    if not preview:
+        if OUTPUT_DIR.exists():
+            if not output_explicit:
+                print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
+                print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
+                sys.exit(1)
+            # output_explicit=True: user passed -o, pre-existing directory is intentional
+        else:
+            try:
+                OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
+            except Exception as exc:
+                print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
+                sys.exit(1)
 
-    check_dir_safety(OUTPUT_DIR, "Output")
+        check_dir_safety(OUTPUT_DIR, "Output")
 
     discovery_roots = explicit_files if explicit_files is not None else [PHOTOS_ROOT]
     discovered = _discover_inputs(
@@ -3179,6 +3199,23 @@ def simple_scrub(
                         f"{entry.source_path}"
                     )
                 if not _revalidate_or_record(summary, discovered_entry):
+                    continue
+                if preview:
+                    print(
+                        f"🔍 [default] Would scrub: "
+                        f"{_format_path_with_host(entry.source_path)} "
+                        f"→ {_format_path_with_host(entry.destination_path)}"
+                    )
+                    summary.record(
+                        _preview_scrub(
+                            entry.source_path,
+                            show_tags_mode,
+                            paranoia,
+                            copyright_text,
+                            comment_text,
+                            intended_output_path=entry.destination_path,
+                        )
+                    )
                     continue
                 if dry_run:
                     if show_tags_mode in {"before", "both"}:
@@ -3229,6 +3266,23 @@ def simple_scrub(
             continue
         f = discovered_entry.path
         dst = OUTPUT_DIR / f.name
+
+        if preview:
+            print(
+                f"🔍 [default] Would scrub: {_format_path_with_host(f)} "
+                f"→ {_format_path_with_host(dst)}"
+            )
+            summary.record(
+                _preview_scrub(
+                    f,
+                    show_tags_mode,
+                    paranoia,
+                    copyright_text,
+                    comment_text,
+                    intended_output_path=dst,
+                )
+            )
+            continue
 
         if dry_run:
             if show_tags_mode in {"before", "both"}:
@@ -3289,6 +3343,7 @@ def _preview_scrub(
     paranoia: bool,
     copyright_text: str | None,
     comment_text: str | None,
+    intended_output_path: Path | None = None,
 ) -> FileOutcome:
     """Scrub a disposable copy and display its resulting metadata.
 
@@ -3298,6 +3353,7 @@ def _preview_scrub(
         paranoia: Whether to use the maximum-scrubbing pipeline.
         copyright_text: Optional copyright value to stamp.
         comment_text: Optional comment value to stamp.
+        intended_output_path: Destination the equivalent real run would use.
 
     Returns:
         Validated preview success or failure outcome.
@@ -3327,9 +3383,10 @@ def _preview_scrub(
         )
         if show_tags_mode in {"before", "both"}:
             print_tags(source_path, label="before")
-        print_tags(preview_output, label="after")
+        if show_tags_mode in {"after", "both"}:
+            print_tags(preview_output, label="after")
         succeeded = True
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         diagnostic = f"Preview scrub failed: {exc}"
         print(f"❌ {diagnostic}")
     finally:
@@ -3338,13 +3395,17 @@ def _preview_scrub(
             preview_output.unlink(missing_ok=True)
 
     if succeeded:
-        print("📊 Preview complete — original file was not modified.")
+        print(
+            f"📊 Preview complete for {_format_path_with_host(source_path)} "
+            "— original file was not modified."
+        )
         return FileOutcome(
             input_path=source_path,
             input_classification=InputClassification.ELIGIBLE_JPEG,
             kind=OutcomeKind.PREVIEWED,
             reason_code="preview_audited",
             phase=ProcessingPhase.VERIFICATION,
+            intended_output_path=intended_output_path,
         )
     return FileOutcome(
         input_path=source_path,
@@ -3352,6 +3413,7 @@ def _preview_scrub(
         kind=OutcomeKind.FAILED,
         reason_code="preview_failed",
         phase=ProcessingPhase.VERIFICATION,
+        intended_output_path=intended_output_path,
         diagnostic=diagnostic or "Preview scrub failed without a diagnostic",
     )
 
@@ -3381,7 +3443,7 @@ def manual_scrub(
         show_tags_mode: Optional before/after metadata display mode.
         paranoia: Whether the maximum-scrubbing policy is active.
         max_files: Maximum JPEG candidates admitted for operation attempts.
-        preview: Whether one admitted JPEG is scrubbed only in temporary storage.
+        preview: Whether admitted JPEGs are scrubbed only in temporary storage.
         copyright_text: Optional copyright metadata to retain.
         comment_text: Optional comment metadata to retain.
         rename_format: Optional validated in-place naming format.
@@ -3395,6 +3457,9 @@ def manual_scrub(
         SystemExit: If rename planning fails.
         ValueError: If a discovery or processing argument is invalid.
     """
+    if not isinstance(preview, bool):
+        raise ValueError("preview must be a boolean")
+
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return summary
@@ -3430,44 +3495,31 @@ def manual_scrub(
                 print("⚠️ No JPEGs matched.")
                 return summary
 
-            should_preview = preview or (
-                dry_run
-                and show_tags_mode in {"after", "both"}
-                and rename_plan.count == 1
-            )
-            if should_preview:
-                entry = next(iter(rename_plan))
+            for entry in rename_plan:
                 discovered_entry = admitted_by_path.get(entry.source_path)
                 if discovered_entry is None:
                     raise RuntimeError(
                         f"Rename plan returned an undiscovered source: "
                         f"{entry.source_path}"
                     )
-                if not _revalidate_or_record(summary, discovered_entry):
-                    return summary
-                print(
-                    f"🔍 Would scrub: {_format_path_with_host(entry.source_path)} "
-                    f"→ {entry.destination_path.name}"
-                )
-                summary.record(
-                    _preview_scrub(
-                        entry.source_path,
-                        show_tags_mode,
-                        paranoia,
-                        copyright_text,
-                        comment_text,
-                    )
-                )
-                return summary
-
-            for entry in rename_plan:
                 source_path = entry.source_path
-                discovered_entry = admitted_by_path.get(source_path)
-                if discovered_entry is None:
-                    raise RuntimeError(
-                        f"Rename plan returned an undiscovered source: {source_path}"
-                    )
                 if not _revalidate_or_record(summary, discovered_entry):
+                    continue
+                if preview:
+                    print(
+                        f"🔍 Would scrub: {_format_path_with_host(source_path)} "
+                        f"→ {entry.destination_path.name}"
+                    )
+                    summary.record(
+                        _preview_scrub(
+                            source_path,
+                            show_tags_mode,
+                            paranoia,
+                            copyright_text,
+                            comment_text,
+                            intended_output_path=entry.destination_path,
+                        )
+                    )
                     continue
                 if dry_run:
                     if show_tags_mode in {"before", "both"}:
@@ -3509,29 +3561,23 @@ def manual_scrub(
         print("⚠️ No JPEGs matched.")
         return summary
 
-    if preview or (
-        dry_run
-        and show_tags_mode in {"after", "both"}
-        and len(admitted) == 1
-    ):
-        preview_entry = admitted[0]
-        if not _revalidate_or_record(summary, preview_entry):
-            return summary
-        summary.record(
-            _preview_scrub(
-                preview_entry.path,
-                show_tags_mode,
-                paranoia,
-                copyright_text,
-                comment_text,
-            )
-        )
-        return summary
-
     for discovered_entry in admitted:
         if not _revalidate_or_record(summary, discovered_entry):
             continue
         f = discovered_entry.path
+        if preview:
+            print(f"🔍 Would scrub: {_format_path_with_host(f)}")
+            summary.record(
+                _preview_scrub(
+                    f,
+                    show_tags_mode,
+                    paranoia,
+                    copyright_text,
+                    comment_text,
+                    intended_output_path=f,
+                )
+            )
+            continue
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(f, label="before")
@@ -3675,6 +3721,9 @@ def _run_inner(args: argparse.Namespace) -> int:
     if args.output and args.from_input:
         print("❌ --output cannot be used with --from-input.", file=sys.stderr)
         sys.exit(1)
+    if args.preview and args.from_input:
+        print("❌ --preview cannot be used with --from-input auto mode.", file=sys.stderr)
+        sys.exit(1)
 
     if args.output:
         OUTPUT_DIR = resolve_output_dir(args.output)
@@ -3689,9 +3738,8 @@ def _run_inner(args: argparse.Namespace) -> int:
     summary = ScrubSummary()
 
     if args.preview:
-        args.dry_run = True
-        args.show_tags = "both"
-        args.max_files = 1
+        if args.show_tags is None:
+            args.show_tags = "both"
 
     if args.from_input:
         guard_auto_mode_dirs(args.on_duplicate)
@@ -3737,6 +3785,7 @@ def _run_inner(args: argparse.Namespace) -> int:
             summary=summary,
             recursive=args.recursive,
             dry_run=args.dry_run,
+            preview=args.preview,
             show_tags_mode=args.show_tags,
             paranoia=args.paranoia,
             max_files=args.max_files,
@@ -3833,7 +3882,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="Maximum scrubbing: jpegtran -copy none only — zero metadata output. "
                              "Incompatible with --copyright and --comment.")
     parser.add_argument("--preview", action="store_true",
-                        help="Preview scrub effect on one file without modifying it")
+                        help=("Scrub and audit all in-scope JPEGs in temporary "
+                              "storage without publishing or modifying sources; "
+                              "not available in --from-input auto mode"))
     parser.add_argument("--show-container-paths", action="store_true",
                         help="Include container paths alongside host paths in output")
     parser.add_argument("-q", "--quiet", action="store_true",

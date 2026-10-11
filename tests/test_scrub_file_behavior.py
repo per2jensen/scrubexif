@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
-from scrubexif.outcomes import OutcomeKind
+from scrubexif.outcomes import (
+    DuplicateDisposition,
+    OutcomeKind,
+    ProcessingPhase,
+    SourceDisposition,
+)
 from tests.conftest import create_fake_jpeg
 
 
@@ -185,9 +190,16 @@ def test_scrub_file_skip_leaves_original_untouched(tmp_path, monkeypatch):
     monkeypatch.setattr(scrub, "_do_scrub_pipeline", fake_pipeline)
 
     result = scrub.scrub_file(input_file, output_path=output_dir, on_duplicate="skip")
+    summary = scrub.ScrubSummary()
+    summary.update(result)
 
     assert result.kind is OutcomeKind.DUPLICATE_HANDLED
     assert result.reason_code == "duplicate_unchanged"
+    assert summary.report.duplicates_handled == 1
+    assert summary.report.verified_duplicates == 1
+    assert summary.report.duplicates_unchanged == 1
+    assert summary.report.failed == 0
+    assert summary.report.published == 0
     assert input_file.read_bytes() == original_bytes, "Original must not be modified"
     assert existing_output.read_bytes() == SAFE_JPEG_BYTES, "Existing output must not be overwritten"
 
@@ -225,10 +237,17 @@ def test_scrub_file_duplicate_fail_returns_typed_failure(tmp_path: Path) -> None
         output_path=output_directory,
         on_duplicate="fail",
     )
+    summary = scrub.ScrubSummary()
+    summary.update(result)
 
     assert first.kind is OutcomeKind.SCRUBBED
     assert result.kind is OutcomeKind.FAILED
     assert result.reason_code == "duplicate_policy_rejected"
+    assert summary.report.failed == 1
+    assert summary.report.verified_duplicates == 1
+    assert summary.report.duplicates_unchanged == 1
+    assert summary.report.duplicates_handled == 0
+    assert summary.report.published == 0
     assert incoming.read_bytes() == original_bytes
     assert (output_directory / seed.name).is_file()
 
@@ -292,6 +311,10 @@ def test_delete_original_failure_reports_scrubbed_output_and_error(
     assert (output_dir / input_file.name).exists()
     summary = scrub.ScrubSummary()
     summary.update(result)
+    summary.report.validate()
+    assert summary.report.failed == 1
+    assert summary.report.scrubbed == 0
+    assert summary.report.published == 1
     assert summary.scrubbed == 1
     assert summary.errors == 1
 
@@ -327,6 +350,12 @@ def test_inline_rename_source_removal_failure_preserves_both_files(
     assert result.reason_code == "renamed_source_removal_failed"
     assert input_file.exists()
     assert renamed_file.exists()
+    summary = scrub.ScrubSummary()
+    summary.update(result)
+    summary.report.validate()
+    assert summary.report.failed == 1
+    assert summary.report.scrubbed == 0
+    assert summary.report.published == 1
 
 
 def test_duplicate_delete_failure_returns_error_without_data_loss(
@@ -382,6 +411,56 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
     scrub._finalize_auto_result(input_file, result, summary, False, {})
     assert list(processed_directory.iterdir()) == []
     assert summary.errors == 1
+    assert summary.report.failed == 1
+    assert summary.report.verified_duplicates == 1
+    assert summary.report.duplicates_unchanged == 1
+    assert summary.report.duplicates_handled == 0
+    assert summary.report.published == 0
+
+
+def test_duplicate_delete_success_records_verified_deleted_disposition(
+    tmp_path: Path,
+) -> None:
+    """Successful explicit duplicate deletion records its orthogonal facts.
+
+    Args:
+        tmp_path: Isolated real filesystem directory.
+
+    Returns:
+        None.
+    """
+    seed_directory = tmp_path / "seed"
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    for directory in (seed_directory, input_directory, output_directory):
+        directory.mkdir()
+    seed = seed_directory / "photo.jpg"
+    create_fake_jpeg(seed, "orange")
+    first = scrub.scrub_file(
+        seed,
+        output_path=output_directory,
+        on_duplicate="skip",
+    )
+    incoming = input_directory / seed.name
+    incoming.write_bytes(seed.read_bytes())
+
+    result = scrub.scrub_file(
+        incoming,
+        output_path=output_directory,
+        on_duplicate="delete",
+    )
+    summary = scrub.ScrubSummary()
+    summary.update(result)
+
+    assert first.kind is OutcomeKind.SCRUBBED
+    assert result.kind is OutcomeKind.DUPLICATE_HANDLED
+    assert result.reason_code == "duplicate_deleted"
+    assert not incoming.exists()
+    assert summary.report.duplicates_handled == 1
+    assert summary.report.verified_duplicates == 1
+    assert summary.report.duplicates_deleted == 1
+    assert summary.report.failed == 0
+    assert summary.report.published == 0
 
 
 def test_publish_no_clobber_publishes_new_destination_atomically(tmp_path: Path) -> None:
@@ -424,11 +503,15 @@ def test_scrub_file_planned_destination_conflict_leaves_source_untouched(
     result = scrub.scrub_file(
         source,
         output_path=None,
+        dry_run=True,
         planned_rename_path=destination,
     )
+    outcome = scrub._scrub_result_to_file_outcome(result)
 
     assert result.kind is OutcomeKind.FAILED
     assert result.reason_code == "rename_destination_conflict"
+    assert outcome.phase is ProcessingPhase.PLANNING
+    assert outcome.published is False
     assert source.read_bytes() == b"original-source"
     assert destination.read_bytes() == b"racing-writer"
 
@@ -554,6 +637,7 @@ def test_same_filename_different_content_moves_source_and_reports_collision(
     )
     summary = scrub.ScrubSummary()
     summary.update(result)
+    outcome = scrub._scrub_result_to_file_outcome(result)
 
     assert result.kind is OutcomeKind.FAILED
     assert result.reason_code == "destination_collision"
@@ -562,6 +646,10 @@ def test_same_filename_different_content_moves_source_and_reports_collision(
     assert (output_directory / incoming.name).read_bytes() == existing_bytes
     assert not incoming.exists()
     assert summary.errors == 1
+    assert summary.report.failed == 1
+    assert summary.report.verified_duplicates == 0
+    assert summary.report.published == 0
+    assert outcome.source_disposition is SourceDisposition.MOVED
 
 
 def test_verified_duplicate_moves_to_errors_without_error(
@@ -593,6 +681,7 @@ def test_verified_duplicate_moves_to_errors_without_error(
     )
     summary = scrub.ScrubSummary()
     summary.update(result)
+    outcome = scrub._scrub_result_to_file_outcome(result)
 
     assert result.kind is OutcomeKind.DUPLICATE_HANDLED
     assert result.reason_code == "duplicate_moved"
@@ -601,6 +690,13 @@ def test_verified_duplicate_moves_to_errors_without_error(
     assert not incoming.exists()
     assert summary.errors == 0
     assert summary.duplicates_moved == 1
+    assert summary.report.duplicates_handled == 1
+    assert summary.report.verified_duplicates == 1
+    assert summary.report.duplicates_moved == 1
+    assert summary.report.failed == 0
+    assert summary.report.published == 0
+    assert outcome.source_disposition is SourceDisposition.MOVED
+    assert outcome.duplicate_disposition is DuplicateDisposition.MOVED
 
 
 def test_extract_wanted_tags_accepts_requested_keys(

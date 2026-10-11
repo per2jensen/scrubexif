@@ -19,6 +19,11 @@
 - Discovery now classifies supported and unsupported inputs in one bounded pass,
   deduplicates repeated pathnames while retaining distinct hard-link aliases,
   and excludes skipped JPEGs from the `--max-files` limit.
+- Dry-run, preview, duplicate, collision, and post-publication failures now use
+  distinct terminal outcomes while retaining publication and verification facts.
+- Preview now scrubs and audits every in-scope JPEG in disposable storage in
+  either default safe or clean-inline mode, honors `--max-files`, reports
+  planned destinations, and remains unavailable in auto mode.
 
 ## 0.7.28 - 2026-10-10
 

@@ -405,7 +405,7 @@ SBOM and SARIF files stored under `doc/`.
     --rename-plan-max-mib MIB       planning storage circuit breaker (default: 512)
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
-    --preview             no write, view only
+    --preview             scrub/audit all in-scope JPEGs temporarily; unavailable in auto mode
     --paranoia            byte-level wipe via jpegtran only — removes JPEG APP metadata, including EXIF and ICC profiles
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP

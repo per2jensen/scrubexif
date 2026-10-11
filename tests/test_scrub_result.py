@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
+from scrubexif import scrub
 from scrubexif.outcomes import (
+    DuplicateDisposition,
     FileOutcome,
     InputClassification,
     OutcomeKind,
@@ -194,6 +196,103 @@ def test_scrub_summary_records_scrub_result_in_typed_report() -> None:
     assert summary.report.examined == 1
     assert summary.total == 1
     assert summary.scrubbed == 1
+
+
+def test_scrub_result_failed_duplicate_preserves_verification_facts() -> None:
+    """A rejected verified duplicate remains failed and duplicate-verified.
+
+    Returns:
+        None.
+    """
+    output = Path("/photos/output/photo.jpg")
+    outcome = scrub._scrub_result_to_file_outcome(
+        ScrubResult(
+            input_path=Path("/photos/input/photo.jpg"),
+            output_path=output,
+            kind=OutcomeKind.FAILED,
+            reason_code="duplicate_policy_rejected",
+            error_message="strict duplicate policy rejected the source",
+        )
+    )
+
+    assert outcome.kind is OutcomeKind.FAILED
+    assert outcome.phase is ProcessingPhase.DUPLICATE_HANDLING
+    assert outcome.duplicate_verified is True
+    assert outcome.duplicate_disposition is DuplicateDisposition.UNCHANGED
+    assert outcome.actual_output_path == output
+    assert outcome.published is False
+
+
+def test_scrub_result_collision_is_failed_without_duplicate_fact() -> None:
+    """Different content at an existing destination is not a duplicate.
+
+    Returns:
+        None.
+    """
+    outcome = scrub._scrub_result_to_file_outcome(
+        ScrubResult(
+            input_path=Path("/photos/input/photo.jpg"),
+            output_path=Path("/photos/output/photo.jpg"),
+            kind=OutcomeKind.FAILED,
+            reason_code="destination_collision",
+            error_message="same filename contains different bytes",
+        )
+    )
+
+    assert outcome.kind is OutcomeKind.FAILED
+    assert outcome.phase is ProcessingPhase.VERIFICATION
+    assert outcome.duplicate_verified is False
+    assert outcome.actual_output_path is None
+    assert outcome.source_disposition is SourceDisposition.UNCHANGED
+    assert outcome.published is False
+
+
+def test_scrub_result_post_publication_failure_preserves_publication_fact() -> None:
+    """Required source-cleanup failure remains FAILED after publication.
+
+    Returns:
+        None.
+    """
+    output = Path("/photos/output/photo.jpg")
+    outcome = scrub._scrub_result_to_file_outcome(
+        ScrubResult(
+            input_path=Path("/photos/input/photo.jpg"),
+            output_path=output,
+            kind=OutcomeKind.FAILED,
+            reason_code="source_deletion_failed",
+            error_message="source unlink failed",
+        )
+    )
+
+    assert outcome.kind is OutcomeKind.FAILED
+    assert outcome.phase is ProcessingPhase.SOURCE_FINALIZATION
+    assert outcome.published is True
+    assert outcome.intended_output_path == output
+    assert outcome.actual_output_path == output
+    assert outcome.source_disposition is SourceDisposition.UNCHANGED
+    assert outcome.duplicate_verified is False
+
+
+def test_scrub_result_late_rename_collision_records_publication_phase() -> None:
+    """A collision after scrub and audit remains a publication failure.
+
+    Returns:
+        None.
+    """
+    outcome = scrub._scrub_result_to_file_outcome(
+        ScrubResult(
+            input_path=Path("/photos/input/photo.jpg"),
+            output_path=Path("/photos/output/generated.jpg"),
+            kind=OutcomeKind.FAILED,
+            reason_code="rename_publication_conflict",
+            error_message="late destination allocation was exhausted",
+        )
+    )
+
+    assert outcome.kind is OutcomeKind.FAILED
+    assert outcome.phase is ProcessingPhase.PUBLICATION
+    assert outcome.published is False
+    assert outcome.actual_output_path is None
 
 
 @pytest.mark.parametrize(
