@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.0 - Unreleased
+
+### Added
+
+- A validated immutable outcome and run-accounting model now distinguishes
+  scrubbed, duplicate-handled, unsupported, planned, previewed, skipped, and
+  failed inputs while preserving publication and duplicate-verification facts.
+
 ## 0.7.28 - 2026-10-10
 
 ### Added
