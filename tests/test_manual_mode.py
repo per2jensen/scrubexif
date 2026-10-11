@@ -92,8 +92,22 @@ def test_manual_mode_recursive_long_flag(tmp_path):
     assert "✅ Saved scrubbed file" in result.stdout
 
 
-def test_manual_mode_recursive_no_args(tmp_path):
-    """Should scrub all JPEGs under /photos recursively if only --recursive is passed."""
+def test_manual_mode_recursive_no_args(tmp_path: Path) -> None:
+    """Scrub the nested JPEG when only the recursive option is supplied.
+
+    Docker cannot reconstruct the host mount prefix when the source directory
+    lives on a separate filesystem such as a tmpfs-mounted ``/tmp``. Verify the
+    stable path suffix that identifies the intended file instead.
+
+    Args:
+        tmp_path: Pytest temporary directory mounted at ``/photos``.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If recursive mode fails or reports the wrong file.
+    """
     sub = tmp_path / "deep"
     sub.mkdir()
     target = sub / "img.jpg"
@@ -105,8 +119,14 @@ def test_manual_mode_recursive_no_args(tmp_path):
     )
 
     assert result.returncode == 0
-    expected = f"{tmp_path}/deep/img.jpg"
-    assert f"✅ Saved scrubbed file to {expected}" in result.stdout
+    saved_prefix = "✅ Saved scrubbed file to "
+    saved_paths = [
+        line.removeprefix(saved_prefix)
+        for line in result.stdout.splitlines()
+        if line.startswith(saved_prefix)
+    ]
+    assert len(saved_paths) == 1
+    assert saved_paths[0].endswith("/deep/img.jpg")
 
 
 def test_manual_preview_cleans_tempfiles(tmp_path, monkeypatch):

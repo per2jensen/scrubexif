@@ -64,7 +64,7 @@ export SCRUBEXIF_STATE ?= /tmp/.scrubexif_state.test.json
   refresh-final refresh-test test-refresh-controller \
   test-release dry-run-release _dryrun-release-internal \
   log-build-json update-readme-version update-scrub-version update-details-version update-index-html-version \
-  push login clean clean-all dev dev-clean paranoia test test-nightly test-soak soak \
+  push login clean clean-all dev dev-clean dev-nuke paranoia test test-nightly test-soak soak \
   show-labels show-tags help
 
 
@@ -424,6 +424,39 @@ dev:
 dev-clean:
 	@echo "Removing dev image..."
 	-$(DOCKER) rmi -f scrubexif:dev || true
+
+
+# Full nuke: deletes all reclaimable Docker build caches and unused images.
+# This is intentionally separate from dev so normal development builds stay fast.
+dev-nuke:
+	@echo "🧹 Full nuke: Pruning ALL reclaimable Docker build caches and unused images..."
+	@if ! $(DOCKER) builder prune -a -f; then \
+	  >&2 echo "ERROR: unable to prune Docker build cache; refusing to claim a clean build"; \
+	  exit 2; \
+	fi
+	@if ! $(DOCKER) image prune -a -f; then \
+	  >&2 echo "ERROR: unable to prune unused Docker images; refusing to claim a clean build"; \
+	  exit 2; \
+	fi
+	@echo "Rebuilding development image from scratch: scrubexif:dev ..."
+	$(DOCKER) build --no-cache --pull -f Dockerfile \
+		--build-arg VERSION=dev \
+		--label org.opencontainers.image.created="$(shell date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--label org.opencontainers.image.source=https://github.com/per2jensen/scrubexif \
+		--label org.opencontainers.image.revision="$(shell git rev-parse --short HEAD)" \
+		--label org.opencontainers.image.title="scrubexif" \
+		--label org.opencontainers.image.version="dev" \
+		--label org.opencontainers.image.ref.name="$(DOCKERHUB_REPO):dev" \
+		--label org.opencontainers.image.description="Container for batch-scrubbing EXIF data from JPEGs using tools" \
+		--label org.opencontainers.image.licenses="GPL-3.0-or-later" \
+		--label org.opencontainers.image.authors="Per Jensen <per2jensen@gmail.com>" \
+		--label org.opencontainers.image.base.name="ubuntu" \
+		--label org.opencontainers.image.base.version="$(UBUNTU_VERSION)" \
+		--label org.opencontainers.image.url="https://hub.docker.com/r/per2jensen/scrubexif" \
+		-t $(FINAL_IMAGE_NAME):dev .
+	@echo "Check import of scrubexif.scrub in freshly rebuilt dev image"
+	$(DOCKER_RUN) --entrypoint python3 scrubexif:dev \
+		-c "import scrubexif.scrub; print('✅ scrubexif is importable')"
 
 
 paranoia:
