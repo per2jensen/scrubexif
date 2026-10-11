@@ -10,6 +10,11 @@
 - A `dev-nuke` Make target can remove all reclaimable Docker build caches and
   unused images before performing a fully uncached development-image build.
 
+### Changed
+
+- Scrub operations now return immutable typed outcomes with validated stable
+  reason codes instead of unrestricted status strings.
+
 ## 0.7.28 - 2026-10-10
 
 ### Added
