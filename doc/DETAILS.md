@@ -488,7 +488,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.27; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -505,7 +505,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.27; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -522,7 +522,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.27; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -978,7 +978,7 @@ size; the signed registry attestation still contains the original SPDX JSON.
 Versioned image:
 
 ```bash
-VERSION=0.7.27; docker pull per2jensen/scrubexif:$VERSION
+VERSION=0.7.28; docker pull per2jensen/scrubexif:$VERSION
 ```
 
 Pull the latest `stable` release (when available)
@@ -1000,7 +1000,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.27; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1011,10 +1011,10 @@ VERSION=0.7.27; docker run -it --rm \
 🛠️ Show version and help
 
 ```bash
-VERSION=0.7.27; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.7.28; docker run --rm --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --version
-VERSION=0.7.27; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.7.28; docker run --rm --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --help
 ```
@@ -1038,7 +1038,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.27; docker run --rm \
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1052,13 +1052,13 @@ VERSION=0.7.27; docker run --rm \
 To view embedded labels and metadata:
 
 ```bash
-VERSION=0.7.27; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
+VERSION=0.7.28; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
 ```
 
 You can also check the digest and ID:
 
 ```bash
-VERSION=0.7.27; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
+VERSION=0.7.28; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
 
 ## Image Signing and Supply Chain Verification
