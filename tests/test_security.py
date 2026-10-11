@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
+from scrubexif.outcomes import OutcomeKind
 from scrubexif.scrub import ScrubResult
 
 IMAGE = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
@@ -135,7 +136,8 @@ def test_scrub_file_rejects_symlink_destination(tmp_path, monkeypatch):
 
     result = scrub.scrub_file(src, output_path=dst_dir)
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "destination_symlink"
     assert "symlink" in (result.error_message or "")
     assert run_called is False, "ExifTool should not run when destination is a symlink"
 
@@ -176,7 +178,12 @@ def test_auto_scrub_delete_original_skips_move(tmp_path, monkeypatch):
     def fake_scrub_file(path, output_path, delete_original, **kwargs):
         if delete_original and path.exists():
             path.unlink()
-        return ScrubResult(path, output_path, status="scrubbed")
+        return ScrubResult(
+            input_path=path,
+            output_path=output_path,
+            kind=OutcomeKind.SCRUBBED,
+            reason_code="output_published",
+        )
 
     monkeypatch.setattr(scrub.shutil, "move", fake_move)
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
@@ -221,7 +228,12 @@ def test_auto_scrub_preserves_occupied_symlink_and_archives_with_new_name(
     ) -> ScrubResult:
         """Return a successful scrub result without invoking external tools."""
         del delete_original, kwargs
-        return ScrubResult(path, output_path, status="scrubbed")
+        return ScrubResult(
+            input_path=path,
+            output_path=output_path,
+            kind=OutcomeKind.SCRUBBED,
+            reason_code="output_published",
+        )
 
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 
@@ -281,7 +293,13 @@ def test_auto_scrub_error_preserves_occupied_symlink_and_archives_with_new_name(
     ) -> ScrubResult:
         """Return a failed scrub result without invoking external tools."""
         del kwargs
-        return ScrubResult(path, output_path, status="error", error_message="simulated failure")
+        return ScrubResult(
+            input_path=path,
+            output_path=output_path,
+            kind=OutcomeKind.FAILED,
+            reason_code="scrub_failed",
+            error_message="simulated failure",
+        )
 
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 
@@ -320,7 +338,12 @@ def test_simple_scrub_skips_symlinks(tmp_path, monkeypatch):
 
     def fake_scrub_file(path, **kwargs):
         scrub_called_with.append(path)
-        return ScrubResult(path, output_dir / path.name, status="scrubbed")
+        return ScrubResult(
+            input_path=path,
+            output_path=output_dir / path.name,
+            kind=OutcomeKind.SCRUBBED,
+            reason_code="output_published",
+        )
 
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 
@@ -341,7 +364,12 @@ def test_manual_scrub_skips_symlink_input(tmp_path, monkeypatch):
 
     def fake_scrub_file(path, **kwargs):
         scrub_called_with.append(path)
-        return ScrubResult(path, None, status="scrubbed")
+        return ScrubResult(
+            input_path=path,
+            output_path=path,
+            kind=OutcomeKind.SCRUBBED,
+            reason_code="output_published",
+        )
 
     monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
 

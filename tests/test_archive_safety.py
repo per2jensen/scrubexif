@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
+from scrubexif.outcomes import OutcomeKind
 from tests.conftest import create_fake_jpeg
 
 
@@ -168,11 +169,21 @@ def test_auto_finalization_keeps_repeated_original_names_without_overwrite(
     state: dict[str, dict[str, float | int]] = {}
 
     source.write_bytes(b"first-original")
-    first_result = scrub.ScrubResult(source, tmp_path / "output" / "photo.jpg")
+    first_result = scrub.ScrubResult(
+        input_path=source,
+        output_path=tmp_path / "output" / "photo.jpg",
+        kind=OutcomeKind.SCRUBBED,
+        reason_code="output_published",
+    )
     scrub._finalize_auto_result(source, first_result, summary, False, state)
 
     source.write_bytes(b"second-original")
-    second_result = scrub.ScrubResult(source, tmp_path / "output" / "photo-2.jpg")
+    second_result = scrub.ScrubResult(
+        input_path=source,
+        output_path=tmp_path / "output" / "photo-2.jpg",
+        kind=OutcomeKind.SCRUBBED,
+        reason_code="output_published",
+    )
     scrub._finalize_auto_result(source, second_result, summary, False, state)
 
     archived_contents = {path.read_bytes() for path in processed_directory.iterdir()}
@@ -194,7 +205,8 @@ def test_duplicate_move_preserves_occupied_errors_name(tmp_path: Path, monkeypat
     seed = seed_directory / "photo.jpg"
     create_fake_jpeg(seed, "purple")
     first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
-    assert first.status == "scrubbed"
+    assert first.kind is OutcomeKind.SCRUBBED
+    assert first.reason_code == "output_published"
     source = input_directory / "photo.jpg"
     source.write_bytes(seed.read_bytes())
     occupied = errors_directory / source.name
@@ -208,7 +220,8 @@ def test_duplicate_move_preserves_occupied_errors_name(tmp_path: Path, monkeypat
     )
 
     archived = [path for path in errors_directory.iterdir() if path != occupied]
-    assert result.status == "duplicate"
+    assert result.kind is OutcomeKind.DUPLICATE_HANDLED
+    assert result.reason_code == "duplicate_moved"
     assert occupied.read_bytes() == b"older-duplicate"
     assert len(archived) == 1
     assert archived[0].read_bytes() == seed.read_bytes()

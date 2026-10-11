@@ -93,7 +93,7 @@ class RunFailure:
         Raises:
             ValueError: If a field is invalid.
         """
-        _validate_reason_code(self.reason_code)
+        validate_reason_code(self.reason_code)
         if not isinstance(self.phase, ProcessingPhase):
             raise ValueError("phase must be a ProcessingPhase")
         if not isinstance(self.diagnostic, str) or not self.diagnostic.strip():
@@ -186,7 +186,7 @@ class FileOutcome:
             raise ValueError("published must be a boolean")
         if not isinstance(self.duplicate_verified, bool):
             raise ValueError("duplicate_verified must be a boolean")
-        _validate_reason_code(self.reason_code)
+        validate_reason_code(self.reason_code)
         if self.diagnostic is not None and (
             not isinstance(self.diagnostic, str) or not self.diagnostic.strip()
         ):
@@ -641,7 +641,7 @@ def _validate_path(name: str, path: Path | None, required: bool) -> None:
         raise ValueError(f"{name} must identify a valid file path")
 
 
-def _validate_reason_code(reason_code: str) -> None:
+def validate_reason_code(reason_code: str) -> None:
     """Validate one stable machine-readable reason code.
 
     Args:
@@ -669,4 +669,5 @@ __all__ = [
     "RunReport",
     "RunReportValidationError",
     "SourceDisposition",
+    "validate_reason_code",
 ]

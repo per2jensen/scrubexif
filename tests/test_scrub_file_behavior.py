@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from scrubexif import scrub
+from scrubexif.outcomes import OutcomeKind
 from tests.conftest import create_fake_jpeg
 
 
@@ -40,7 +41,8 @@ def test_scrub_file_accepts_no_duplicate_policy_for_manual_dry_run(
         dry_run=True,
     )
 
-    assert result.status == "scrubbed"
+    assert result.kind is OutcomeKind.PLANNED
+    assert result.reason_code == "scrub_planned"
     assert source.read_bytes() == SAFE_JPEG_BYTES
 
 
@@ -94,7 +96,8 @@ def test_scrub_file_stages_source_bytes_outside_output_directory(tmp_path, monke
     target = Path(cmd[cmd.index("-outfile") + 1])
     assert target.parent != output_dir
     assert target != result.output_path
-    assert result.status == "scrubbed"
+    assert result.kind is OutcomeKind.SCRUBBED
+    assert result.reason_code == "output_published"
     assert result.output_path.read_bytes() == SAFE_JPEG_BYTES
     assert list(output_dir.iterdir()) == [result.output_path]
 
@@ -109,7 +112,8 @@ def test_duplicate_reporting_uses_output_file(tmp_path):
 
     result = scrub.scrub_file(input_file, output_path=output_dir, dry_run=True)
 
-    assert result.status == "duplicate"
+    assert result.kind is OutcomeKind.PLANNED
+    assert result.reason_code == "existing_output_check_planned"
     assert result.output_path == output_dir / input_file.name
 
 
@@ -132,7 +136,8 @@ def test_scrub_file_failure_does_not_create_output(tmp_path, monkeypatch):
 
     result = scrub.scrub_file(input_file, output_path=output_dir)
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "scrub_failed"
     assert not (output_dir / input_file.name).exists()
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir())
 
@@ -152,14 +157,14 @@ def test_scrub_file_exception_does_not_create_output(tmp_path, monkeypatch):
 
     result = scrub.scrub_file(input_file, output_path=output_dir)
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "scrub_failed"
     assert not (output_dir / input_file.name).exists()
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in output_dir.iterdir())
 
 
 def test_scrub_file_skip_leaves_original_untouched(tmp_path, monkeypatch):
-    """on_duplicate='skip': when the output already exists scrub_file must return
-    status='skipped' and leave the original byte-for-byte intact."""
+    """A verified duplicate with the skip policy leaves its source untouched."""
     original_bytes = SAFE_JPEG_BYTES
     input_file = tmp_path / "photo.jpg"
     input_file.write_bytes(original_bytes)
@@ -181,9 +186,51 @@ def test_scrub_file_skip_leaves_original_untouched(tmp_path, monkeypatch):
 
     result = scrub.scrub_file(input_file, output_path=output_dir, on_duplicate="skip")
 
-    assert result.status == "skipped", "Expected status='skipped' when output exists"
+    assert result.kind is OutcomeKind.DUPLICATE_HANDLED
+    assert result.reason_code == "duplicate_unchanged"
     assert input_file.read_bytes() == original_bytes, "Original must not be modified"
     assert existing_output.read_bytes() == SAFE_JPEG_BYTES, "Existing output must not be overwritten"
+
+
+def test_scrub_file_duplicate_fail_returns_typed_failure(tmp_path: Path) -> None:
+    """A verified duplicate rejected by policy has a precise failed outcome.
+
+    Args:
+        tmp_path: Pytest temporary directory.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If duplicate rejection mutates files or loses its reason.
+    """
+    seed_directory = tmp_path / "seed"
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    for directory in (seed_directory, input_directory, output_directory):
+        directory.mkdir()
+    seed = seed_directory / "photo.jpg"
+    create_fake_jpeg(seed, "green")
+    first = scrub.scrub_file(
+        seed,
+        output_path=output_directory,
+        on_duplicate="skip",
+    )
+    incoming = input_directory / seed.name
+    incoming.write_bytes(seed.read_bytes())
+    original_bytes = incoming.read_bytes()
+
+    result = scrub.scrub_file(
+        incoming,
+        output_path=output_directory,
+        on_duplicate="fail",
+    )
+
+    assert first.kind is OutcomeKind.SCRUBBED
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "duplicate_policy_rejected"
+    assert incoming.read_bytes() == original_bytes
+    assert (output_directory / seed.name).is_file()
 
 
 def test_in_place_failure_keeps_original(tmp_path, monkeypatch):
@@ -204,7 +251,8 @@ def test_in_place_failure_keeps_original(tmp_path, monkeypatch):
 
     result = scrub.scrub_file(input_file, output_path=None)
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "scrub_failed"
     assert input_file.read_bytes() == original
     assert not any(p.name.startswith(".scrubexif_tmp_") for p in tmp_path.iterdir())
 
@@ -238,7 +286,8 @@ def test_delete_original_failure_reports_scrubbed_output_and_error(
         delete_original=True,
     )
 
-    assert result.status == "scrubbed_with_error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "source_deletion_failed"
     assert input_file.exists()
     assert (output_dir / input_file.name).exists()
     summary = scrub.ScrubSummary()
@@ -274,7 +323,8 @@ def test_inline_rename_source_removal_failure_preserves_both_files(
         planned_rename_path=renamed_file,
     )
 
-    assert result.status == "scrubbed_with_error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "renamed_source_removal_failed"
     assert input_file.exists()
     assert renamed_file.exists()
 
@@ -286,8 +336,10 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
     """A failed duplicate deletion retains both original and existing output."""
     input_directory = tmp_path / "input"
     output_directory = tmp_path / "output"
+    processed_directory = tmp_path / "processed"
     input_directory.mkdir()
     output_directory.mkdir()
+    processed_directory.mkdir()
     input_file = input_directory / "photo.jpg"
     output_file = output_directory / input_file.name
     input_file.write_bytes(SAFE_JPEG_BYTES)
@@ -303,6 +355,7 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
         original_unlink(path, missing_ok=missing_ok)
 
     monkeypatch.setattr(Path, "unlink", fail_source_unlink)
+    monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_directory)
 
     def fake_pipeline(
         source_path: Path,
@@ -321,9 +374,14 @@ def test_duplicate_delete_failure_returns_error_without_data_loss(
         on_duplicate="delete",
     )
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "duplicate_delete_failed"
     assert input_file.read_bytes() == SAFE_JPEG_BYTES
     assert output_file.read_bytes() == SAFE_JPEG_BYTES
+    summary = scrub.ScrubSummary()
+    scrub._finalize_auto_result(input_file, result, summary, False, {})
+    assert list(processed_directory.iterdir()) == []
+    assert summary.errors == 1
 
 
 def test_publish_no_clobber_publishes_new_destination_atomically(tmp_path: Path) -> None:
@@ -369,7 +427,8 @@ def test_scrub_file_planned_destination_conflict_leaves_source_untouched(
         planned_rename_path=destination,
     )
 
-    assert result.status == "conflict"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "rename_destination_conflict"
     assert source.read_bytes() == b"original-source"
     assert destination.read_bytes() == b"racing-writer"
 
@@ -390,7 +449,8 @@ def test_auto_conflict_does_not_move_or_delete_intake_source(
     result = scrub.ScrubResult(
         input_path=source,
         output_path=tmp_path / "output" / "planned.jpg",
-        status="conflict",
+        kind=OutcomeKind.FAILED,
+        reason_code="rename_destination_appeared",
         error_message="destination appeared",
     )
 
@@ -428,7 +488,8 @@ def test_silent_pipeline_privacy_failure_is_rejected_before_publication(
         paranoia=True,
     )
 
-    assert result.status == "error"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "scrub_failed"
     assert source.is_file()
     assert list(output_directory.iterdir()) == []
     assert "audit rejected" in (result.error_message or "")
@@ -455,7 +516,8 @@ def test_existing_unsafe_output_leaves_incoming_source_in_input(
     summary = scrub.ScrubSummary()
     scrub._finalize_auto_result(source, result, summary, False, {})
 
-    assert result.status == "unsafe_output"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "existing_output_unsafe"
     assert source.read_bytes() == original_source
     assert existing_output.read_bytes() == b"unscrubbed-or-corrupt"
     assert list(processed_directory.iterdir()) == []
@@ -476,7 +538,8 @@ def test_same_filename_different_content_moves_source_and_reports_collision(
     seed = seed_directory / "photo.jpg"
     create_fake_jpeg(seed, "red")
     first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
-    assert first.status == "scrubbed"
+    assert first.kind is OutcomeKind.SCRUBBED
+    assert first.reason_code == "output_published"
 
     incoming = input_directory / "photo.jpg"
     create_fake_jpeg(incoming, "blue")
@@ -492,7 +555,8 @@ def test_same_filename_different_content_moves_source_and_reports_collision(
     summary = scrub.ScrubSummary()
     summary.update(result)
 
-    assert result.status == "collision"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "destination_collision"
     assert result.duplicate_path is not None
     assert result.duplicate_path.read_bytes() == incoming_bytes
     assert (output_directory / incoming.name).read_bytes() == existing_bytes
@@ -514,7 +578,8 @@ def test_verified_duplicate_moves_to_errors_without_error(
     seed = seed_directory / "photo.jpg"
     create_fake_jpeg(seed, "green")
     first = scrub.scrub_file(seed, output_path=output_directory, on_duplicate="skip")
-    assert first.status == "scrubbed"
+    assert first.kind is OutcomeKind.SCRUBBED
+    assert first.reason_code == "output_published"
 
     incoming = input_directory / "photo.jpg"
     incoming.write_bytes(seed.read_bytes())
@@ -529,7 +594,8 @@ def test_verified_duplicate_moves_to_errors_without_error(
     summary = scrub.ScrubSummary()
     summary.update(result)
 
-    assert result.status == "duplicate"
+    assert result.kind is OutcomeKind.DUPLICATE_HANDLED
+    assert result.reason_code == "duplicate_moved"
     assert result.duplicate_path is not None
     assert result.duplicate_path.read_bytes() == incoming_bytes
     assert not incoming.exists()

@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 import scrubexif.scrub as scrub
+from scrubexif.outcomes import OutcomeKind
 from scrubexif.scrub import main, scrub_file
 from scrubexif.rename_planner import RenamePlanLimits, build_rename_plan
 
@@ -55,7 +56,10 @@ def _scrub_to_dir(
         rename_format=rename_format,
         rename_counter=counter or {"n": 0},
     )
-    assert result.status == "scrubbed", f"Expected scrubbed, got {result.status}: {result.error_message}"
+    assert result.kind is OutcomeKind.SCRUBBED, (
+        f"Expected scrubbed, got {result.kind.value}: {result.error_message}"
+    )
+    assert result.reason_code == "output_published"
     return result.output_path
 
 
@@ -150,7 +154,8 @@ def test_dry_run_rename_prints_proposed_name_and_no_file_written(
         rename_format="%r8",
         rename_counter={"n": 0},
     )
-    assert result.status == "scrubbed"
+    assert result.kind is OutcomeKind.PLANNED
+    assert result.reason_code == "scrub_planned"
     captured = capsys.readouterr()
     assert "→" in captured.out
     # No file should have been written in dry-run.
@@ -289,7 +294,8 @@ def test_clean_inline_scrub_file_renames_in_place(tmp_path: Path) -> None:
         rename_counter={"n": 0},
     )
 
-    assert result.status == "scrubbed"
+    assert result.kind is OutcomeKind.SCRUBBED
+    assert result.reason_code == "output_published"
     # Original path must be gone.
     assert not src.exists(), "Original path should be gone after in-place rename"
     # Renamed file must exist with 8-char hex stem.
@@ -484,7 +490,8 @@ def test_clean_inline_late_pre_scrub_collision_reassigns_and_continues(
         )
 
     output = capsys.readouterr().out
-    assert result.status == "scrubbed"
+    assert result.kind is OutcomeKind.SCRUBBED
+    assert result.reason_code == "output_published"
     assert result.output_path == tmp_path / "replacement.jpg"
     assert entry.destination_path.read_bytes() == b"active-filesystem"
     assert not src.exists()
@@ -566,7 +573,8 @@ def test_clean_inline_continuous_publication_collisions_stop_safely(
         rename_destination_allocator=allocate_replacement,
     )
 
-    assert result.status == "conflict"
+    assert result.kind is OutcomeKind.FAILED
+    assert result.reason_code == "rename_destination_conflict"
     assert src.read_bytes() == source_bytes
     assert all(
         path.read_bytes() == b"active-filesystem"

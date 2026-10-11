@@ -22,12 +22,15 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from types import MappingProxyType
 from typing import Optional
 
 from .__about__ import __license__, __version__
 from .jpeg_audit import audit_jpeg, scrubbed_output_violations
+from .outcomes import OutcomeKind, validate_reason_code
 from .renaming import validate_rename_format
 from .rename_planner import (
     DEFAULT_MAX_PLAN_BYTES,
@@ -48,28 +51,130 @@ sys.stdout.reconfigure(line_buffering=True)
 # Results and summary structs
 # ----------------------------
 
+_SCRUB_RESULT_REASON_KINDS = MappingProxyType({
+    "destination_appeared": OutcomeKind.FAILED,
+    "destination_collision": OutcomeKind.FAILED,
+    "destination_symlink": OutcomeKind.FAILED,
+    "duplicate_deleted": OutcomeKind.DUPLICATE_HANDLED,
+    "duplicate_delete_failed": OutcomeKind.FAILED,
+    "duplicate_move_failed": OutcomeKind.FAILED,
+    "duplicate_moved": OutcomeKind.DUPLICATE_HANDLED,
+    "duplicate_policy_rejected": OutcomeKind.FAILED,
+    "duplicate_unchanged": OutcomeKind.DUPLICATE_HANDLED,
+    "existing_output_check_planned": OutcomeKind.PLANNED,
+    "existing_output_unsafe": OutcomeKind.FAILED,
+    "output_published": OutcomeKind.SCRUBBED,
+    "rename_destination_appeared": OutcomeKind.FAILED,
+    "rename_destination_conflict": OutcomeKind.FAILED,
+    "rename_destination_symlink": OutcomeKind.FAILED,
+    "rename_planning_failed": OutcomeKind.FAILED,
+    "rename_reassignment_failed": OutcomeKind.FAILED,
+    "renamed_source_removal_failed": OutcomeKind.FAILED,
+    "scrub_failed": OutcomeKind.FAILED,
+    "scrub_planned": OutcomeKind.PLANNED,
+    "source_deletion_failed": OutcomeKind.FAILED,
+})
+
+
+@dataclass(frozen=True, slots=True)
 class ScrubResult:
-    __slots__ = ("input_path", "output_path", "status", "error_message", "duplicate_path")
+    """Describe the typed result returned by one scrub operation.
 
-    def __init__(
-        self,
-        input_path: Path,
-        output_path: Optional[Path] = None,
-        status: str = "scrubbed",
-        error_message: Optional[str] = None,
-        duplicate_path: Optional[Path] = None,
-    ):
-        self.input_path = input_path
-        self.output_path = output_path
-        # scrubbed, scrubbed_with_error, skipped, duplicate, collision,
-        # unsafe_output, duplicate_failed, conflict, error
-        self.status = status
-        self.error_message = error_message
-        self.duplicate_path = duplicate_path
+    This result is intentionally operation-scoped. A mode may still need to
+    perform source finalization before constructing the terminal FileOutcome.
 
-    def __repr__(self):
+    Args:
+        input_path: Source JPEG passed to the scrub operation.
+        output_path: Intended, published, or verified output path when known.
+        kind: Typed operation outcome.
+        reason_code: Stable machine-readable explanation for the outcome.
+        error_message: Human-readable diagnostic for a failed outcome.
+        duplicate_path: Final archive path after moving a duplicate or collision.
+
+    Raises:
+        ValueError: If a field or field combination is invalid.
+    """
+
+    input_path: Path
+    output_path: Path | None
+    kind: OutcomeKind
+    reason_code: str
+    error_message: str | None = None
+    duplicate_path: Path | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the typed operation result.
+
+        Raises:
+            ValueError: If a field or field combination is invalid.
+        """
+        self._validate_path("input_path", self.input_path, required=True)
+        self._validate_path("output_path", self.output_path, required=False)
+        self._validate_path("duplicate_path", self.duplicate_path, required=False)
+        if not isinstance(self.kind, OutcomeKind):
+            raise ValueError("kind must be an OutcomeKind")
+        validate_reason_code(self.reason_code)
+        expected_kind = _SCRUB_RESULT_REASON_KINDS.get(self.reason_code)
+        if expected_kind is None:
+            raise ValueError(f"unsupported scrub result reason: {self.reason_code}")
+        if self.kind is not expected_kind:
+            raise ValueError(
+                f"reason {self.reason_code} requires outcome {expected_kind.value}"
+            )
+        if self.kind in {
+            OutcomeKind.SCRUBBED,
+            OutcomeKind.DUPLICATE_HANDLED,
+            OutcomeKind.PLANNED,
+        } and self.output_path is None:
+            raise ValueError(f"a {self.kind.value} scrub result requires output_path")
+        if self.kind is OutcomeKind.FAILED:
+            if not isinstance(self.error_message, str) or not self.error_message.strip():
+                raise ValueError("a FAILED scrub result requires an error message")
+        elif self.error_message is not None:
+            raise ValueError("only a FAILED scrub result may have an error message")
+        if self.duplicate_path is not None and self.reason_code not in {
+            "destination_collision",
+            "duplicate_moved",
+        }:
+            raise ValueError(
+                "duplicate_path requires a moved duplicate or collision result"
+            )
+        if self.reason_code == "duplicate_moved" and self.duplicate_path is None:
+            raise ValueError("duplicate_moved requires duplicate_path")
+
+    @staticmethod
+    def _validate_path(name: str, path: Path | None, required: bool) -> None:
+        """Validate one result path without consulting filesystem state.
+
+        Args:
+            name: Field name used in validation messages.
+            path: Candidate path.
+            required: Whether None must be rejected.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If the path is missing or invalid.
+        """
+        if path is None:
+            if required:
+                raise ValueError(f"{name} must be a pathlib.Path")
+            return
+        if not isinstance(path, Path):
+            raise ValueError(f"{name} must be a pathlib.Path or None")
+        if not path.name or "\x00" in str(path):
+            raise ValueError(f"{name} must identify a valid file path")
+
+    def __repr__(self) -> str:
+        """Return a concise diagnostic representation.
+
+        Returns:
+            String containing outcome, reason, paths, and error presence.
+        """
         return (
-            f"ScrubResult(status={self.status!r}, "
+            f"ScrubResult(kind={self.kind.value!r}, "
+            f"reason={self.reason_code!r}, "
             f"input={self.input_path.name}, "
             f"output={self.output_path.name if self.output_path else 'n/a'}, "
             f"error={bool(self.error_message)})"
@@ -109,22 +214,45 @@ class ScrubSummary:
         Returns:
             None.
         """
+        if not isinstance(result, ScrubResult):
+            raise ValueError("result must be a ScrubResult")
         self.total += 1
-        match result.status:
-            case "scrubbed":
+        if result.kind is OutcomeKind.SCRUBBED:
+            self.scrubbed += 1
+            return
+        if result.kind is OutcomeKind.FAILED:
+            self.errors += 1
+            if result.reason_code in {
+                "renamed_source_removal_failed",
+                "source_deletion_failed",
+            }:
                 self.scrubbed += 1
-            case "scrubbed_with_error":
-                self.scrubbed += 1
-                self.errors += 1
-            case "skipped":
+            return
+        if result.kind is OutcomeKind.SKIPPED:
+            self.skipped += 1
+            return
+        if result.kind is OutcomeKind.DUPLICATE_HANDLED:
+            if result.reason_code == "duplicate_moved":
+                self.duplicates_moved += 1
+                return
+            if result.reason_code == "duplicate_deleted":
+                self.duplicates_deleted += 1
+                return
+            if result.reason_code == "duplicate_unchanged":
                 self.skipped += 1
-            case "duplicate":
-                if result.duplicate_path:
-                    self.duplicates_moved += 1
-                else:
-                    self.duplicates_deleted += 1
-            case "collision" | "unsafe_output" | "duplicate_failed" | "conflict" | "error":
-                self.errors += 1
+                return
+            raise ValueError(
+                "DUPLICATE_HANDLED has an unsupported compatibility reason"
+            )
+        if result.kind is OutcomeKind.PLANNED:
+            if result.reason_code == "existing_output_check_planned":
+                self.duplicates_deleted += 1
+            else:
+                self.scrubbed += 1
+            return
+        raise ValueError(
+            f"legacy summary cannot record scrub result kind {result.kind.value}"
+        )
 
     def print(self) -> None:
         """Print human-readable and machine-readable run summaries.
@@ -1432,7 +1560,8 @@ def scrub_file(
             return ScrubResult(
                 input_path=input_path,
                 output_path=input_path,
-                status="conflict",
+                kind=OutcomeKind.FAILED,
+                reason_code="rename_planning_failed",
                 error_message=err_msg,
             )
         rename_stem = output_file.stem
@@ -1519,7 +1648,8 @@ def scrub_file(
             return ScrubResult(
                 input_path=input_path,
                 output_path=output_file,
-                status="conflict",
+                kind=OutcomeKind.FAILED,
+                reason_code="rename_destination_conflict",
                 error_message=err_msg,
             )
         except Exception as exc:
@@ -1528,7 +1658,8 @@ def scrub_file(
             return ScrubResult(
                 input_path=input_path,
                 output_path=output_file,
-                status="error",
+                kind=OutcomeKind.FAILED,
+                reason_code="rename_reassignment_failed",
                 error_message=err_msg,
             )
 
@@ -1538,7 +1669,12 @@ def scrub_file(
         return ScrubResult(
             input_path=input_path,
             output_path=output_file,
-            status="conflict" if rename_requested else "error",
+            kind=OutcomeKind.FAILED,
+            reason_code=(
+                "rename_destination_symlink"
+                if rename_requested
+                else "destination_symlink"
+            ),
             error_message=msg,
         )
 
@@ -1558,7 +1694,12 @@ def scrub_file(
                 "🔍 [dry-run] Would audit and compare existing destination: "
                 f"{_format_path_with_host(output_file)}"
             )
-            return ScrubResult(input_path, output_file, status="duplicate")
+            return ScrubResult(
+                input_path=input_path,
+                output_path=output_file,
+                kind=OutcomeKind.PLANNED,
+                reason_code="existing_output_check_planned",
+            )
 
     # dry-run
     if dry_run:
@@ -1571,7 +1712,12 @@ def scrub_file(
             print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)} → {proposed_name}")
         else:
             print(f"🔍 Dry run: would scrub {_format_path_with_host(input_path)}")
-        return ScrubResult(input_path, output_file, status="scrubbed")
+        return ScrubResult(
+            input_path=input_path,
+            output_path=output_file,
+            kind=OutcomeKind.PLANNED,
+            reason_code="scrub_planned",
+        )
 
     in_place = output_path is None or input_path.resolve() == output_path.resolve()
     if show_tags_mode in {"before", "both"}:
@@ -1596,9 +1742,10 @@ def scrub_file(
                     f"{_format_path_with_host(input_path)}"
                 )
                 return ScrubResult(
-                    input_path,
-                    output_file,
-                    status="unsafe_output",
+                    input_path=input_path,
+                    output_path=output_file,
+                    kind=OutcomeKind.FAILED,
+                    reason_code="existing_output_unsafe",
                     error_message=err_msg,
                 )
 
@@ -1630,9 +1777,10 @@ def scrub_file(
                             f"{_format_path_with_host(input_path)}"
                         )
                         return ScrubResult(
-                            input_path,
-                            output_file,
-                            status="duplicate_failed",
+                            input_path=input_path,
+                            output_path=output_file,
+                            kind=OutcomeKind.FAILED,
+                            reason_code="duplicate_policy_rejected",
                             error_message=err_msg,
                         )
                     if on_duplicate == "skip":
@@ -1640,14 +1788,38 @@ def scrub_file(
                             "⏭️ Verified duplicate — existing output passed audit; "
                             f"original untouched: {_format_path_with_host(input_path)}"
                         )
-                        return ScrubResult(input_path, output_file, status="skipped")
+                        return ScrubResult(
+                            input_path=input_path,
+                            output_path=output_file,
+                            kind=OutcomeKind.DUPLICATE_HANDLED,
+                            reason_code="duplicate_unchanged",
+                        )
                     if on_duplicate == "delete":
                         print(
                             "🗑️ Verified duplicate — deleting explicitly configured source: "
                             f"{_format_path_with_host(input_path)}"
                         )
-                        input_path.unlink()
-                        return ScrubResult(input_path, output_file, status="duplicate")
+                        try:
+                            input_path.unlink()
+                        except OSError as exc:
+                            err_msg = (
+                                "Verified duplicate could not be deleted safely: "
+                                f"{exc}"
+                            )
+                            print(f"❌ {err_msg}")
+                            return ScrubResult(
+                                input_path=input_path,
+                                output_path=output_file,
+                                kind=OutcomeKind.FAILED,
+                                reason_code="duplicate_delete_failed",
+                                error_message=err_msg,
+                            )
+                        return ScrubResult(
+                            input_path=input_path,
+                            output_path=output_file,
+                            kind=OutcomeKind.DUPLICATE_HANDLED,
+                            reason_code="duplicate_deleted",
+                        )
                     if on_duplicate == "move":
                         try:
                             target = _archive_no_clobber(input_path, ERRORS_DIR)
@@ -1655,9 +1827,10 @@ def scrub_file(
                             err_msg = f"Verified duplicate could not be moved safely: {exc}"
                             print(f"❌ {err_msg}")
                             return ScrubResult(
-                                input_path,
-                                output_file,
-                                status="conflict",
+                                input_path=input_path,
+                                output_path=output_file,
+                                kind=OutcomeKind.FAILED,
+                                reason_code="duplicate_move_failed",
                                 error_message=err_msg,
                             )
                         print(
@@ -1665,9 +1838,10 @@ def scrub_file(
                             f"{_format_path_with_host(target)}"
                         )
                         return ScrubResult(
-                            input_path,
-                            output_file,
-                            status="duplicate",
+                            input_path=input_path,
+                            output_path=output_file,
+                            kind=OutcomeKind.DUPLICATE_HANDLED,
+                            reason_code="duplicate_moved",
                             duplicate_path=target,
                         )
                     raise ValueError(f"Unsupported duplicate policy: {on_duplicate}")
@@ -1679,9 +1853,10 @@ def scrub_file(
                         err_msg = f"Collision source could not be moved safely: {exc}"
                         print(f"❌ {err_msg}")
                         return ScrubResult(
-                            input_path,
-                            output_file,
-                            status="collision",
+                            input_path=input_path,
+                            output_path=output_file,
+                            kind=OutcomeKind.FAILED,
+                            reason_code="destination_collision",
                             error_message=err_msg,
                         )
                     err_msg = (
@@ -1693,9 +1868,10 @@ def scrub_file(
                     )
                     print(f"📦 {err_msg}")
                     return ScrubResult(
-                        input_path,
-                        output_file,
-                        status="collision",
+                        input_path=input_path,
+                        output_path=output_file,
+                        kind=OutcomeKind.FAILED,
+                        reason_code="destination_collision",
                         error_message=err_msg,
                         duplicate_path=target,
                     )
@@ -1705,9 +1881,10 @@ def scrub_file(
                     f"❌ Collision, not a duplicate: {_format_path_with_host(output_file)}"
                 )
                 return ScrubResult(
-                    input_path,
-                    output_file,
-                    status="collision",
+                    input_path=input_path,
+                    output_path=output_file,
+                    kind=OutcomeKind.FAILED,
+                    reason_code="destination_collision",
                     error_message=err_msg,
                 )
 
@@ -1738,7 +1915,8 @@ def scrub_file(
         return ScrubResult(
             input_path=input_path,
             output_path=output_file,
-            status="conflict",
+            kind=OutcomeKind.FAILED,
+            reason_code="rename_destination_conflict",
             error_message=err_msg,
         )
     except FileExistsError:
@@ -1747,7 +1925,12 @@ def scrub_file(
         return ScrubResult(
             input_path=input_path,
             output_path=output_file,
-            status="conflict" if rename_requested else "error",
+            kind=OutcomeKind.FAILED,
+            reason_code=(
+                "rename_destination_appeared"
+                if rename_requested
+                else "destination_appeared"
+            ),
             error_message=err_msg,
         )
     except Exception as exc:
@@ -1756,8 +1939,9 @@ def scrub_file(
         return ScrubResult(
             input_path=input_path,
             output_path=output_file,
-            status="error",
-            error_message=err_msg
+            kind=OutcomeKind.FAILED,
+            reason_code="scrub_failed",
+            error_message=err_msg,
         )
     finally:
         if destination_temp is not None:
@@ -1785,9 +1969,10 @@ def scrub_file(
             err_msg = f"Scrub succeeded but renamed source removal failed: {exc}"
             print(f"❌ {err_msg}")
             return ScrubResult(
-                input_path,
-                output_file,
-                status="scrubbed_with_error",
+                input_path=input_path,
+                output_path=output_file,
+                kind=OutcomeKind.FAILED,
+                reason_code="renamed_source_removal_failed",
                 error_message=err_msg,
             )
 
@@ -1798,14 +1983,20 @@ def scrub_file(
             err_msg = f"Scrub succeeded but original deletion failed: {exc}"
             print(f"❌ {err_msg}")
             return ScrubResult(
-                input_path,
-                output_file,
-                status="scrubbed_with_error",
+                input_path=input_path,
+                output_path=output_file,
+                kind=OutcomeKind.FAILED,
+                reason_code="source_deletion_failed",
                 error_message=err_msg,
             )
         print(f"🗑️ Deleted original: {_format_path_with_host(input_path)}")
 
-    return ScrubResult(input_path, output_file, status="scrubbed")
+    return ScrubResult(
+        input_path=input_path,
+        output_path=output_file,
+        kind=OutcomeKind.SCRUBBED,
+        reason_code="output_published",
+    )
 
 
 def _iter_regular_files_in_dir(
@@ -2006,7 +2197,7 @@ def _finalize_auto_result(
     """
     summary.update(result)
 
-    if result.status == "scrubbed" and not delete_original:
+    if result.kind is OutcomeKind.SCRUBBED and not delete_original:
         try:
             archived_path = _archive_no_clobber(file, PROCESSED_DIR)
         except (ArchiveError, ValueError) as exc:
@@ -2017,17 +2208,20 @@ def _finalize_auto_result(
             )
         else:
             print(f"📦 Moved original to {_format_path_with_host(archived_path)}")
-    elif result.status == "scrubbed_with_error":
+    elif result.reason_code in {
+        "renamed_source_removal_failed",
+        "source_deletion_failed",
+    }:
         print(
             f"⚠️ Scrub output was created for {_format_path_with_host(file)}, "
             "but source post-processing failed; leaving the source in place"
         )
-    elif result.status == "unsafe_output":
+    elif result.reason_code == "existing_output_unsafe":
         print(
             f"🛡️ Existing output is unsafe for {_format_path_with_host(file)}; "
             "leaving the incoming source in place"
         )
-    elif result.status == "collision":
+    elif result.reason_code == "destination_collision":
         if result.duplicate_path is not None:
             print(
                 f"⚠️ Filename collision for {_format_path_with_host(file)}; "
@@ -2039,17 +2233,30 @@ def _finalize_auto_result(
                 f"⚠️ Filename collision for {_format_path_with_host(file)}; "
                 "leaving the incoming source in place"
             )
-    elif result.status == "duplicate_failed":
+    elif result.reason_code == "duplicate_policy_rejected":
         print(
             f"🛡️ Verified duplicate rejected for {_format_path_with_host(file)}; "
             "leaving the incoming source in place"
         )
-    elif result.status == "conflict":
+    elif result.reason_code in {
+        "duplicate_delete_failed",
+        "duplicate_move_failed",
+    }:
+        print(
+            f"🛡️ Verified duplicate disposition failed for "
+            f"{_format_path_with_host(file)}; leaving the incoming source in place"
+        )
+    elif result.reason_code in {
+        "rename_destination_appeared",
+        "rename_destination_conflict",
+        "rename_destination_symlink",
+        "rename_planning_failed",
+    }:
         print(
             f"⚠️ Rename destination conflict for {_format_path_with_host(file)}; "
             "leaving original in place"
         )
-    elif result.status == "error":
+    elif result.kind is OutcomeKind.FAILED:
         if file.exists():
             try:
                 archived_path = _archive_no_clobber(file, PROCESSED_DIR)
