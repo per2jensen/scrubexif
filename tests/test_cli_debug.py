@@ -39,7 +39,7 @@ def test_debug_flag_enables_verbose_logging(tmp_path, monkeypatch, capsys):
     combined = captured.out + captured.err
     assert "Debug logging enabled" in combined
     assert "CLI arguments" in combined
-    assert "Input scan yielded" in combined
+    assert "Auto discovery admitted" in combined
     sys.__stdout__.write(captured.out)
     sys.__stderr__.write(captured.err)
 

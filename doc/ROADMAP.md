@@ -269,15 +269,26 @@ The rules are:
 - Classify an input before creating its `FileOutcome`. An eligible extension
   plus successful initial regular-file validation establishes a JPEG candidate;
   failures before that point are run-level failures.
-- Deduplicate overlapping explicit paths before processing by filesystem
-  identity, using the non-symlink `(st_dev, st_ino)` pair captured during
-  discovery. This deliberately treats hard links as one input. Use a normalized
-  resolved-path fallback only when stable filesystem identity is unavailable,
-  and record that fallback in diagnostics. Revalidate identity before processing
-  so replacement after discovery becomes an explicit skipped or failed outcome.
+- Deduplicate only repeated references to the same normalized, resolved,
+  non-symlink pathname. This covers the same path supplied twice or reached
+  through overlapping explicit directories. Capture the non-symlink
+  `(st_dev, st_ino)` pair during discovery to detect hard-link aliases and to
+  revalidate identity before processing, but do not use that identity to
+  collapse distinct pathnames. Each hard-link pathname is a separate input and
+  publication obligation because atomically replacing one directory entry does
+  not sanitize the other entries. When stable filesystem identity is
+  unavailable, use the normalized resolved path for replacement detection and
+  record that fallback in diagnostics. Replacement after discovery becomes an
+  explicit skipped or failed outcome.
 - Reject symlinks before they enter the operation scope.
-- Apply `--max-files` to eligible JPEG outcomes consistently. Stop discovery
-  when the bounded scope is complete so later entries do not affect counters.
+- Apply `--max-files` consistently to JPEG candidates admitted for an actual
+  scrub, dry-run plan, or preview attempt. A candidate consumes one slot when
+  admitted even if that attempt later fails. Unsupported files and eligible
+  JPEGs classified as `SKIPPED`, including temporary and unstable inputs, do
+  not consume slots. Record unsupported and skipped entries encountered while
+  searching for admitted candidates, then stop discovery immediately when the
+  requested number has been admitted; later entries do not affect counters.
+  `--max-files 0` admits and examines no entries.
 - Record unsupported regular files through the same outcome path rather than a
   second counting traversal.
 - Record temporary and unstable JPEGs as `SKIPPED` with distinct reason codes.
@@ -332,7 +343,8 @@ output stream itself. Restart behavior for those cases belongs in 0.8.1.
    codes.
 4. Remove all direct counter mutation outside `RunReport`.
 5. Unify discovery and unsupported classification, including `--max-files` and
-   overlapping explicit inputs.
+   overlapping explicit inputs. Update CLI help and user documentation to state
+   explicitly that skipped JPEGs do not consume the limit.
 6. Normalize dry-run, preview, duplicate, collision, and post-publication
    failure accounting.
 7. Move final report emission and exit-status calculation into one runner
@@ -392,10 +404,15 @@ both positive and negative tests.
 
 - Empty input.
 - Unsupported-only input.
-- `--max-files` with supported and unsupported entries on both sides of the
-  limit.
+- `--max-files` with supported, unsupported, temporary, and unstable entries on
+  both sides of the limit; skipped JPEGs must not consume slots, while an
+  admitted JPEG that later fails processing must consume one slot.
+- `--max-files 0`, which must admit and examine no entries.
 - The same file supplied twice and through overlapping explicit directories.
-- Two hard-link paths for the same inode, which must produce one outcome.
+- Two hard-link paths for the same inode, which must produce separate outcomes
+  and separate publication obligations.
+- Hard-link aliases with different extensions, which must be classified by
+  pathname independently rather than by whichever alias discovery sees first.
 - Filesystems without stable identity support, exercising the normalized
   resolved-path fallback and its diagnostic.
 - Files appearing, disappearing, or changing during discovery; deeper
@@ -425,9 +442,11 @@ test.
    publication fact.
 2. Successful dry-run and preview operations use distinct `PLANNED` and
    `PREVIEWED` outcomes. They are neither `SCRUBBED` nor `SKIPPED`.
-3. Overlapping explicit inputs are deduplicated by non-symlink filesystem
-   identity. Hard links are one input; normalized resolved path is the documented
-   fallback when stable identity is unavailable.
+3. Overlapping explicit inputs are deduplicated by normalized, resolved,
+   non-symlink pathname. Distinct hard-link pathnames remain distinct inputs and
+   publication obligations. Filesystem identity is retained for alias
+   detection and pre-processing replacement checks, not as the deduplication
+   key.
 4. `total` retains its JPEG-only meaning throughout 0.8.x. Pre-classification
    failures are run-level failures and do not enter `total`.
 5. Schema 2 retains legacy field names but is a documented semantic migration,
@@ -439,6 +458,11 @@ test.
 7. Duplicate verification is an orthogonal fact. Policy and disposition
    failures remain `FAILED` without discarding the verified-duplicate fact or
    observed source disposition.
+8. `--max-files` counts JPEG candidates admitted for a scrub, dry-run plan, or
+   preview attempt. Unsupported and `SKIPPED` inputs do not consume the limit;
+   an admitted candidate still consumes its slot when processing later fails.
+   Discovery stops as soon as the requested number has been admitted, so later
+   entries are outside the run and its counters.
 
 ## 0.8.1 fault-resilience investigation targets
 

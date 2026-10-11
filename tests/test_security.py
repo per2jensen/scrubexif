@@ -314,8 +314,21 @@ def test_auto_scrub_error_preserves_occupied_symlink_and_archives_with_new_name(
     assert summary.errors == 1
 
 
-def test_simple_scrub_skips_symlinks(tmp_path, monkeypatch):
-    """simple_scrub must skip any symlinked JPEG even if find_jpegs_in_dir returns one."""
+def test_simple_scrub_skips_symlinks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Unified discovery skips a symlink while admitting its real JPEG target.
+
+    Args:
+        tmp_path: Isolated real filesystem tree.
+        monkeypatch: Pytest helper used to redirect scrubexif directories.
+        capsys: Pytest output capture helper.
+
+    Returns:
+        None.
+    """
     root = tmp_path / "photos"
     root.mkdir()
     output_dir = root / "output"  # must not exist so simple_scrub can create it
@@ -331,26 +344,13 @@ def test_simple_scrub_skips_symlinks(tmp_path, monkeypatch):
     link = root / "link.jpg"
     link.symlink_to(real)
 
-    # Bypass find_jpegs_in_dir's own filter so the line-1203 guard is exercised
-    monkeypatch.setattr(scrub, "find_jpegs_in_dir", lambda *_a, **_kw: [link])
-
-    scrub_called_with: list[Path] = []
-
-    def fake_scrub_file(path, **kwargs):
-        scrub_called_with.append(path)
-        return ScrubResult(
-            input_path=path,
-            output_path=output_dir / path.name,
-            kind=OutcomeKind.SCRUBBED,
-            reason_code="output_published",
-        )
-
-    monkeypatch.setattr(scrub, "scrub_file", fake_scrub_file)
-
     summary = scrub.ScrubSummary()
-    scrub.simple_scrub(summary=summary, recursive=False)
+    scrub.simple_scrub(summary=summary, recursive=False, dry_run=True)
+    output = capsys.readouterr().out
 
-    assert scrub_called_with == [], "scrub_file must not be called for a symlinked JPEG"
+    assert summary.report.planned == 1
+    assert "real.jpg" in output
+    assert "link.jpg" not in output
 
 
 def test_manual_scrub_skips_symlink_input(tmp_path, monkeypatch):

@@ -66,6 +66,39 @@ def test_manual_mode_two_files(sample_files):
     assert "✅ Saved scrubbed file" in result.stdout
 
 
+@pytest.mark.regression
+def test_manual_mode_hard_link_aliases_are_both_scrubbed(tmp_path: Path) -> None:
+    """Atomic clean-inline publication sanitizes every hard-link pathname.
+
+    Args:
+        tmp_path: Isolated directory mounted into the container.
+
+    Returns:
+        None.
+    """
+    first = tmp_path / "first.jpg"
+    alias = tmp_path / "alias.jpg"
+    shutil.copy(SAMPLE_IMG, first)
+    os.link(first, alias)
+    assert first.stat().st_ino == alias.stat().st_ino
+
+    result = run_container_manual(
+        ["--clean-inline", f"/photos/{first.name}", f"/photos/{alias.name}"],
+        mounts=["-v", f"{tmp_path}:/photos"],
+    )
+
+    assert result.returncode == 0, result.stderr
+    saved_paths = [
+        line
+        for line in result.stdout.splitlines()
+        if line.startswith("✅ Saved scrubbed file to ")
+    ]
+    assert len(saved_paths) == 2
+    assert any(path.endswith("/first.jpg") for path in saved_paths)
+    assert any(path.endswith("/alias.jpg") for path in saved_paths)
+    assert first.stat().st_ino != alias.stat().st_ino
+
+
 def test_manual_mode_no_files(tmp_path):
     result = run_container_manual(["--clean-inline", "--log-level", "debug"], mounts=["-v", f"{tmp_path}:/photos"])
     assert result.returncode == 0

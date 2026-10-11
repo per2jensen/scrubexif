@@ -276,6 +276,9 @@ def test_simple_scrub_verified_duplicate_skips_and_preserves_original(
         "Existing output must not be overwritten"
     assert summary.scrubbed == 0
     assert summary.skipped == 1
+    assert summary.report.duplicates_handled == 1
+    assert summary.report.duplicates_unchanged == 1
+    summary.report.validate()
 
 
 def test_simple_scrub_on_duplicate_delete_ignored_originals_safe(tmp_path, monkeypatch, capsys):
@@ -381,6 +384,49 @@ def test_simple_scrub_explicit_files_positional_args_without_clean_inline(tmp_pa
     assert not (custom_output / "two.jpg").exists()
 
 
+def test_simple_scrub_dry_run_records_planned_without_legacy_success(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mode-level dry run records PLANNED without claiming a scrub."""
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    source = photos_root / "photo.jpg"
+    source.write_bytes(b"not-read-during-dry-run")
+    summary = scrub.ScrubSummary()
+
+    scrub.simple_scrub(summary=summary, dry_run=True)
+
+    summary.report.validate()
+    assert source.read_bytes() == b"not-read-during-dry-run"
+    assert summary.report.planned == 1
+    assert summary.report.published == 0
+    assert summary.total == 1
+    assert summary.scrubbed == 0
+    assert summary.errors == 0
+
+
+def test_simple_scrub_repeated_explicit_path_records_one_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The temporary path guard prevents duplicate RunReport records."""
+    photos_root, _ = _setup_simple_env(tmp_path, monkeypatch)
+    source = photos_root / "photo.jpg"
+    source.write_bytes(b"not-read-during-dry-run")
+    summary = scrub.ScrubSummary()
+
+    scrub.simple_scrub(
+        summary=summary,
+        dry_run=True,
+        explicit_files=[source, source],
+    )
+
+    summary.report.validate()
+    assert summary.report.examined == 1
+    assert summary.report.planned == 1
+    assert summary.total == 1
+
+
 def test_simple_scrub_mixed_inputs_counts_unsupported_file(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -428,6 +474,10 @@ def test_simple_scrub_mixed_inputs_counts_unsupported_file(
     assert summary.scrubbed == 1
     assert summary.unsupported == 1
     assert summary.examined == 2
+    assert summary.report.scrubbed == 1
+    assert summary.report.unsupported == 1
+    assert summary.report.examined == 2
+    summary.report.validate()
     assert "unsupported=1 examined=2" in capsys.readouterr().out
 
 
@@ -454,6 +504,9 @@ def test_simple_scrub_unsupported_only_reports_no_jpeg_error(
     assert summary.errors == 0
     assert summary.unsupported == 1
     assert summary.examined == 1
+    assert summary.report.unsupported == 1
+    assert summary.report.examined == 1
+    summary.report.validate()
 
 
 def test_simple_scrub_png_named_jpg_remains_processing_error(

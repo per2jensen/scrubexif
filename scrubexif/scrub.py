@@ -11,12 +11,12 @@ import argparse
 import contextlib
 import hashlib
 import io
-import itertools
 import json
 import logging
 import os
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -30,7 +30,16 @@ from typing import Optional
 
 from .__about__ import __license__, __version__
 from .jpeg_audit import audit_jpeg, scrubbed_output_violations
-from .outcomes import OutcomeKind, validate_reason_code
+from .outcomes import (
+    DuplicateDisposition,
+    FileOutcome,
+    InputClassification,
+    OutcomeKind,
+    ProcessingPhase,
+    RunReport,
+    SourceDisposition,
+    validate_reason_code,
+)
 from .renaming import validate_rename_format
 from .rename_planner import (
     DEFAULT_MAX_PLAN_BYTES,
@@ -181,20 +190,278 @@ class ScrubResult:
         )
 
 
-class ScrubSummary:
-    """Accumulate per-run file outcomes for human and machine reporting."""
+@dataclass(frozen=True, slots=True)
+class DiscoveredInput:
+    """Describe one regular input observed by the unified discovery pass.
 
-    def __init__(self) -> None:
-        """Initialize all counters for a fresh scrub operation."""
-        self.total = 0
-        self.scrubbed = 0
-        self.skipped = 0
-        self.duplicates_deleted = 0
-        self.duplicates_moved = 0
-        self.errors = 0
-        self.unsupported = 0
-        # Track wall-clock duration of the whole run
+    Args:
+        path: Normalized non-symlink pathname retained for processing.
+        path_key: Normalized resolved pathname used only for path deduplication.
+        classification: JPEG-candidate or unsupported-file classification.
+        filesystem_identity: Captured ``(st_dev, st_ino)`` pair when reliable.
+        skip_reason: Discovery reason when an eligible JPEG is not admitted.
+
+    Raises:
+        ValueError: If a field or field combination is invalid.
+    """
+
+    path: Path
+    path_key: str
+    classification: InputClassification
+    filesystem_identity: tuple[int, int] | None
+    skip_reason: str | None = None
+
+    def __post_init__(self) -> None:
+        """Validate the immutable discovery observation.
+
+        Raises:
+            ValueError: If a field or field combination is invalid.
+        """
+        if not isinstance(self.path, Path) or not self.path.name:
+            raise ValueError("path must identify a file")
+        if not isinstance(self.path_key, str) or not self.path_key:
+            raise ValueError("path_key must be a non-empty string")
+        if not isinstance(self.classification, InputClassification):
+            raise ValueError("classification must be an InputClassification")
+        if self.filesystem_identity is not None:
+            if (
+                not isinstance(self.filesystem_identity, tuple)
+                or len(self.filesystem_identity) != 2
+                or any(
+                    not isinstance(value, int)
+                    or isinstance(value, bool)
+                    or value < 0
+                    for value in self.filesystem_identity
+                )
+            ):
+                raise ValueError(
+                    "filesystem_identity must contain non-negative device and inode"
+                )
+        if self.skip_reason is not None:
+            validate_reason_code(self.skip_reason)
+            if self.classification is not InputClassification.ELIGIBLE_JPEG:
+                raise ValueError("only an eligible JPEG may have a skip_reason")
+
+    @property
+    def admitted(self) -> bool:
+        """Return whether this JPEG consumes one processing-limit slot.
+
+        Returns:
+            True for an eligible JPEG admitted for an operation attempt.
+        """
+        return (
+            self.classification is InputClassification.ELIGIBLE_JPEG
+            and self.skip_reason is None
+        )
+
+
+def _scrub_result_to_file_outcome(
+    result: ScrubResult,
+    source_disposition: SourceDisposition | None = None,
+) -> FileOutcome:
+    """Convert one operation result into a terminal file outcome.
+
+    Args:
+        result: Validated result returned by ``scrub_file``.
+        source_disposition: Observed final source disposition when the caller
+            completed additional source finalization.
+
+    Returns:
+        Validated terminal outcome ready for ``RunReport.record``.
+
+    Raises:
+        ValueError: If result or source_disposition has an invalid type.
+    """
+    if not isinstance(result, ScrubResult):
+        raise ValueError("result must be a ScrubResult")
+    if source_disposition is not None and not isinstance(
+        source_disposition,
+        SourceDisposition,
+    ):
+        raise ValueError("source_disposition must be a SourceDisposition or None")
+
+    duplicate_reasons = {
+        "duplicate_deleted",
+        "duplicate_delete_failed",
+        "duplicate_move_failed",
+        "duplicate_moved",
+        "duplicate_policy_rejected",
+        "duplicate_unchanged",
+    }
+    post_publication_reasons = {
+        "renamed_source_removal_failed",
+        "source_deletion_failed",
+    }
+    phase = ProcessingPhase.SCRUB
+    if result.kind is OutcomeKind.PLANNED or result.reason_code in {
+        "rename_planning_failed",
+        "rename_reassignment_failed",
+    }:
+        phase = ProcessingPhase.PLANNING
+    elif result.reason_code in duplicate_reasons:
+        phase = ProcessingPhase.DUPLICATE_HANDLING
+    elif result.reason_code == "existing_output_unsafe":
+        phase = ProcessingPhase.VERIFICATION
+    elif result.kind is OutcomeKind.SCRUBBED or result.reason_code in {
+        "destination_appeared",
+        "destination_collision",
+        "destination_symlink",
+        "rename_destination_appeared",
+        "rename_destination_conflict",
+        "rename_destination_symlink",
+    }:
+        phase = ProcessingPhase.PUBLICATION
+    if result.reason_code in post_publication_reasons:
+        phase = ProcessingPhase.SOURCE_FINALIZATION
+
+    observed_source = source_disposition
+    if observed_source is None:
+        observed_source = SourceDisposition.UNCHANGED
+        if result.reason_code == "duplicate_deleted":
+            observed_source = SourceDisposition.DELETED
+        elif result.reason_code == "duplicate_moved":
+            observed_source = SourceDisposition.MOVED
+        elif (
+            result.kind is OutcomeKind.SCRUBBED
+            and result.output_path is not None
+            and result.output_path.absolute() != result.input_path.absolute()
+            and result.output_path.parent.absolute()
+            == result.input_path.parent.absolute()
+        ):
+            observed_source = SourceDisposition.DELETED
+        elif result.reason_code == "destination_collision" and result.duplicate_path:
+            observed_source = SourceDisposition.MOVED
+
+    duplicate_verified = result.reason_code in duplicate_reasons
+    duplicate_disposition: DuplicateDisposition | None = None
+    if duplicate_verified:
+        duplicate_disposition = DuplicateDisposition(observed_source.value)
+
+    published = (
+        result.kind is OutcomeKind.SCRUBBED
+        or result.reason_code in post_publication_reasons
+    )
+    actual_output_path = None
+    if published or duplicate_verified:
+        actual_output_path = result.output_path
+
+    return FileOutcome(
+        input_path=result.input_path,
+        input_classification=InputClassification.ELIGIBLE_JPEG,
+        kind=result.kind,
+        reason_code=result.reason_code,
+        phase=phase,
+        intended_output_path=result.output_path,
+        actual_output_path=actual_output_path,
+        published=published,
+        duplicate_verified=duplicate_verified,
+        source_disposition=observed_source,
+        duplicate_disposition=duplicate_disposition,
+        diagnostic=result.error_message,
+    )
+
+
+class ScrubSummary:
+    """Present the legacy summary while delegating accounting to RunReport."""
+
+    __slots__ = ("_report", "started_at")
+
+    def __init__(self, report: RunReport | None = None) -> None:
+        """Initialize a compatibility summary for one invocation.
+
+        Args:
+            report: Optional fresh report owned by the current invocation.
+
+        Raises:
+            ValueError: If report is not a RunReport.
+        """
+        if report is not None and not isinstance(report, RunReport):
+            raise ValueError("report must be a RunReport or None")
+        self._report = report if report is not None else RunReport()
         self.started_at = time.time()
+
+    @property
+    def report(self) -> RunReport:
+        """Return the underlying typed run report.
+
+        Returns:
+            Report that owns all accounting state for this invocation.
+        """
+        return self._report
+
+    def _legacy_count(self, counter_name: str) -> int:
+        """Read one validated compatibility counter.
+
+        Args:
+            counter_name: Counter key in the schema-1 projection.
+
+        Returns:
+            Current non-negative counter value.
+        """
+        return self._report.legacy_counts()[counter_name]
+
+    @property
+    def total(self) -> int:
+        """Return the legacy JPEG total.
+
+        Returns:
+            Number of JPEG inputs visible in the schema-1 summary.
+        """
+        return self._legacy_count("total")
+
+    @property
+    def scrubbed(self) -> int:
+        """Return the legacy successful-scrub count.
+
+        Returns:
+            Number reported as successfully scrubbed by schema 1.
+        """
+        return self._legacy_count("scrubbed")
+
+    @property
+    def skipped(self) -> int:
+        """Return the legacy skipped count.
+
+        Returns:
+            Number reported as skipped by schema 1.
+        """
+        return self._legacy_count("skipped")
+
+    @property
+    def duplicates_deleted(self) -> int:
+        """Return the legacy deleted-duplicate count.
+
+        Returns:
+            Number reported as deleted duplicates by schema 1.
+        """
+        return self._legacy_count("duplicates_deleted")
+
+    @property
+    def duplicates_moved(self) -> int:
+        """Return the legacy moved-duplicate count.
+
+        Returns:
+            Number reported as moved duplicates by schema 1.
+        """
+        return self._legacy_count("duplicates_moved")
+
+    @property
+    def errors(self) -> int:
+        """Return the legacy processing-error count.
+
+        Returns:
+            Number reported as errors by schema 1.
+        """
+        return self._legacy_count("errors")
+
+    @property
+    def unsupported(self) -> int:
+        """Return the legacy unsupported-file count.
+
+        Returns:
+            Number reported as unsupported by schema 1.
+        """
+        return self._legacy_count("unsupported")
 
     @property
     def examined(self) -> int:
@@ -203,7 +470,21 @@ class ScrubSummary:
         Returns:
             Sum of JPEG candidates and unsupported regular files.
         """
-        return self.total + self.unsupported
+        return self._legacy_count("examined")
+
+    def record(self, outcome: FileOutcome) -> None:
+        """Record one terminal outcome through the sole accounting writer.
+
+        Args:
+            outcome: Validated terminal file outcome.
+
+        Returns:
+            None.
+
+        Raises:
+            ValueError: If the outcome is invalid or repeats an input path.
+        """
+        self._report.record(outcome)
 
     def update(self, result: ScrubResult) -> None:
         """Add one JPEG processing result to the summary.
@@ -214,45 +495,7 @@ class ScrubSummary:
         Returns:
             None.
         """
-        if not isinstance(result, ScrubResult):
-            raise ValueError("result must be a ScrubResult")
-        self.total += 1
-        if result.kind is OutcomeKind.SCRUBBED:
-            self.scrubbed += 1
-            return
-        if result.kind is OutcomeKind.FAILED:
-            self.errors += 1
-            if result.reason_code in {
-                "renamed_source_removal_failed",
-                "source_deletion_failed",
-            }:
-                self.scrubbed += 1
-            return
-        if result.kind is OutcomeKind.SKIPPED:
-            self.skipped += 1
-            return
-        if result.kind is OutcomeKind.DUPLICATE_HANDLED:
-            if result.reason_code == "duplicate_moved":
-                self.duplicates_moved += 1
-                return
-            if result.reason_code == "duplicate_deleted":
-                self.duplicates_deleted += 1
-                return
-            if result.reason_code == "duplicate_unchanged":
-                self.skipped += 1
-                return
-            raise ValueError(
-                "DUPLICATE_HANDLED has an unsupported compatibility reason"
-            )
-        if result.kind is OutcomeKind.PLANNED:
-            if result.reason_code == "existing_output_check_planned":
-                self.duplicates_deleted += 1
-            else:
-                self.scrubbed += 1
-            return
-        raise ValueError(
-            f"legacy summary cannot record scrub result kind {result.kind.value}"
-        )
+        self.record(_scrub_result_to_file_outcome(result))
 
     def print(self) -> None:
         """Print human-readable and machine-readable run summaries.
@@ -2028,65 +2271,61 @@ def _iter_regular_files_in_dir(
             yield path
 
 
-def _count_unsupported_files_in_dir(
-    dir_path: Path,
-    recursive: bool = False,
-    exclude_pipeline_paths: bool = False,
-) -> int:
-    """Count regular files whose extensions do not declare JPEG content.
+def _unsupported_outcome(path: Path) -> FileOutcome:
+    """Create an unsupported terminal outcome for one regular file.
 
     Args:
-        dir_path: Directory to scan.
-        recursive: Whether to descend into subdirectories.
-        exclude_pipeline_paths: Whether internal scrubexif paths are excluded.
+        path: Unsupported regular-file input.
 
     Returns:
-        Number of non-JPEG regular files in scope.
-
-    Raises:
-        ValueError: If dir_path is not a pathlib.Path.
+        Validated unsupported outcome.
     """
-    unsupported = 0
-    for path in _iter_regular_files_in_dir(dir_path, recursive=recursive):
-        if exclude_pipeline_paths and _is_pipeline_path(path):
-            continue
-        if path.suffix.lower() not in (".jpg", ".jpeg"):
-            unsupported += 1
-    return unsupported
+    return FileOutcome(
+        input_path=path,
+        input_classification=InputClassification.UNSUPPORTED_REGULAR,
+        kind=OutcomeKind.UNSUPPORTED,
+        reason_code="unsupported_extension",
+        phase=ProcessingPhase.DISCOVERY,
+    )
 
 
-def _count_unsupported_inputs(
-    paths: Iterable[Path],
-    recursive: bool,
-    exclude_pipeline_paths: bool = False,
-) -> int:
-    """Count unsupported files from explicit file and directory inputs.
+def _skipped_outcome(path: Path, reason_code: str) -> FileOutcome:
+    """Create a discovery-time skipped JPEG outcome.
 
     Args:
-        paths: Explicit file or directory paths.
-        recursive: Whether directory scans recurse.
-        exclude_pipeline_paths: Whether internal scrubexif paths are excluded.
+        path: Eligible JPEG deliberately excluded from processing.
+        reason_code: Stable explanation for the exclusion.
 
     Returns:
-        Number of non-JPEG regular files in scope.
+        Validated skipped outcome.
     """
-    unsupported = 0
-    for path in paths:
-        if path.is_symlink():
-            continue
-        if path.is_file():
-            if exclude_pipeline_paths and _is_pipeline_path(path):
-                continue
-            if path.suffix.lower() not in (".jpg", ".jpeg"):
-                unsupported += 1
-            continue
-        if path.is_dir():
-            unsupported += _count_unsupported_files_in_dir(
-                path,
-                recursive=recursive,
-                exclude_pipeline_paths=exclude_pipeline_paths,
-            )
-    return unsupported
+    return FileOutcome(
+        input_path=path,
+        input_classification=InputClassification.ELIGIBLE_JPEG,
+        kind=OutcomeKind.SKIPPED,
+        reason_code=reason_code,
+        phase=ProcessingPhase.DISCOVERY,
+    )
+
+
+def _planned_outcome(path: Path, destination: Path | None) -> FileOutcome:
+    """Create a mode-level dry-run outcome without claiming publication.
+
+    Args:
+        path: Eligible JPEG evaluated by dry-run mode.
+        destination: Intended destination when the mode selected one.
+
+    Returns:
+        Validated planned outcome.
+    """
+    return FileOutcome(
+        input_path=path,
+        input_classification=InputClassification.ELIGIBLE_JPEG,
+        kind=OutcomeKind.PLANNED,
+        reason_code="dry_run_planned",
+        phase=ProcessingPhase.PLANNING,
+        intended_output_path=destination,
+    )
 
 
 def find_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> list[Path]:
@@ -2120,25 +2359,295 @@ def iter_jpegs_in_dir(dir_path: Path, recursive: bool = False) -> Iterator[Path]
             yield path
 
 
-def _limit_paths(paths: Iterable[Path], max_files: int | None) -> Iterator[Path]:
-    """Apply the user processing limit without materializing source paths.
+def _iter_scope_regular_paths(
+    input_paths: Iterable[Path],
+    recursive: bool,
+) -> Iterator[Path]:
+    """Expand explicit files and directories into regular non-symlink paths.
 
     Args:
-        paths: Source path stream.
-        max_files: Maximum paths to yield, or None for no user limit.
+        input_paths: Explicit file or directory paths in discovery order.
+        recursive: Whether directory inputs are traversed recursively.
 
     Yields:
-        At most max_files source paths.
+        Regular non-symlink paths before classification or deduplication.
 
     Raises:
-        ValueError: If max_files is negative when provided.
+        ValueError: If an input is not a pathlib.Path.
     """
-    if max_files is None:
-        yield from paths
-        return
-    if not isinstance(max_files, int) or isinstance(max_files, bool) or max_files < 0:
-        raise ValueError("max_files must be a non-negative integer")
-    yield from itertools.islice(paths, max_files)
+    for input_path in input_paths:
+        if not isinstance(input_path, Path):
+            raise ValueError("input_paths must contain only pathlib.Path values")
+        if input_path.is_symlink():
+            log.debug("Skipping symlink during discovery: %s", input_path)
+            continue
+        if input_path.is_file():
+            yield input_path
+            continue
+        if input_path.is_dir():
+            yield from _iter_regular_files_in_dir(
+                input_path,
+                recursive=recursive,
+            )
+
+
+def _filesystem_identity(file_stat: os.stat_result) -> tuple[int, int] | None:
+    """Return a stable filesystem identity when the inode is usable.
+
+    Args:
+        file_stat: Non-symlink stat result captured during discovery.
+
+    Returns:
+        Device and inode pair, or None when the filesystem supplies no inode.
+    """
+    if file_stat.st_ino <= 0:
+        return None
+    return file_stat.st_dev, file_stat.st_ino
+
+
+def _normalized_discovery_path(path: Path) -> tuple[Path, str]:
+    """Resolve one existing path and derive its pathname deduplication key.
+
+    Args:
+        path: Existing non-symlink regular-file path.
+
+    Returns:
+        Resolved path and normalized case-aware string key.
+
+    Raises:
+        OSError: If the path cannot be resolved.
+        ValueError: If path is not a pathlib.Path.
+    """
+    if not isinstance(path, Path):
+        raise ValueError("path must be a pathlib.Path")
+    resolved = path.resolve(strict=True)
+    return resolved, os.path.normcase(str(resolved))
+
+
+def _discover_inputs(
+    input_paths: Iterable[Path],
+    *,
+    recursive: bool,
+    exclude_pipeline_paths: bool,
+    max_files: int | None,
+    skip_reason_for_jpeg: Callable[[Path], str | None] | None = None,
+) -> list[DiscoveredInput]:
+    """Build one bounded, classified inventory for an operational mode.
+
+    Unsupported and skipped entries are retained while searching for admitted
+    JPEG candidates, but neither category consumes a ``max_files`` slot.
+    Distinct hard-link pathnames remain separate inventory entries.
+
+    Args:
+        input_paths: Explicit file or directory roots in discovery order.
+        recursive: Whether directory roots are traversed recursively.
+        exclude_pipeline_paths: Whether internal scrubexif directories are out
+            of scope.
+        max_files: Maximum JPEG candidates admitted for an operation attempt.
+        skip_reason_for_jpeg: Optional classifier for eligible JPEGs that must
+            be skipped before admission.
+
+    Returns:
+        Classified entries up to and including the final admitted candidate.
+
+    Raises:
+        ValueError: If an argument or skip reason is invalid.
+    """
+    if not isinstance(recursive, bool):
+        raise ValueError("recursive must be a boolean")
+    if not isinstance(exclude_pipeline_paths, bool):
+        raise ValueError("exclude_pipeline_paths must be a boolean")
+    if max_files is not None and (
+        not isinstance(max_files, int)
+        or isinstance(max_files, bool)
+        or max_files < 0
+    ):
+        raise ValueError("max_files must be a non-negative integer or None")
+    if skip_reason_for_jpeg is not None and not callable(skip_reason_for_jpeg):
+        raise ValueError("skip_reason_for_jpeg must be callable or None")
+    if max_files == 0:
+        return []
+
+    entries: list[DiscoveredInput] = []
+    seen_paths: set[str] = set()
+    first_path_by_identity: dict[tuple[int, int], Path] = {}
+    admitted_count = 0
+
+    for candidate in _iter_scope_regular_paths(input_paths, recursive):
+        if exclude_pipeline_paths and _is_pipeline_path(candidate):
+            continue
+        try:
+            file_stat = candidate.stat(follow_symlinks=False)
+            resolved, path_key = _normalized_discovery_path(candidate)
+        except OSError as exc:
+            log.warning("Discovery skipped inaccessible path %s: %s", candidate, exc)
+            continue
+        if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
+            log.debug("Skipping non-regular discovery path: %s", candidate)
+            continue
+        if exclude_pipeline_paths and _is_pipeline_path(resolved):
+            continue
+        if path_key in seen_paths:
+            continue
+        seen_paths.add(path_key)
+
+        identity = _filesystem_identity(file_stat)
+        if identity is None:
+            log.warning(
+                "Filesystem identity unavailable for %s; using resolved-path "
+                "fallback",
+                resolved,
+            )
+        else:
+            alias = first_path_by_identity.get(identity)
+            if alias is None:
+                first_path_by_identity[identity] = resolved
+            elif alias != resolved:
+                log.debug(
+                    "Hard-link aliases remain separate inputs: %s and %s",
+                    alias,
+                    resolved,
+                )
+
+        classification = InputClassification.UNSUPPORTED_REGULAR
+        skip_reason: str | None = None
+        if resolved.suffix.lower() in (".jpg", ".jpeg"):
+            classification = InputClassification.ELIGIBLE_JPEG
+            if skip_reason_for_jpeg is not None:
+                skip_reason = skip_reason_for_jpeg(resolved)
+                if skip_reason is not None:
+                    validate_reason_code(skip_reason)
+
+        entry = DiscoveredInput(
+            path=resolved,
+            path_key=path_key,
+            classification=classification,
+            filesystem_identity=identity,
+            skip_reason=skip_reason,
+        )
+        entries.append(entry)
+        if entry.admitted:
+            admitted_count += 1
+            if max_files is not None and admitted_count >= max_files:
+                break
+
+    return entries
+
+
+def _record_discovery_outcomes(
+    summary: ScrubSummary,
+    entries: Iterable[DiscoveredInput],
+) -> list[DiscoveredInput]:
+    """Record unsupported and skipped entries and return admitted JPEGs.
+
+    Args:
+        summary: Report-backed compatibility summary for this invocation.
+        entries: Classified discovery entries.
+
+    Returns:
+        Fresh list of JPEG entries admitted for an operation attempt.
+
+    Raises:
+        ValueError: If an entry has an invalid type.
+    """
+    admitted: list[DiscoveredInput] = []
+    for entry in entries:
+        if not isinstance(entry, DiscoveredInput):
+            raise ValueError("entries must contain only DiscoveredInput values")
+        if entry.classification is InputClassification.UNSUPPORTED_REGULAR:
+            summary.record(_unsupported_outcome(entry.path))
+            continue
+        if entry.skip_reason is not None:
+            summary.record(_skipped_outcome(entry.path, entry.skip_reason))
+            continue
+        admitted.append(entry)
+    return admitted
+
+
+def _discovery_revalidation_failure(
+    entry: DiscoveredInput,
+) -> FileOutcome | None:
+    """Revalidate one admitted input immediately before using its bytes.
+
+    Args:
+        entry: Discovery observation to compare with current filesystem state.
+
+    Returns:
+        Failed outcome when the path changed or became unsafe, otherwise None.
+
+    Raises:
+        ValueError: If entry is invalid or was not admitted.
+    """
+    if not isinstance(entry, DiscoveredInput):
+        raise ValueError("entry must be a DiscoveredInput")
+    if not entry.admitted:
+        raise ValueError("only an admitted JPEG can be revalidated")
+
+    diagnostic: str | None = None
+    try:
+        current_stat = entry.path.stat(follow_symlinks=False)
+        if stat.S_ISLNK(current_stat.st_mode) or not stat.S_ISREG(current_stat.st_mode):
+            diagnostic = "Input became a symlink or non-regular file after discovery"
+        elif entry.filesystem_identity is not None:
+            current_identity = _filesystem_identity(current_stat)
+            if current_identity != entry.filesystem_identity:
+                diagnostic = "Input filesystem identity changed after discovery"
+        else:
+            _, current_key = _normalized_discovery_path(entry.path)
+            if current_key != entry.path_key:
+                diagnostic = "Input resolved pathname changed after discovery"
+    except OSError as exc:
+        diagnostic = f"Input became inaccessible after discovery: {exc}"
+
+    if diagnostic is None:
+        return None
+    return FileOutcome(
+        input_path=entry.path,
+        input_classification=InputClassification.ELIGIBLE_JPEG,
+        kind=OutcomeKind.FAILED,
+        reason_code="input_changed_after_discovery",
+        phase=ProcessingPhase.DISCOVERY,
+        diagnostic=diagnostic,
+    )
+
+
+def _revalidate_or_record(
+    summary: ScrubSummary,
+    entry: DiscoveredInput,
+) -> bool:
+    """Record a discovery-race failure or approve the entry for processing.
+
+    Args:
+        summary: Report-backed compatibility summary for this invocation.
+        entry: Admitted JPEG observation to revalidate.
+
+    Returns:
+        True only when the original discovered file is still safe to process.
+    """
+    failure = _discovery_revalidation_failure(entry)
+    if failure is None:
+        return True
+    print(f"❌ {failure.diagnostic}: {_format_path_with_host(entry.path)}")
+    summary.record(failure)
+    return False
+
+
+def _iter_revalidated_paths(
+    summary: ScrubSummary,
+    entries: Iterable[DiscoveredInput],
+) -> Iterator[Path]:
+    """Yield admitted paths that still match their discovery observations.
+
+    Args:
+        summary: Report-backed compatibility summary for this invocation.
+        entries: Admitted JPEG observations.
+
+    Yields:
+        Paths approved for planning or immediate processing.
+    """
+    for entry in entries:
+        if _revalidate_or_record(summary, entry):
+            yield entry.path
 
 
 def _build_rename_plan_or_exit(
@@ -2195,19 +2704,43 @@ def _finalize_auto_result(
     Returns:
         None.
     """
-    summary.update(result)
+    outcome = _scrub_result_to_file_outcome(result)
 
-    if result.kind is OutcomeKind.SCRUBBED and not delete_original:
-        try:
-            archived_path = _archive_no_clobber(file, PROCESSED_DIR)
-        except (ArchiveError, ValueError) as exc:
-            summary.errors += 1
-            print(
-                f"❌ Scrub succeeded for {_format_path_with_host(file)}, but the "
-                f"original could not be archived safely: {exc}"
+    if result.kind is OutcomeKind.SCRUBBED:
+        if delete_original:
+            outcome = _scrub_result_to_file_outcome(
+                result,
+                SourceDisposition.DELETED,
             )
         else:
-            print(f"📦 Moved original to {_format_path_with_host(archived_path)}")
+            try:
+                archived_path = _archive_no_clobber(file, PROCESSED_DIR)
+            except (ArchiveError, ValueError) as exc:
+                diagnostic = (
+                    f"Scrub succeeded for {_format_path_with_host(file)}, but the "
+                    f"original could not be archived safely: {exc}"
+                )
+                print(f"❌ {diagnostic}")
+                outcome = FileOutcome(
+                    input_path=file,
+                    input_classification=InputClassification.ELIGIBLE_JPEG,
+                    kind=OutcomeKind.FAILED,
+                    reason_code="source_archive_failed",
+                    phase=ProcessingPhase.SOURCE_FINALIZATION,
+                    intended_output_path=result.output_path,
+                    actual_output_path=result.output_path,
+                    published=True,
+                    source_disposition=SourceDisposition.UNCHANGED,
+                    diagnostic=diagnostic,
+                )
+            else:
+                outcome = _scrub_result_to_file_outcome(
+                    result,
+                    SourceDisposition.MOVED,
+                )
+                print(
+                    f"📦 Moved original to {_format_path_with_host(archived_path)}"
+                )
     elif result.reason_code in {
         "renamed_source_removal_failed",
         "source_deletion_failed",
@@ -2266,31 +2799,68 @@ def _finalize_auto_result(
                     f"original could not be archived safely; leaving it in place: {exc}"
                 )
             else:
+                outcome = _scrub_result_to_file_outcome(
+                    result,
+                    SourceDisposition.MOVED,
+                )
                 print(
                     f"⚠️ Scrub failed for {_format_path_with_host(file)}; "
                     f"moved original to {_format_path_with_host(archived_path)} "
                     "for inspection"
                 )
         else:
+            outcome = _scrub_result_to_file_outcome(
+                result,
+                SourceDisposition.MISSING,
+            )
             print(
                 f"⚠️ Scrub failed and source already missing: "
                 f"{_format_path_with_host(file)}"
             )
 
+    summary.record(outcome)
     mark_seen(file, state)
 
 
-def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
-               show_tags_mode: str | None = None,
-               paranoia: bool = True,
-               max_files: int | None = None,
-               on_duplicate: str = "move",
-               stable_seconds: int = 120,
-               copyright_text: str | None = None,
-               comment_text: str | None = None,
-               rename_format: str | None = None,
-               rename_counter: dict[str, int] | None = None,
-               rename_plan_limits: RenamePlanLimits | None = None) -> ScrubSummary:
+def auto_scrub(
+    summary: ScrubSummary,
+    dry_run: bool = False,
+    delete_original: bool = False,
+    show_tags_mode: str | None = None,
+    paranoia: bool = True,
+    max_files: int | None = None,
+    on_duplicate: str = "move",
+    stable_seconds: int = 120,
+    copyright_text: str | None = None,
+    comment_text: str | None = None,
+    rename_format: str | None = None,
+    rename_counter: dict[str, int] | None = None,
+    rename_plan_limits: RenamePlanLimits | None = None,
+) -> ScrubSummary:
+    """Process stable JPEGs from the managed auto-mode intake directory.
+
+    Args:
+        summary: Report-backed summary owned by this invocation.
+        dry_run: Whether admitted JPEGs are planned without publication.
+        delete_original: Whether successful sources are deleted instead of archived.
+        show_tags_mode: Optional before/after metadata display mode.
+        paranoia: Whether the maximum-scrubbing policy is active.
+        max_files: Maximum stable JPEG candidates admitted for operation attempts.
+        on_duplicate: Policy for a verified existing identical output.
+        stable_seconds: Minimum source modification age.
+        copyright_text: Optional copyright metadata to retain.
+        comment_text: Optional comment metadata to retain.
+        rename_format: Optional validated output naming format.
+        rename_counter: Per-invocation sequential rename state.
+        rename_plan_limits: Resource limits for disk-backed rename planning.
+
+    Returns:
+        The supplied summary after all discovered outcomes are recorded.
+
+    Raises:
+        SystemExit: If safety validation or rename planning fails.
+        ValueError: If a discovery or processing argument is invalid.
+    """
     print(f"🚀 Auto mode: Scrubbing JPEGs in {_format_path_with_host(INPUT_DIR)}")
     print(f"📁 Output directory: {_format_path_with_host(OUTPUT_DIR)}")
     print(f"📁 Processed directory: {_format_path_with_host(PROCESSED_DIR)}")
@@ -2311,41 +2881,55 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             INPUT_DIR, OUTPUT_DIR, PROCESSED_DIR, ERRORS_DIR
         )
 
-    summary.unsupported += _count_unsupported_files_in_dir(
-        INPUT_DIR,
-        recursive=False,
-    )
-
     state = load_state()
     prune_state(state)
 
+    def auto_skip_reason(path: Path) -> str | None:
+        """Classify an eligible auto-mode JPEG before limit admission.
+
+        Args:
+            path: Eligible JPEG candidate observed during discovery.
+
+        Returns:
+            Stable skip reason for temporary or unstable input, otherwise None.
+        """
+        if is_probably_temp(path):
+            return "temporary_input"
+        if not is_file_stable(path, state, stable_seconds):
+            return "unstable_input"
+        return None
+
+    discovered = _discover_inputs(
+        [INPUT_DIR],
+        recursive=False,
+        exclude_pipeline_paths=False,
+        max_files=max_files,
+        skip_reason_for_jpeg=auto_skip_reason,
+    )
+    admitted = _record_discovery_outcomes(summary, discovered)
+    skipped_temp = 0
+    skipped_unstable = 0
+    for entry in discovered:
+        if entry.skip_reason == "temporary_input":
+            skipped_temp += 1
+            mark_seen(entry.path, state)
+        elif entry.skip_reason == "unstable_input":
+            skipped_unstable += 1
+            mark_seen(entry.path, state)
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Auto discovery admitted %d JPEGs (skipped temp=%d, unstable=%d)",
+            len(admitted),
+            skipped_temp,
+            skipped_unstable,
+        )
+
     if rename_format is not None:
-        skipped = {"temp": 0, "unstable": 0}
-
-        def eligible_sources() -> Iterator[Path]:
-            """Stream stable auto-mode sources while updating skip counters.
-
-            Yields:
-                Stable, non-temporary intake paths.
-            """
-            for candidate in iter_jpegs_in_dir(INPUT_DIR, recursive=False):
-                if is_probably_temp(candidate):
-                    skipped["temp"] += 1
-                    summary.skipped += 1
-                    summary.total += 1
-                    mark_seen(candidate, state)
-                    continue
-                if not is_file_stable(candidate, state, stable_seconds):
-                    skipped["unstable"] += 1
-                    summary.skipped += 1
-                    summary.total += 1
-                    mark_seen(candidate, state)
-                    continue
-                yield candidate
-
         counter = rename_counter if rename_counter is not None else {"n": 0}
         limits = rename_plan_limits or RenamePlanLimits()
-        source_paths = _limit_paths(eligible_sources(), max_files)
+        source_paths = _iter_revalidated_paths(summary, admitted)
+        admitted_by_path = {entry.path: entry for entry in admitted}
         with _build_rename_plan_or_exit(
             source_paths,
             rename_format,
@@ -2354,10 +2938,10 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
             limits,
         ) as rename_plan:
             if rename_plan.count == 0:
-                if skipped["temp"] or skipped["unstable"]:
+                if skipped_temp or skipped_unstable:
                     print(
                         "ℹ️ Nothing eligible yet. Skipped: "
-                        f"temp={skipped['temp']}, unstable={skipped['unstable']}."
+                        f"temp={skipped_temp}, unstable={skipped_unstable}."
                     )
                 else:
                     print("⚠️ No JPEGs found — nothing to do.")
@@ -2369,6 +2953,14 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                 PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
             for entry in rename_plan:
+                discovered_entry = admitted_by_path.get(entry.source_path)
+                if discovered_entry is None:
+                    raise RuntimeError(
+                        f"Rename plan returned an undiscovered source: "
+                        f"{entry.source_path}"
+                    )
+                if not _revalidate_or_record(summary, discovered_entry):
+                    continue
                 if dry_run:
                     if show_tags_mode in {"before", "both"}:
                         print_tags(entry.source_path, label="before")
@@ -2381,7 +2973,12 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
                         f"🔍 Would scrub: {_format_path_with_host(entry.source_path)} "
                         f"→ {_format_path_with_host(entry.destination_path)}"
                     )
-                    summary.total += 1
+                    summary.record(
+                        _planned_outcome(
+                            entry.source_path,
+                            entry.destination_path,
+                        )
+                    )
                     continue
 
                 result = scrub_file(
@@ -2410,40 +3007,7 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
         save_state(state)
         return summary
 
-    input_files = find_jpegs_in_dir(INPUT_DIR, recursive=False)
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("Input scan yielded %d files before filtering", len(input_files))
-
-    # Filter
-    filtered: list[Path] = []
-    skipped_temp = 0
-    skipped_unstable = 0
-
-    for f in input_files:
-        if is_probably_temp(f):
-            skipped_temp += 1
-            summary.skipped += 1
-            summary.total += 1
-            mark_seen(f, state)
-            continue
-        if not is_file_stable(f, state, stable_seconds):
-            skipped_unstable += 1
-            summary.skipped += 1
-            summary.total += 1
-            mark_seen(f, state)
-            continue
-        filtered.append(f)
-
-    if max_files is not None:
-        filtered = filtered[:max_files]
-
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug(
-            "Filtered candidates: %d (skipped temp=%d, unstable=%d)",
-            len(filtered), skipped_temp, skipped_unstable
-        )
-
-    if not filtered:
+    if not admitted:
         if skipped_temp or skipped_unstable:
             print(f"ℹ️ Nothing eligible yet. Skipped: temp={skipped_temp}, unstable={skipped_unstable}.")
         else:
@@ -2454,14 +3018,17 @@ def auto_scrub(summary: ScrubSummary, dry_run=False, delete_original=False,
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
 
-    for file in filtered:
+    for discovered_entry in admitted:
+        if not _revalidate_or_record(summary, discovered_entry):
+            continue
+        file = discovered_entry.path
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(file, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
             print(f"🔍 Would scrub: {_format_path_with_host(file)}")
-            summary.total += 1
+            summary.record(_planned_outcome(file, OUTPUT_DIR / file.name))
             continue
 
         result = scrub_file(
@@ -2501,84 +3068,48 @@ def _is_pipeline_path(path: Path) -> bool:
     return False
 
 
-def _iter_simple_targets(
-    explicit_files: Iterable[Path] | None,
-    recursive: bool,
-) -> Iterator[Path]:
-    """Stream eligible default-mode source paths.
+def simple_scrub(
+    summary: ScrubSummary,
+    recursive: bool = False,
+    dry_run: bool = False,
+    show_tags_mode: str | None = None,
+    paranoia: bool = True,
+    max_files: int | None = None,
+    output_explicit: bool = False,
+    copyright_text: str | None = None,
+    comment_text: str | None = None,
+    rename_format: str | None = None,
+    rename_counter: dict[str, int] | None = None,
+    rename_plan_limits: RenamePlanLimits | None = None,
+    explicit_files: list[Path] | None = None,
+) -> ScrubSummary:
+    """Write scrubbed copies while leaving default-mode sources unchanged.
 
     Args:
-        explicit_files: Explicit paths, or None to scan PHOTOS_ROOT.
-        recursive: Whether directory scans recurse.
-
-    Yields:
-        Non-symlink JPEG paths outside pipeline directories.
-    """
-    if explicit_files is None:
-        candidates: Iterable[Path] = iter_jpegs_in_dir(PHOTOS_ROOT, recursive=recursive)
-    else:
-        def explicit_candidates() -> Iterator[Path]:
-            """Expand explicit files and directories without materializing them.
-
-            Yields:
-                JPEG source paths.
-            """
-            for path in explicit_files:
-                if path.is_symlink():
-                    log.debug("Skipping symlink in explicit-files mode: %s", path)
-                    continue
-                if path.is_file() and path.suffix.lower() in (".jpg", ".jpeg"):
-                    yield path
-                elif path.is_dir():
-                    yield from iter_jpegs_in_dir(path, recursive=recursive)
-
-        candidates = explicit_candidates()
-
-    for candidate in candidates:
-        if candidate.is_symlink():
-            log.debug("Skipping symlink in default safe mode: %s", candidate)
-            continue
-        if _is_pipeline_path(candidate):
-            continue
-        yield candidate
-
-
-def simple_scrub(summary: ScrubSummary,
-                 recursive: bool = False,
-                 dry_run: bool = False,
-                 show_tags_mode: str | None = None,
-                 paranoia: bool = True,
-                 max_files: int | None = None,
-                 output_explicit: bool = False,
-                 copyright_text: str | None = None,
-                 comment_text: str | None = None,
-                 rename_format: str | None = None,
-                 rename_counter: dict[str, int] | None = None,
-                 rename_plan_limits: RenamePlanLimits | None = None,
-                 explicit_files: list[Path] | None = None) -> ScrubSummary:
-    """
-    Default safe mode:
-      - Scan /photos for JPEGs (non-recursive by default, -r respected)
-      - Write scrubbed copies to /photos/output
-      - Leave originals untouched in place — always.
-
-    If the output file already exists (e.g. on a second run into the same
-    output directory), the input is skipped and the original is never touched.
-    on_duplicate is intentionally not exposed here; "skip" is hardcoded to
-    preserve the safe-mode guarantee.
-
-    Intended for the "one-liner" use case:
-
-        docker run --rm -v "$PWD:/photos" per2jensen/scrubexif:0.7.10
-
-    Args:
+        summary: Report-backed summary owned by this invocation.
+        recursive: Whether directory inputs are traversed recursively.
+        dry_run: Whether admitted JPEGs are planned without publication.
+        show_tags_mode: Optional before/after metadata display mode.
+        paranoia: Whether the maximum-scrubbing policy is active.
+        max_files: Maximum JPEG candidates admitted for operation attempts.
         output_explicit: True when the caller supplied -o on the CLI. A
             pre-existing output directory is accepted in that case because the
             user stated intent (e.g. via a bind-mount). When False (default)
             a pre-existing directory is refused to prevent accidental clobbering.
+        copyright_text: Optional copyright metadata to retain.
+        comment_text: Optional comment metadata to retain.
+        rename_format: Optional validated output naming format.
+        rename_counter: Per-invocation sequential rename state.
+        rename_plan_limits: Resource limits for disk-backed rename planning.
         explicit_files: When set, process only these resolved paths instead of
-            scanning PHOTOS_ROOT. Directories in the list are expanded via
-            find_jpegs_in_dir; the special-dirs safety filter still applies.
+            scanning PHOTOS_ROOT. Internal pipeline directories remain excluded.
+
+    Returns:
+        The supplied summary after all discovered outcomes are recorded.
+
+    Raises:
+        SystemExit: If directory safety validation or rename planning fails.
+        ValueError: If a discovery or processing argument is invalid.
     """
     host_root = _resolve_mount_source(PHOTOS_ROOT)
     if explicit_files is not None:
@@ -2605,26 +3136,30 @@ def simple_scrub(summary: ScrubSummary,
 
     check_dir_safety(OUTPUT_DIR, "Output")
 
-    if explicit_files is None:
-        summary.unsupported += _count_unsupported_files_in_dir(
-            PHOTOS_ROOT,
-            recursive=recursive,
-            exclude_pipeline_paths=True,
-        )
-    else:
-        summary.unsupported += _count_unsupported_inputs(
-            explicit_files,
-            recursive=recursive,
-            exclude_pipeline_paths=True,
+    discovery_roots = explicit_files if explicit_files is not None else [PHOTOS_ROOT]
+    discovered = _discover_inputs(
+        discovery_roots,
+        recursive=recursive,
+        exclude_pipeline_paths=True,
+        max_files=max_files,
+    )
+    admitted = _record_discovery_outcomes(summary, discovered)
+    admitted_by_path = {entry.path: entry for entry in admitted}
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Default safe-mode discovery examined %d entries and admitted %d "
+            "JPEGs (explicit=%s, recursive=%s)",
+            len(discovered),
+            len(admitted),
+            explicit_files is not None,
+            recursive,
         )
 
     if rename_format is not None:
         counter = rename_counter if rename_counter is not None else {"n": 0}
         limits = rename_plan_limits or RenamePlanLimits()
-        source_paths = _limit_paths(
-            _iter_simple_targets(explicit_files, recursive=recursive),
-            max_files,
-        )
+        source_paths = _iter_revalidated_paths(summary, admitted)
         with _build_rename_plan_or_exit(
             source_paths,
             rename_format,
@@ -2637,6 +3172,14 @@ def simple_scrub(summary: ScrubSummary,
                 return summary
 
             for entry in rename_plan:
+                discovered_entry = admitted_by_path.get(entry.source_path)
+                if discovered_entry is None:
+                    raise RuntimeError(
+                        f"Rename plan returned an undiscovered source: "
+                        f"{entry.source_path}"
+                    )
+                if not _revalidate_or_record(summary, discovered_entry):
+                    continue
                 if dry_run:
                     if show_tags_mode in {"before", "both"}:
                         print_tags(entry.source_path, label="before")
@@ -2650,7 +3193,12 @@ def simple_scrub(summary: ScrubSummary,
                         f"{_format_path_with_host(entry.source_path)} "
                         f"→ {_format_path_with_host(entry.destination_path)}"
                     )
-                    summary.total += 1
+                    summary.record(
+                        _planned_outcome(
+                            entry.source_path,
+                            entry.destination_path,
+                        )
+                    )
                     continue
 
                 result = scrub_file(
@@ -2672,57 +3220,14 @@ def simple_scrub(summary: ScrubSummary,
                 summary.update(result)
         return summary
 
-    if explicit_files is not None:
-        candidates: list[Path] = []
-        for p in explicit_files:
-            if p.is_symlink():
-                log.debug("Skipping symlink in explicit-files mode: %s", p)
-                continue
-            if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg"):
-                candidates.append(p)
-            elif p.is_dir():
-                candidates.extend(find_jpegs_in_dir(p, recursive=recursive))
-    else:
-        candidates = find_jpegs_in_dir(PHOTOS_ROOT, recursive=recursive)
-
-    # Avoid feeding our own pipeline directories back into the scrub loop
-    filtered: list[Path] = []
-    for f in candidates:
-        # Skip symlinks aggressively
-        if f.is_symlink():
-            log.debug("Skipping symlink in default safe mode: %s", f)
-            continue
-
-        skip = False
-        for special in (INPUT_DIR, OUTPUT_DIR, PROCESSED_DIR, ERRORS_DIR):
-            try:
-                f.relative_to(special)
-                skip = True
-                break
-            except ValueError:
-                continue
-        if skip:
-            continue
-
-        filtered.append(f)
-
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug(
-            "Default safe mode: found %d JPEGs (explicit=%s, recursive=%s, after filtering=%d)",
-            len(candidates),
-            explicit_files is not None,
-            recursive,
-            len(filtered),
-        )
-
-    if not filtered:
+    if not admitted:
         print("⚠️ No eligible JPEGs found in default safe mode.")
         return summary
 
-    if max_files is not None:
-        filtered = filtered[:max_files]
-
-    for f in filtered:
+    for discovered_entry in admitted:
+        if not _revalidate_or_record(summary, discovered_entry):
+            continue
+        f = discovered_entry.path
         dst = OUTPUT_DIR / f.name
 
         if dry_run:
@@ -2731,7 +3236,7 @@ def simple_scrub(summary: ScrubSummary,
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
             print(f"🔍 [default] Would scrub: {_format_path_with_host(f)} -> {_format_path_with_host(dst)}")
-            summary.total += 1
+            summary.record(_planned_outcome(f, dst))
             continue
 
         result = scrub_file(
@@ -2778,33 +3283,13 @@ def resolve_cli_path(raw: Path) -> Path:
     return resolved
 
 
-def _iter_manual_targets(files: Iterable[Path], recursive: bool) -> Iterator[Path]:
-    """Stream valid manual-mode JPEG targets.
-
-    Args:
-        files: Explicit files or directories.
-        recursive: Whether directory scans recurse.
-
-    Yields:
-        Non-symlink JPEG paths.
-    """
-    for file in files:
-        if file.is_symlink():
-            log.warning("Skipping symlink input: %s", file)
-            continue
-        if file.is_file() and file.suffix.lower() in (".jpg", ".jpeg"):
-            yield file
-        elif file.is_dir():
-            yield from iter_jpegs_in_dir(file, recursive=recursive)
-
-
 def _preview_scrub(
     source_path: Path,
     show_tags_mode: str | None,
     paranoia: bool,
     copyright_text: str | None,
     comment_text: str | None,
-) -> bool:
+) -> FileOutcome:
     """Scrub a disposable copy and display its resulting metadata.
 
     Args:
@@ -2815,13 +3300,14 @@ def _preview_scrub(
         comment_text: Optional comment value to stamp.
 
     Returns:
-        True when the disposable scrub completed; otherwise False.
+        Validated preview success or failure outcome.
     """
     preview_fd, preview_tmp_str = tempfile.mkstemp(suffix=source_path.suffix)
     os.close(preview_fd)
     preview_input = Path(preview_tmp_str)
     preview_output: Path | None = None
     succeeded = False
+    diagnostic: str | None = None
 
     try:
         preview_output = _create_temp_output(preview_input.parent, source_path.suffix)
@@ -2844,7 +3330,8 @@ def _preview_scrub(
         print_tags(preview_output, label="after")
         succeeded = True
     except (OSError, RuntimeError) as exc:
-        print(f"❌ Preview scrub failed: {exc}")
+        diagnostic = f"Preview scrub failed: {exc}"
+        print(f"❌ {diagnostic}")
     finally:
         preview_input.unlink(missing_ok=True)
         if preview_output is not None:
@@ -2852,37 +3339,86 @@ def _preview_scrub(
 
     if succeeded:
         print("📊 Preview complete — original file was not modified.")
-    return succeeded
+        return FileOutcome(
+            input_path=source_path,
+            input_classification=InputClassification.ELIGIBLE_JPEG,
+            kind=OutcomeKind.PREVIEWED,
+            reason_code="preview_audited",
+            phase=ProcessingPhase.VERIFICATION,
+        )
+    return FileOutcome(
+        input_path=source_path,
+        input_classification=InputClassification.ELIGIBLE_JPEG,
+        kind=OutcomeKind.FAILED,
+        reason_code="preview_failed",
+        phase=ProcessingPhase.VERIFICATION,
+        diagnostic=diagnostic or "Preview scrub failed without a diagnostic",
+    )
 
 
-def manual_scrub(files: list[Path],
-                 summary: ScrubSummary,
-                 recursive: bool, dry_run=False,
-                 show_tags_mode: str | None = None,
-                 paranoia: bool = True,
-                 max_files: int | None = None,
-                 preview: bool = False,
-                 copyright_text: str | None = None,
-                 comment_text: str | None = None,
-                 rename_format: str | None = None,
-                 rename_counter: dict[str, int] | None = None,
-                 rename_plan_limits: RenamePlanLimits | None = None) -> ScrubSummary:
+def manual_scrub(
+    files: list[Path],
+    summary: ScrubSummary,
+    recursive: bool,
+    dry_run: bool = False,
+    show_tags_mode: str | None = None,
+    paranoia: bool = True,
+    max_files: int | None = None,
+    preview: bool = False,
+    copyright_text: str | None = None,
+    comment_text: str | None = None,
+    rename_format: str | None = None,
+    rename_counter: dict[str, int] | None = None,
+    rename_plan_limits: RenamePlanLimits | None = None,
+) -> ScrubSummary:
+    """Scrub explicitly selected JPEG pathnames in place.
+
+    Args:
+        files: Explicit regular files or directory roots in discovery order.
+        summary: Report-backed summary owned by this invocation.
+        recursive: Whether directory inputs are traversed recursively.
+        dry_run: Whether admitted JPEGs are planned without publication.
+        show_tags_mode: Optional before/after metadata display mode.
+        paranoia: Whether the maximum-scrubbing policy is active.
+        max_files: Maximum JPEG candidates admitted for operation attempts.
+        preview: Whether one admitted JPEG is scrubbed only in temporary storage.
+        copyright_text: Optional copyright metadata to retain.
+        comment_text: Optional comment metadata to retain.
+        rename_format: Optional validated in-place naming format.
+        rename_counter: Per-invocation sequential rename state.
+        rename_plan_limits: Resource limits for disk-backed rename planning.
+
+    Returns:
+        The supplied summary after all discovered outcomes are recorded.
+
+    Raises:
+        SystemExit: If rename planning fails.
+        ValueError: If a discovery or processing argument is invalid.
+    """
     if not files and not recursive:
         print("⚠️ No files provided and --recursive not set.")
         return summary
 
-    summary.unsupported += _count_unsupported_inputs(
+    discovered = _discover_inputs(
         files,
         recursive=recursive,
+        exclude_pipeline_paths=False,
+        max_files=max_files,
     )
+    admitted = _record_discovery_outcomes(summary, discovered)
+    admitted_by_path = {entry.path: entry for entry in admitted}
+
+    if log.isEnabledFor(logging.DEBUG):
+        log.debug(
+            "Manual discovery examined %d entries and admitted %d JPEGs",
+            len(discovered),
+            len(admitted),
+        )
 
     if rename_format is not None:
         counter = rename_counter if rename_counter is not None else {"n": 0}
         limits = rename_plan_limits or RenamePlanLimits()
-        source_paths = _limit_paths(
-            _iter_manual_targets(files, recursive=recursive),
-            max_files,
-        )
+        source_paths = _iter_revalidated_paths(summary, admitted)
         with _build_rename_plan_or_exit(
             source_paths,
             rename_format,
@@ -2901,24 +3437,38 @@ def manual_scrub(files: list[Path],
             )
             if should_preview:
                 entry = next(iter(rename_plan))
+                discovered_entry = admitted_by_path.get(entry.source_path)
+                if discovered_entry is None:
+                    raise RuntimeError(
+                        f"Rename plan returned an undiscovered source: "
+                        f"{entry.source_path}"
+                    )
+                if not _revalidate_or_record(summary, discovered_entry):
+                    return summary
                 print(
                     f"🔍 Would scrub: {_format_path_with_host(entry.source_path)} "
                     f"→ {entry.destination_path.name}"
                 )
-                preview_succeeded = _preview_scrub(
-                    entry.source_path,
-                    show_tags_mode,
-                    paranoia,
-                    copyright_text,
-                    comment_text,
+                summary.record(
+                    _preview_scrub(
+                        entry.source_path,
+                        show_tags_mode,
+                        paranoia,
+                        copyright_text,
+                        comment_text,
+                    )
                 )
-                if not preview_succeeded:
-                    summary.total += 1
-                    summary.errors += 1
                 return summary
 
             for entry in rename_plan:
                 source_path = entry.source_path
+                discovered_entry = admitted_by_path.get(source_path)
+                if discovered_entry is None:
+                    raise RuntimeError(
+                        f"Rename plan returned an undiscovered source: {source_path}"
+                    )
+                if not _revalidate_or_record(summary, discovered_entry):
+                    continue
                 if dry_run:
                     if show_tags_mode in {"before", "both"}:
                         print_tags(source_path, label="before")
@@ -2931,7 +3481,9 @@ def manual_scrub(files: list[Path],
                         f"🔍 Would scrub: {_format_path_with_host(source_path)} "
                         f"→ {entry.destination_path.name}"
                     )
-                    summary.total += 1
+                    summary.record(
+                        _planned_outcome(source_path, entry.destination_path)
+                    )
                     continue
 
                 result = scrub_file(
@@ -2953,42 +3505,40 @@ def manual_scrub(files: list[Path],
                 summary.update(result)
         return summary
 
-    targets = list(_iter_manual_targets(files, recursive=recursive))
-
-    if log.isEnabledFor(logging.DEBUG):
-        log.debug("Manual mode targets gathered: %d files", len(targets))
-
-    if not targets:
+    if not admitted:
         print("⚠️ No JPEGs matched.")
         return summary
 
-    if max_files is not None:
-        targets = targets[:max_files]
-
-    if preview or (dry_run and show_tags_mode in {"after", "both"} and len(targets) == 1):
-        preview_succeeded = _preview_scrub(
-            targets[0],
-            show_tags_mode,
-            paranoia,
-            copyright_text,
-            comment_text,
+    if preview or (
+        dry_run
+        and show_tags_mode in {"after", "both"}
+        and len(admitted) == 1
+    ):
+        preview_entry = admitted[0]
+        if not _revalidate_or_record(summary, preview_entry):
+            return summary
+        summary.record(
+            _preview_scrub(
+                preview_entry.path,
+                show_tags_mode,
+                paranoia,
+                copyright_text,
+                comment_text,
+            )
         )
-        if not preview_succeeded:
-            summary.total += 1
-            summary.errors += 1
         return summary
 
-    for f in targets:
-        if f.is_symlink():
-            log.warning("Skipping symlink target: %s", f)
+    for discovered_entry in admitted:
+        if not _revalidate_or_record(summary, discovered_entry):
             continue
+        f = discovered_entry.path
         if dry_run:
             if show_tags_mode in {"before", "both"}:
                 print_tags(f, label="before")
             if show_tags_mode in {"after", "both"}:
                 print("⚠️  Cannot show tags *after* scrub in dry-run mode (no scrub performed).")
             print(f"🔍 Would scrub: {_format_path_with_host(f)}")
-            summary.total += 1
+            summary.record(_planned_outcome(f, f))
             continue
 
         result = scrub_file(f,
@@ -3224,6 +3774,27 @@ def _positive_integer(raw_value: str) -> int:
     return value
 
 
+def _non_negative_integer(raw_value: str) -> int:
+    """Parse a non-negative command-line integer.
+
+    Args:
+        raw_value: Raw argparse value.
+
+    Returns:
+        Integer greater than or equal to zero.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not a non-negative integer.
+    """
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be an integer") from exc
+    if value < 0:
+        raise argparse.ArgumentTypeError("value must be zero or greater")
+    return value
+
+
 def _positive_float(raw_value: str) -> float:
     """Parse a strictly positive command-line number.
 
@@ -3267,8 +3838,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="Include container paths alongside host paths in output")
     parser.add_argument("-q", "--quiet", action="store_true",
                         help="Suppress all output on success")
-    parser.add_argument("--max-files", type=int, metavar="N",
-                        help="Limit number of files to scrub")
+    parser.add_argument(
+        "--max-files",
+        type=_non_negative_integer,
+        metavar="N",
+        help=(
+            "Limit JPEG operation attempts; unsupported and skipped files do "
+            "not consume the limit"
+        ),
+    )
     parser.add_argument(
         "--rename-plan-max-files",
         type=_positive_integer,

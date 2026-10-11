@@ -14,6 +14,11 @@
 
 - Scrub operations now return immutable typed outcomes with validated stable
   reason codes instead of unrestricted status strings.
+- Run accounting now records typed terminal outcomes through one `RunReport`
+  instead of allowing mode-specific counter mutation.
+- Discovery now classifies supported and unsupported inputs in one bounded pass,
+  deduplicates repeated pathnames while retaining distinct hard-link aliases,
+  and excludes skipped JPEGs from the `--max-files` limit.
 
 ## 0.7.28 - 2026-10-10
 

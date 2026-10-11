@@ -407,7 +407,7 @@ docker run --read-only --security-opt no-new-privileges \
 - `--dry-run` - show what would be scrubbed, but don’t write files
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
-- `--max-files` - limit number of files to scrub (useful for testing or safe inspection)
+- `--max-files N` - limit JPEG operation attempts; unsupported, temporary, unstable, and other skipped files do not consume the limit
 - `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
 - `--preview` - preview scrub effect on one file without modifying it (shows before/after metadata)
 - `--copyright` - stamp a copyright notice into EXIF and XMP (replaces existing values)
@@ -420,6 +420,21 @@ docker run --read-only --security-opt no-new-privileges \
 - positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); requires `--clean-inline`
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
 - `-v`, `--version` - show version and license
+
+`--max-files` counts a JPEG when it is admitted for a scrub, dry-run plan, or
+preview attempt. That slot remains consumed if the later attempt fails.
+Unsupported files and JPEGs skipped as temporary or unstable do not consume a
+slot, so discovery continues past them while looking for admitted candidates.
+Discovery stops immediately after admitting `N` candidates; later directory
+entries are outside the run and are not included in summary counters.
+`--max-files 0` examines no entries.
+
+Distinct hard-link pathnames are processed as distinct inputs. Scrubexif uses
+filesystem identity to detect aliases and replacement races, but it does not
+deduplicate those names: atomically replacing one hard-link directory entry
+does not sanitize the other entries. Repeated references to the same resolved
+pathname, including overlaps between an explicit file and directory, are
+processed only once.
 
 ## Exit status
 
@@ -1265,7 +1280,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `files...` | Positional files/dirs (relative to `/photos` in Docker). Requires `--clean-inline`. |
 | `--from-input` | Auto mode. Reads `/photos/input`, writes to `/photos/output`, and moves originals to `/photos/processed` (or deletes with `--delete-original`). |
 | `--log-level {debug,info,warn,error,crit}` | Set log verbosity (default: `info`). |
-| `--max-files N` | Limit number of eligible files scrubbed in the current run. |
+| `--max-files N` | Limit JPEG operation attempts. Unsupported and skipped files do not consume the limit. |
 | `--on-duplicate {move,fail,delete}` | Auto-mode policy for verified duplicates. Default `move` preserves them in `/photos/errors`; `fail` leaves the source in input and returns nonzero; explicit `delete` removes it only after output audit and byte-identity verification. Same-name different content is always a nonzero collision. |
 | `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
 | `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |

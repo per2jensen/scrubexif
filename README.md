@@ -398,6 +398,7 @@ SBOM and SARIF files stored under `doc/`.
 
     --from-input          auto mode
     --clean-inline        in-place scrub (destructive)
+    --max-files N         limit JPEG operation attempts; skipped/unsupported files do not count
     --rename FORMAT       rename output files using a format string (see doc/rename-spec.md)
     --rename-plan-max-files N      planning file-count circuit breaker (default: 250000)
     --rename-plan-timeout-seconds S planning time circuit breaker (default: 1800)

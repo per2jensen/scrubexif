@@ -108,6 +108,27 @@ def test_rename_plan_limits_are_forwarded_to_mode(
     assert limits.max_database_bytes == 7 * 1024 * 1024
 
 
+def test_max_files_zero_is_accepted() -> None:
+    """The CLI accepts an explicitly empty discovery scope.
+
+    Returns:
+        None.
+    """
+    assert scrub.main(["--max-files", "0", "--version"]) == 0
+
+
+def test_max_files_negative_value_is_rejected() -> None:
+    """The CLI rejects a negative processing-attempt limit.
+
+    Returns:
+        None.
+    """
+    with pytest.raises(SystemExit) as exc_info:
+        scrub.main(["--max-files", "-1"])
+
+    assert exc_info.value.code == 2
+
+
 # ---------------------------------------------------------------------------
 # Constraint: positional files + -o routes to simple_scrub (no --clean-inline needed)
 # ---------------------------------------------------------------------------

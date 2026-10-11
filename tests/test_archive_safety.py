@@ -158,14 +158,15 @@ def test_auto_finalization_keeps_repeated_original_names_without_overwrite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Repeated intake names create two distinct processed originals."""
+    """Repeated intake names across runs create distinct processed originals."""
     input_directory = tmp_path / "input"
     processed_directory = tmp_path / "processed"
     input_directory.mkdir()
     processed_directory.mkdir()
     monkeypatch.setattr(scrub, "PROCESSED_DIR", processed_directory)
     source = input_directory / "photo.jpg"
-    summary = scrub.ScrubSummary()
+    first_summary = scrub.ScrubSummary()
+    second_summary = scrub.ScrubSummary()
     state: dict[str, dict[str, float | int]] = {}
 
     source.write_bytes(b"first-original")
@@ -175,7 +176,7 @@ def test_auto_finalization_keeps_repeated_original_names_without_overwrite(
         kind=OutcomeKind.SCRUBBED,
         reason_code="output_published",
     )
-    scrub._finalize_auto_result(source, first_result, summary, False, state)
+    scrub._finalize_auto_result(source, first_result, first_summary, False, state)
 
     source.write_bytes(b"second-original")
     second_result = scrub.ScrubResult(
@@ -184,14 +185,71 @@ def test_auto_finalization_keeps_repeated_original_names_without_overwrite(
         kind=OutcomeKind.SCRUBBED,
         reason_code="output_published",
     )
-    scrub._finalize_auto_result(source, second_result, summary, False, state)
+    scrub._finalize_auto_result(
+        source,
+        second_result,
+        second_summary,
+        False,
+        state,
+    )
 
     archived_contents = {path.read_bytes() for path in processed_directory.iterdir()}
     assert archived_contents == {b"first-original", b"second-original"}
     assert len(list(processed_directory.iterdir())) == 2
     assert not source.exists()
-    assert summary.scrubbed == 2
-    assert summary.errors == 0
+    assert first_summary.scrubbed == 1
+    assert second_summary.scrubbed == 1
+    assert first_summary.errors == 0
+    assert second_summary.errors == 0
+
+
+def test_auto_finalization_archive_failure_records_one_published_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An archival failure records one failed outcome with publication retained."""
+    source = tmp_path / "input" / "photo.jpg"
+    source.parent.mkdir()
+    source.write_bytes(b"original")
+    output = tmp_path / "output" / "photo.jpg"
+    output.parent.mkdir()
+    output.write_bytes(b"scrubbed")
+
+    # Archival failure is an OS-level condition that cannot be induced
+    # deterministically on every supported filesystem.
+    def fail_archive(source_path: Path, archive_directory: Path) -> Path:
+        """Simulate a failure before the source is moved.
+
+        Args:
+            source_path: Source selected for archival.
+            archive_directory: Intended archive directory.
+
+        Raises:
+            ArchiveError: Always, to exercise final accounting.
+        """
+        del source_path, archive_directory
+        raise scrub.ArchiveError("simulated archive failure")
+
+    monkeypatch.setattr(scrub, "_archive_no_clobber", fail_archive)
+    summary = scrub.ScrubSummary()
+    result = scrub.ScrubResult(
+        input_path=source,
+        output_path=output,
+        kind=OutcomeKind.SCRUBBED,
+        reason_code="output_published",
+    )
+
+    scrub._finalize_auto_result(source, result, summary, False, {})
+
+    summary.report.validate()
+    assert source.read_bytes() == b"original"
+    assert summary.report.examined == 1
+    assert summary.report.failed == 1
+    assert summary.report.scrubbed == 0
+    assert summary.report.published == 1
+    assert summary.total == 1
+    assert summary.scrubbed == 1
+    assert summary.errors == 1
 
 
 def test_duplicate_move_preserves_occupied_errors_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

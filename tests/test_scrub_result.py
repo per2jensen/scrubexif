@@ -8,7 +8,13 @@ from pathlib import Path
 
 import pytest
 
-from scrubexif.outcomes import OutcomeKind
+from scrubexif.outcomes import (
+    FileOutcome,
+    InputClassification,
+    OutcomeKind,
+    ProcessingPhase,
+    SourceDisposition,
+)
 from scrubexif.scrub import ScrubResult, ScrubSummary
 
 
@@ -160,3 +166,120 @@ def test_scrub_summary_invalid_result_raises_without_incrementing_total() -> Non
         summary.update("scrubbed")  # type: ignore[arg-type]
 
     assert summary.total == 0
+
+
+def test_scrub_summary_records_scrub_result_in_typed_report() -> None:
+    """A compatibility update records one reconciled terminal outcome.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If the typed report and legacy view disagree.
+    """
+    summary = ScrubSummary()
+    summary.update(
+        ScrubResult(
+            input_path=Path("/photos/input/photo.jpg"),
+            output_path=Path("/photos/output/photo.jpg"),
+            kind=OutcomeKind.SCRUBBED,
+            reason_code="output_published",
+        )
+    )
+
+    summary.report.validate()
+
+    assert summary.report.scrubbed == 1
+    assert summary.report.published == 1
+    assert summary.report.examined == 1
+    assert summary.total == 1
+    assert summary.scrubbed == 1
+
+
+@pytest.mark.parametrize(
+    "counter_name",
+    [
+        "total",
+        "scrubbed",
+        "skipped",
+        "duplicates_deleted",
+        "duplicates_moved",
+        "errors",
+        "unsupported",
+    ],
+)
+def test_scrub_summary_counter_assignment_raises_attribute_error(
+    counter_name: str,
+) -> None:
+    """Compatibility counters cannot bypass RunReport.record().
+
+    Args:
+        counter_name: Read-only compatibility property to test.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If direct counter assignment is accepted.
+    """
+    summary = ScrubSummary()
+
+    with pytest.raises(AttributeError):
+        setattr(summary, counter_name, 1)
+
+    assert summary.report.examined == 0
+
+
+def test_scrub_summary_legacy_projection_preserves_current_cli_meanings() -> None:
+    """Typed planned, previewed, and published-failure facts retain schema 1.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If step 4 changes the existing public counters.
+    """
+    summary = ScrubSummary()
+    summary.record(
+        FileOutcome(
+            input_path=Path("/photos/input/planned.jpg"),
+            input_classification=InputClassification.ELIGIBLE_JPEG,
+            kind=OutcomeKind.PLANNED,
+            reason_code="dry_run_planned",
+            phase=ProcessingPhase.PLANNING,
+            intended_output_path=Path("/photos/output/planned.jpg"),
+        )
+    )
+    summary.record(
+        FileOutcome(
+            input_path=Path("/photos/input/previewed.jpg"),
+            input_classification=InputClassification.ELIGIBLE_JPEG,
+            kind=OutcomeKind.PREVIEWED,
+            reason_code="preview_audited",
+            phase=ProcessingPhase.VERIFICATION,
+        )
+    )
+    summary.record(
+        FileOutcome(
+            input_path=Path("/photos/input/archive-failed.jpg"),
+            input_classification=InputClassification.ELIGIBLE_JPEG,
+            kind=OutcomeKind.FAILED,
+            reason_code="source_archive_failed",
+            phase=ProcessingPhase.SOURCE_FINALIZATION,
+            intended_output_path=Path("/photos/output/archive-failed.jpg"),
+            actual_output_path=Path("/photos/output/archive-failed.jpg"),
+            published=True,
+            source_disposition=SourceDisposition.UNCHANGED,
+            diagnostic="source archival failed",
+        )
+    )
+
+    summary.report.validate()
+
+    assert summary.report.planned == 1
+    assert summary.report.previewed == 1
+    assert summary.report.failed == 1
+    assert summary.report.published == 1
+    assert summary.total == 2
+    assert summary.scrubbed == 1
+    assert summary.errors == 1
