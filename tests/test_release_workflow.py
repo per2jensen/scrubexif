@@ -85,7 +85,7 @@ def test_release_workflow_creates_one_release_with_both_audit_assets() -> None:
     """The GitHub release is created once with its SBOM and scan report."""
     workflow = _workflow_text()
 
-    assert workflow.count("uses: softprops/action-gh-release@v2") == 1
+    assert workflow.count("uses: softprops/action-gh-release@v3") == 1
     assert "fail_on_unmatched_files: true" in workflow
     release_step = workflow.split(
         "- name: Create GitHub Release with audit assets",
