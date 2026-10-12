@@ -309,8 +309,8 @@ def test_from_input_without_output_accepted(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Constraint: --paranoia is incompatible with --copyright and --comment
 #
-# Promise: --paranoia strips ALL metadata; stamping a copyright or comment
-# would silently contradict that guarantee, so the combination is refused.
+# Promise: --paranoia does not restore EXIF/XMP stamps; accepting a copyright
+# or comment would silently contradict that policy, so the combination is refused.
 # ---------------------------------------------------------------------------
 
 def test_paranoia_with_copyright_rejected(monkeypatch, capsys):

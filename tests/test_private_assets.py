@@ -25,9 +25,15 @@ from pathlib import Path
 
 import pytest
 
+from scrubexif.jpeg_audit import (
+    CANONICAL_JFIF_PAYLOAD,
+    JpegAudit,
+    audit_jpeg,
+    normal_mode_violations,
+    paranoia_mode_violations,
+)
 from scrubexif.scrub import TAGS_TO_EXTRACT, _do_scrub_pipeline, run_jpegtran
 from tests._docker import mk_mounts, run_container
-from scrubexif.jpeg_audit import JpegAudit, audit_jpeg, normal_mode_violations
 
 PRIVATE_ASSETS_DIR = Path(__file__).resolve().parent / "private-assets"
 EXIFTOOL = shutil.which("exiftool")
@@ -342,8 +348,8 @@ def _assert_audit_tag_values_equivalent(
 @pytest.mark.private
 @skipif_no_jpegtran
 @pytest.mark.parametrize("jpeg_path", _private_jpegs(), ids=lambda p: p.name)
-def test_paranoia_only_app0_survives(jpeg_path: Path, tmp_path: Path) -> None:
-    """Confirm that only APP0 remains after a paranoia scrub.
+def test_paranoia_canonical_app0_survives(jpeg_path: Path, tmp_path: Path) -> None:
+    """Confirm that exactly one canonical APP0 remains after paranoia scrub.
 
     Args:
         jpeg_path: Path to the real camera JPEG under test.
@@ -353,14 +359,21 @@ def test_paranoia_only_app0_survives(jpeg_path: Path, tmp_path: Path) -> None:
         None.
     """
     out = tmp_path / jpeg_path.name
-    run_jpegtran(jpeg_path, out)
+    _do_scrub_pipeline(
+        jpeg_path,
+        out,
+        paranoia=True,
+        copyright_text=None,
+        comment_text=None,
+    )
     markers = _get_jpeg_app_markers(out)
     audit = audit_jpeg(out)
     assert markers == {0}, (
         f"{jpeg_path.name}: expected only APP0 after paranoia strip, "
         f"got APP markers: {markers}"
     )
-    assert normal_mode_violations(audit) == (), (
+    assert audit.jfif_payloads == (CANONICAL_JFIF_PAYLOAD,)
+    assert paranoia_mode_violations(audit) == (), (
         f"{jpeg_path.name}: independent auditor found metadata in paranoia output"
     )
 

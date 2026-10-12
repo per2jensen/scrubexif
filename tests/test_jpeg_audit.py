@@ -9,7 +9,9 @@ from fractions import Fraction
 import pytest
 
 from scrubexif.jpeg_audit import (
+    CANONICAL_JFIF_PAYLOAD,
     audit_jpeg_bytes,
+    canonicalize_jfif_app0,
     normal_mode_violations,
     paranoia_mode_violations,
     scrubbed_output_violations,
@@ -225,6 +227,98 @@ def test_paranoia_policy_rejects_metadata_allowed_by_normal_mode() -> None:
     violations = paranoia_mode_violations(audit)
     assert any("EXIF segments" in violation for violation in violations)
     assert "ICC profile" in violations
+
+
+def test_paranoia_policy_canonical_jfif_reports_no_violations() -> None:
+    """Accept exactly one canonical, thumbnail-free JFIF APP0 segment.
+
+    Returns:
+        None.
+    """
+    jfif = _segment(0xE0, CANONICAL_JFIF_PAYLOAD)
+
+    audit = audit_jpeg_bytes(_jpeg(jfif))
+
+    assert audit.jfif_payloads == (CANONICAL_JFIF_PAYLOAD,)
+    assert paranoia_mode_violations(audit) == ()
+
+
+def test_paranoia_policy_duplicate_jfif_reports_violation() -> None:
+    """Reject duplicate canonical JFIF APP0 segments.
+
+    Returns:
+        None.
+    """
+    jfif = _segment(0xE0, CANONICAL_JFIF_PAYLOAD)
+
+    audit = audit_jpeg_bytes(_jpeg(jfif, jfif))
+
+    assert any(
+        "exactly once" in violation
+        for violation in paranoia_mode_violations(audit)
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"JFIF\x00\x01\x02\x00\x00\x01\x00\x01\x00\x00",
+        b"JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00",
+        b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x01\x01\x00\x00\x00",
+    ],
+    ids=("version", "density", "thumbnail"),
+)
+def test_paranoia_policy_noncanonical_jfif_reports_violation(
+    payload: bytes,
+) -> None:
+    """Reject altered JFIF version, density, or thumbnail fields.
+
+    Args:
+        payload: Structurally valid but noncanonical JFIF payload.
+
+    Returns:
+        None.
+    """
+    audit = audit_jpeg_bytes(_jpeg(_segment(0xE0, payload)))
+
+    assert any(
+        "canonical version 1.01" in violation
+        for violation in paranoia_mode_violations(audit)
+    )
+
+
+def test_canonicalize_jfif_app0_duplicate_headers_produces_one_header() -> None:
+    """Replace duplicate noncanonical JFIF headers with one canonical header.
+
+    Returns:
+        None.
+    """
+    source_payload = b"JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00"
+    source = _jpeg(
+        _segment(0xE0, source_payload),
+        _segment(0xE0, source_payload),
+    )
+
+    result = canonicalize_jfif_app0(source)
+    audit = audit_jpeg_bytes(result)
+
+    assert audit.jfif_payloads == (CANONICAL_JFIF_PAYLOAD,)
+    assert paranoia_mode_violations(audit) == ()
+
+
+def test_canonicalize_jfif_app0_unknown_app0_raises_value_error() -> None:
+    """Fail closed instead of erasing an unrecognized APP0 payload.
+
+    Returns:
+        None.
+
+    Raises:
+        AssertionError: If canonicalization accepts the unknown payload.
+    """
+    source = _jpeg(_segment(0xE0, b"UNKNOWN\x00payload"))
+
+    with pytest.raises(ValueError, match="Unrecognized APP0"):
+        canonicalize_jfif_app0(source)
 
 
 def test_requested_xmp_stamp_policy_rejects_unapproved_content() -> None:

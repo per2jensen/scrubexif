@@ -17,12 +17,14 @@ from typing import List
 import pytest
 
 from scrubexif import scrub
+from scrubexif.jpeg_audit import CANONICAL_JFIF_SEGMENT
 
 
 SAFE_JPEG_BYTES = (
     b"\xff\xd8"
-    b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
-    b"\x11\xff\xd9"
+    + CANONICAL_JFIF_SEGMENT
+    + b"\xff\xda\x00\x08\x01\x01\x00\x00\x3f\x00"
+    + b"\x11\xff\xd9"
 )
 
 

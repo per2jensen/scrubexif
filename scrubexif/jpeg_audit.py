@@ -16,6 +16,9 @@ MAX_IFD_DEPTH = 8
 MAX_IFD_ENTRIES = 4096
 MAX_TIFF_VALUES = 1_000_000
 
+CANONICAL_JFIF_PAYLOAD = b"JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+CANONICAL_JFIF_SEGMENT = b"\xff\xe0\x00\x10" + CANONICAL_JFIF_PAYLOAD
+
 XMP_STANDARD_PREFIX = b"http://ns.adobe.com/xap/1.0/\x00"
 XMP_EXTENDED_PREFIX = b"http://ns.adobe.com/xmp/extension/\x00"
 XMP_NAMESPACE = "adobe:ns:meta/"
@@ -122,6 +125,7 @@ class JpegAudit:
         iptc_segment_count: Number of Photoshop segments containing IPTC data.
         mpf_segment_count: Number of MPF APP2 segments.
         unknown_app_markers: APP markers with unapproved payload formats.
+        jfif_payloads: Complete recognized JFIF APP0 payloads, including duplicates.
         jfif_thumbnail_present: Whether APP0 contains an inline JFIF thumbnail.
         jfif_extra_data_size: Vendor bytes following the declared JFIF thumbnail.
         photoshop_thumbnail_present: Whether APP13 contains a thumbnail resource.
@@ -139,6 +143,7 @@ class JpegAudit:
     iptc_segment_count: int
     mpf_segment_count: int
     unknown_app_markers: tuple[int, ...]
+    jfif_payloads: tuple[bytes, ...]
     jfif_thumbnail_present: bool
     jfif_extra_data_size: int
     photoshop_thumbnail_present: bool
@@ -291,6 +296,7 @@ def audit_jpeg_bytes(data: bytes) -> JpegAudit:
     photoshop_segment_count = 0
     iptc_segment_count = 0
     mpf_segment_count = 0
+    jfif_payloads: list[bytes] = []
     jfif_thumbnail_present = False
     jfif_extra_data_size = 0
     photoshop_thumbnail_present = False
@@ -309,6 +315,7 @@ def audit_jpeg_bytes(data: bytes) -> JpegAudit:
         if app_number == 0:
             if payload.startswith(b"JFIF\x00"):
                 thumbnail_present, extra_data_size = _inspect_jfif_payload(payload)
+                jfif_payloads.append(payload)
                 jfif_thumbnail_present = jfif_thumbnail_present or thumbnail_present
                 jfif_extra_data_size += extra_data_size
             else:
@@ -361,6 +368,7 @@ def audit_jpeg_bytes(data: bytes) -> JpegAudit:
         iptc_segment_count=iptc_segment_count,
         mpf_segment_count=mpf_segment_count,
         unknown_app_markers=tuple(unknown_app_markers),
+        jfif_payloads=tuple(jfif_payloads),
         jfif_thumbnail_present=jfif_thumbnail_present,
         jfif_extra_data_size=jfif_extra_data_size,
         photoshop_thumbnail_present=photoshop_thumbnail_present,
@@ -448,8 +456,8 @@ def paranoia_mode_violations(audit: JpegAudit) -> tuple[str, ...]:
         audit: Independently parsed JPEG audit.
 
     Returns:
-        Human-readable violations; empty means the JPEG contains only a plain
-        JFIF APP0 segment and image data.
+        Human-readable violations; empty means the JPEG contains exactly one
+        canonical JFIF APP0 segment and image data.
 
     Raises:
         ValueError: If audit is not a JpegAudit.
@@ -458,11 +466,66 @@ def paranoia_mode_violations(audit: JpegAudit) -> tuple[str, ...]:
         raise ValueError("audit must be a JpegAudit")
 
     violations = list(normal_mode_violations(audit))
+    if audit.jfif_payloads != (CANONICAL_JFIF_PAYLOAD,):
+        violations.append(
+            "JFIF APP0 must appear exactly once with canonical version 1.01, "
+            "unspecified density, 1x1 aspect ratio, and no thumbnail"
+        )
     if audit.exif_segment_count:
         violations.append(f"EXIF segments: {audit.exif_segment_count}")
     if audit.icc_profile is not None:
         violations.append("ICC profile")
     return tuple(violations)
+
+
+def canonicalize_jfif_app0(data: bytes) -> bytes:
+    """Replace all recognized JFIF APP0 segments with one canonical segment.
+
+    The canonical segment is inserted immediately after SOI. Every other byte,
+    including entropy-coded image data, is preserved exactly.
+
+    Args:
+        data: Complete JPEG byte stream.
+
+    Returns:
+        JPEG bytes containing exactly one canonical JFIF APP0 segment.
+
+    Raises:
+        ValueError: If data is malformed, has trailing bytes, or contains an
+            APP0 payload that is not a recognized JFIF segment.
+    """
+    if not isinstance(data, bytes) or not data:
+        raise ValueError("data must be non-empty bytes")
+
+    segments, trailing_data_size = _parse_jpeg_segments(data)
+    if trailing_data_size:
+        raise ValueError(
+            f"JPEG contains {trailing_data_size} trailing bytes after EOI"
+        )
+
+    app0_segments = [segment for segment in segments if segment.marker == 0xE0]
+    for segment in app0_segments:
+        if not segment.payload.startswith(b"JFIF\x00"):
+            raise ValueError(
+                f"Unrecognized APP0 payload at offset {segment.offset}"
+            )
+        _inspect_jfif_payload(segment.payload)
+
+    parts = [data[:2], CANONICAL_JFIF_SEGMENT]
+    cursor = 2
+    for segment in app0_segments:
+        segment_end = _length_bearing_segment_end(data, segment)
+        if segment.offset < cursor:
+            raise ValueError("JPEG APP0 segments overlap")
+        parts.append(data[cursor:segment.offset])
+        cursor = segment_end
+    parts.append(data[cursor:])
+    result = b"".join(parts)
+
+    audit = audit_jpeg_bytes(result)
+    if audit.jfif_payloads != (CANONICAL_JFIF_PAYLOAD,):
+        raise ValueError("Canonical JFIF replacement did not produce one segment")
+    return result
 
 
 def scrubbed_output_violations(
@@ -848,6 +911,54 @@ def _find_next_entropy_marker(data: bytes, position: int) -> int:
             continue
         return marker_offset
     raise ValueError("JPEG entropy data ends before EOI")
+
+
+def _length_bearing_segment_end(data: bytes, segment: JpegSegment) -> int:
+    """Return the exclusive raw-byte end of a parsed JPEG segment.
+
+    Args:
+        data: Complete JPEG byte stream containing the segment.
+        segment: Parsed length-bearing segment whose end is required.
+
+    Returns:
+        Exclusive byte offset immediately after the segment.
+
+    Raises:
+        ValueError: If inputs are invalid or no longer match each other.
+    """
+    if not isinstance(data, bytes) or not data:
+        raise ValueError("data must be non-empty bytes")
+    if not isinstance(segment, JpegSegment):
+        raise ValueError("segment must be a JpegSegment")
+    if segment.marker in {0x01, 0xD8, 0xD9} or 0xD0 <= segment.marker <= 0xD7:
+        raise ValueError("segment must have a JPEG length field")
+
+    marker_position = segment.offset
+    while marker_position < len(data) and data[marker_position] == 0xFF:
+        marker_position += 1
+    if marker_position >= len(data) or data[marker_position] != segment.marker:
+        raise ValueError(
+            f"JPEG segment at offset {segment.offset} no longer matches parsed marker"
+        )
+
+    length_offset = marker_position + 1
+    length_bytes = _checked_slice(
+        data,
+        length_offset,
+        2,
+        f"JPEG segment length at offset {segment.offset}",
+    )
+    segment_length = int.from_bytes(length_bytes, "big")
+    if segment_length < 2:
+        raise ValueError(f"Invalid JPEG segment length at offset {segment.offset}")
+    segment_end = length_offset + segment_length
+    _checked_slice(
+        data,
+        segment.offset,
+        segment_end - segment.offset,
+        f"JPEG segment at offset {segment.offset}",
+    )
+    return segment_end
 
 
 def _parse_exif_payload(payload: bytes) -> tuple[TiffTag, ...]:

@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from scrubexif.jpeg_audit import CANONICAL_JFIF_PAYLOAD, audit_jpeg
 from scrubexif.scrub import (
     _do_scrub_pipeline,
     check_jpegtran,
@@ -293,24 +294,56 @@ def test_jpegtran_fails_on_corrupt_jpeg(tmp_path):
         run_jpegtran(corrupt, out)
 
 
+@skipif_no_jpegtran
+def test_jpegtran_strict_rejects_premature_end_without_output(tmp_path: Path) -> None:
+    """Strict processing must reject a warning-producing truncated JPEG.
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        None.
+    """
+    truncated = tmp_path / "truncated.jpg"
+    truncated.write_bytes(SAMPLE_IMAGE.read_bytes()[:-2])
+    out = tmp_path / "out.jpg"
+
+    with pytest.raises(RuntimeError, match="jpegtran"):
+        run_jpegtran(truncated, out, strict=True)
+
+    assert not out.exists()
+
+
 # ---------------------------------------------------------------------------
 # Tests: full _do_scrub_pipeline
 # ---------------------------------------------------------------------------
 
 @skipif_no_jpegtran
 @skipif_no_exiftool
-def test_pipeline_paranoia_zero_metadata(tmp_path):
+def test_pipeline_paranoia_uses_one_canonical_jfif_header(tmp_path: Path) -> None:
     """
-    Paranoia mode: binary parser confirms only APP0 survives;
-    exiftool confirms no EXIF, GPS, XMP, IPTC, or ICC metadata.
+    Paranoia mode writes one canonical APP0 and no private APP metadata.
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        None.
     """
     out = tmp_path / "paranoia.jpg"
+    source_audit = audit_jpeg(SAMPLE_IMAGE)
+    assert source_audit.jfif_payloads == (
+        b"JFIF\x00\x01\x01\x01\x00H\x00H\x00\x00",
+    ), "fixture must begin with a 72-DPI JFIF header"
+
     _do_scrub_pipeline(SAMPLE_IMAGE, out, paranoia=True,
                        copyright_text=None, comment_text=None)
 
     # Binary: only JFIF marker allowed
     markers = _get_jpeg_app_markers(out)
     assert markers == {0}, f"Non-JFIF APP segments survived paranoia: {markers}"
+    audit = audit_jpeg(out)
+    assert audit.jfif_payloads == (CANONICAL_JFIF_PAYLOAD,)
 
     # exiftool: no identifying metadata groups
     tags = json.loads(
@@ -322,6 +355,67 @@ def test_pipeline_paranoia_zero_metadata(tmp_path):
     assert not any(k.startswith("XMP") for k in keys), "XMP survived paranoia"
     assert not any(k.startswith("IPTC") for k in keys), "IPTC survived paranoia"
     assert not any(k.startswith("ICC") for k in keys), "ICC profile survived paranoia"
+
+
+@skipif_no_jpegtran
+def test_pipeline_paranoia_preserves_decoded_pixels(tmp_path: Path) -> None:
+    """Canonical JFIF replacement must not alter decoded image pixels.
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        None.
+    """
+    image_module = pytest.importorskip("PIL.Image")
+    out = tmp_path / "paranoia.jpg"
+
+    _do_scrub_pipeline(
+        SAMPLE_IMAGE,
+        out,
+        paranoia=True,
+        copyright_text=None,
+        comment_text=None,
+    )
+
+    with image_module.open(SAMPLE_IMAGE) as source_image:
+        source_image.load()
+        source_pixels = source_image.tobytes()
+    with image_module.open(out) as output_image:
+        output_image.load()
+        output_pixels = output_image.tobytes()
+    assert output_pixels == source_pixels
+
+
+@skipif_no_jpegtran
+def test_pipeline_paranoia_repeated_scrub_is_byte_identical(tmp_path: Path) -> None:
+    """A second paranoia scrub must produce byte-identical canonical output.
+
+    Args:
+        tmp_path: pytest-provided temporary directory.
+
+    Returns:
+        None.
+    """
+    first = tmp_path / "first.jpg"
+    second = tmp_path / "second.jpg"
+
+    _do_scrub_pipeline(
+        SAMPLE_IMAGE,
+        first,
+        paranoia=True,
+        copyright_text=None,
+        comment_text=None,
+    )
+    _do_scrub_pipeline(
+        first,
+        second,
+        paranoia=True,
+        copyright_text=None,
+        comment_text=None,
+    )
+
+    assert second.read_bytes() == first.read_bytes()
 
 
 @skipif_no_jpegtran

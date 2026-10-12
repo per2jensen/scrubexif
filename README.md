@@ -52,7 +52,7 @@ a hidden `.part` file in the output folder and atomically published. A failed or
 non-compliant result is never published under its intended output filename. In
 output-directory modes, existing destination entries are never overwritten.
 
-This is a failure-handling safeguard, **not a guarantee** that an image contains no privacy-sensitive information. Default mode preserves a few selected technical tags and the ICC profile. `--paranoia` removes JPEG APP metadata more aggressively, but scrubexif does not inspect visible image content, filenames unless `--rename` is used, sidecar files, or unsupported future formats. Always check the command’s exit status before publishing output.
+This is a failure-handling safeguard, **not a guarantee** that an image contains no privacy-sensitive information. Default mode preserves a few selected technical tags and the ICC profile. `--paranoia` removes JPEG APP metadata more aggressively and writes one canonical JFIF APP0 header, but scrubexif does not inspect visible image content, filenames unless `--rename` is used, sidecar files, or unsupported future formats. Always check the command’s exit status before publishing output.
 
 > **High-stakes use**: Independently verify the resulting files before publishing or distributing them.
 
@@ -410,7 +410,7 @@ SBOM and SARIF files stored under `doc/`.
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             scrub/audit all in-scope JPEGs temporarily; unavailable in auto mode
-    --paranoia            discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; JPEG/JFIF structural fields remain
+    --paranoia            discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; write one canonical JFIF header
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP
     --on-duplicate        move | fail | delete (default: move)

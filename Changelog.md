@@ -36,11 +36,15 @@
   accepts an explicit `SCRUBEXIF_IMAGE` override.
 - User documentation now matches the schema-2 contract, current CLI modes,
   Docker tag lifecycle, hardening requirements, and exact signing identities.
+- Paranoia mode now treats jpegtran warnings as fatal and replaces JFIF APP0
+  data with one canonical version 1.01, unitless 1x1 header without a thumbnail.
 
 ### Fixed
 
 - The PhotoPrism wrapper now validates and mounts a dedicated errors directory
   required by the default duplicate-preservation policy.
+- Paranoia output auditing now rejects missing, duplicated, malformed, or
+  noncanonical JFIF APP0 headers.
 
 ## 0.7.28 - 2026-10-10
 

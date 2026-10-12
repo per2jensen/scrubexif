@@ -478,7 +478,7 @@ The `-v "$PWD/errors:/photos/errors"` mount is required by the default
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
 - `--max-files N` - limit JPEG operation attempts; unsupported, temporary, unstable, and other skipped files do not consume the limit
-- `--paranoia` - discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; JPEG/JFIF structural fields may remain
+- `--paranoia` - discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; write and verify one canonical JFIF APP0 header
 - `--preview` - scrub and audit every in-scope JPEG in temporary storage without publishing output or modifying sources; unavailable with `--from-input`
 - `--copyright` - stamp a copyright notice into EXIF and XMP (replaces existing values)
 - `--comment` - stamp a comment into EXIF and XMP (replaces existing values)
@@ -636,14 +636,18 @@ For users who want stricter metadata minimization, an optional `--paranoia` mode
 
 When enabled, `--paranoia` disables ICC preservation and does not restore
 EXIF, XMP, IPTC, or ICC data after jpegtran discards the input APP metadata.
-This may degrade color rendering. JPEG/JFIF structural fields can remain or be
-regenerated, and scrubexif does not inspect pixels, sidecars, or filenames
-unless `--rename` is used.
+It also runs jpegtran in strict mode and replaces all surviving recognized JFIF
+APP0 data with exactly one canonical JFIF 1.01 header: unspecified density,
+1x1 aspect ratio, and no thumbnail. Missing, duplicated, malformed, unknown,
+or altered APP0 data in the completed output fails the independent audit.
+Removing the ICC profile may degrade color rendering. JPEG structural fields
+remain, and scrubexif does not inspect pixels, sidecars, or filenames unless
+`--rename` is used.
 
 | Mode         | ICC Profile | Color Fidelity | Metadata policy |
 |--------------|-------------|----------------|-----------------|
 | *(default)*  | Preserved   | Best available | Selected technical tags restored |
-| `--paranoia` | Removed     | May degrade     | No EXIF/XMP/IPTC/ICC restored |
+| `--paranoia` | Removed     | May degrade     | No EXIF/XMP/IPTC/ICC restored; one canonical JFIF APP0 |
 
 ### Inspecting Metadata with `--show-tags`
 
@@ -1430,7 +1434,7 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--max-files N` | Limit JPEG operation attempts. Unsupported and skipped files do not consume the limit. |
 | `--on-duplicate {move,fail,delete}` | Auto-mode policy for verified duplicates. Default `move` preserves them in `/photos/errors`; `fail` leaves the source in input and returns nonzero; explicit `delete` removes it only after output audit and byte-identity verification. Same-name different content is always a nonzero collision. |
 | `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
-| `--paranoia` | Do not restore EXIF, XMP, IPTC, or ICC after input APP metadata is discarded. JPEG/JFIF structural fields may remain. |
+| `--paranoia` | Do not restore EXIF, XMP, IPTC, or ICC after input APP metadata is discarded. Write and verify one canonical JFIF APP0 header. |
 | `--preview` | Scrub and audit every in-scope JPEG in disposable storage without publishing output or modifying sources. Honors `--max-files`; unavailable with `--from-input`. |
 | `-q`, `--quiet` | Suppress all output on success. |
 | `-r`, `--recursive` | Recurse into directories when scanning. |

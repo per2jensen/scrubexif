@@ -30,7 +30,11 @@ from types import MappingProxyType
 from typing import NoReturn, Optional
 
 from .__about__ import __license__, __version__
-from .jpeg_audit import audit_jpeg, scrubbed_output_violations
+from .jpeg_audit import (
+    audit_jpeg,
+    canonicalize_jfif_app0,
+    scrubbed_output_violations,
+)
 from .outcomes import (
     DuplicateDisposition,
     FileOutcome,
@@ -1378,26 +1382,43 @@ def extract_icc_profile(input_path: Path, icc_path: Path) -> bool:
     return True
 
 
-def run_jpegtran(input_path: Path, output_path: Path) -> None:
-    """
-    Strip all JPEG APP segments with jpegtran -copy none.
+def run_jpegtran(
+    input_path: Path,
+    output_path: Path,
+    strict: bool = False,
+) -> None:
+    """Discard copyable JPEG metadata with a lossless jpegtran transform.
 
-    Removes all metadata (EXIF, XMP, IPTC, ICC profile, and any unknown
-    proprietary APP segments) while preserving the image data losslessly.
-    The JPEG SOF segment — which carries image dimensions — is retained.
+    ``jpegtran -copy none`` discards input APP and COM metadata, while the
+    encoder may retain or generate structural markers such as JFIF APP0.
+    The JPEG image coefficients and SOF dimensions are preserved losslessly.
 
     Args:
         input_path: Source JPEG (not modified).
         output_path: Destination path for the stripped JPEG.
+        strict: Whether libjpeg warnings must abort processing immediately.
 
     Raises:
+        ValueError: If an argument has an invalid type or path.
         RuntimeError: If jpegtran exits non-zero or produces no output.
     """
+    if not isinstance(input_path, Path) or not input_path.is_file():
+        raise ValueError("input_path must be an existing regular file")
+    if not isinstance(output_path, Path):
+        raise ValueError("output_path must be a pathlib.Path")
+    if not isinstance(strict, bool):
+        raise ValueError("strict must be a boolean")
+
     cmd = [
-        "jpegtran", "-copy", "none",
+        "jpegtran",
+    ]
+    if strict:
+        cmd.append("-strict")
+    cmd.extend([
+        "-copy", "none",
         "-outfile", str(output_path.absolute()),
         str(input_path.absolute()),
-    ]
+    ])
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
     except OSError as exc:
@@ -1406,8 +1427,56 @@ def run_jpegtran(input_path: Path, output_path: Path) -> None:
         raise RuntimeError(
             f"jpegtran failed: {result.stderr.strip() or 'unknown error'}"
         )
+    if strict and result.stderr.strip():
+        raise RuntimeError(
+            f"jpegtran emitted output in strict mode: {result.stderr.strip()}"
+        )
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise RuntimeError("jpegtran produced no output file")
+
+
+def _canonicalize_paranoia_output(output_path: Path) -> None:
+    """Atomically replace an output JPEG's JFIF data with the canonical header.
+
+    Args:
+        output_path: Existing private staging JPEG produced by jpegtran.
+
+    Returns:
+        None.
+
+    Raises:
+        ValueError: If output_path is invalid.
+        RuntimeError: If the JPEG cannot be canonicalized or replaced safely.
+    """
+    if not isinstance(output_path, Path) or not output_path.is_file():
+        raise ValueError("output_path must be an existing regular file")
+
+    temporary_path: Path | None = None
+    descriptor: int | None = None
+    try:
+        canonical_bytes = canonicalize_jfif_app0(output_path.read_bytes())
+        descriptor, raw_path = tempfile.mkstemp(
+            dir=output_path.parent,
+            prefix=".scrubexif_jfif_",
+            suffix=output_path.suffix,
+        )
+        temporary_path = Path(raw_path)
+        with os.fdopen(descriptor, "wb") as temporary_file:
+            descriptor = None
+            temporary_file.write(canonical_bytes)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    except (OSError, ValueError) as exc:
+        raise RuntimeError(
+            f"Failed to canonicalize paranoia JFIF header: {exc}"
+        ) from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def build_tag_writeback_cmd(
@@ -1458,11 +1527,13 @@ def _do_scrub_pipeline(
     Core scrub pipeline — shared by scrub_file and preview mode.
 
     Paranoia mode:
-        jpegtran -copy none only.  Zero metadata in the output.
+        Strict jpegtran metadata discard followed by canonical JFIF APP0
+        replacement. No EXIF, XMP, IPTC, ICC, COM, or unknown APP metadata is
+        restored.
 
     Normal mode (three steps):
         1. exiftool extracts the tag whitelist and ICC profile from the source.
-        2. jpegtran -copy none strips all APP segments.
+        2. jpegtran -copy none discards copyable input APP metadata.
         3. exiftool writes the whitelist tags and ICC profile back.
 
     Args:
@@ -1476,7 +1547,8 @@ def _do_scrub_pipeline(
         RuntimeError: On any subprocess failure.
     """
     if paranoia:
-        run_jpegtran(input_path, output_path)
+        run_jpegtran(input_path, output_path, strict=True)
+        _canonicalize_paranoia_output(output_path)
         return
 
     # Step 1 — extract tag values and ICC profile from the original.
@@ -4051,7 +4123,7 @@ def _run_inner(args: argparse.Namespace, summary: ScrubSummary) -> None:
     )
 
     # Paranoia mode deliberately restores no user-supplied metadata, so stamps
-    # are incompatible even though JPEG/JFIF structural fields can remain.
+    # are incompatible even though a canonical JFIF structural header remains.
     if args.paranoia and (args.copyright or args.comment):
         _abort_run(
             "invalid_option_combination",
@@ -4238,6 +4310,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
     parser.add_argument("--paranoia", action="store_true",
                         help="Do not restore EXIF, XMP, IPTC, or ICC after jpegtran discards input APP metadata. "
+                             "Write and verify one canonical JFIF header. "
                              "Incompatible with --copyright and --comment.")
     parser.add_argument("--preview", action="store_true",
                         help=("Scrub and audit all in-scope JPEGs in temporary "
