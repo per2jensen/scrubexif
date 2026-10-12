@@ -62,6 +62,7 @@ def _run_wrapper(
     scrub_exit: int,
     *,
     scrubexif_image: str | None = None,
+    create_errors_dir: bool = True,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real wrapper against an isolated fake Docker executable.
 
@@ -70,6 +71,7 @@ def _run_wrapper(
         summary_output: Output returned by the fake scrubexif container.
         scrub_exit: Exit status returned for the fake Docker run.
         scrubexif_image: Optional explicit container image override.
+        create_errors_dir: Whether to create the configured duplicate archive.
 
     Returns:
         Completed wrapper process and captured Docker invocations.
@@ -86,9 +88,12 @@ def _run_wrapper(
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     processed_dir = tmp_path / "processed"
+    errors_dir = tmp_path / "errors"
     binary_dir = tmp_path / "bin"
     for directory in (input_dir, output_dir, processed_dir, binary_dir):
         directory.mkdir()
+    if create_errors_dir:
+        errors_dir.mkdir()
 
     capture_path = tmp_path / "docker-calls.txt"
     docker_path = binary_dir / "docker"
@@ -118,6 +123,7 @@ def _run_wrapper(
             "INPUT_DIR": str(input_dir),
             "OUTPUT_DIR": str(output_dir),
             "PROCESSED_DIR": str(processed_dir),
+            "ERRORS_DIR": str(errors_dir),
             "LOCKFILE": str(tmp_path / "scrubexif.lock"),
         }
     )
@@ -130,7 +136,11 @@ def _run_wrapper(
         capture_output=True,
         text=True,
     )
-    calls = capture_path.read_text(encoding="utf-8").splitlines()
+    calls = (
+        capture_path.read_text(encoding="utf-8").splitlines()
+        if capture_path.exists()
+        else []
+    )
     return result, calls
 
 
@@ -192,6 +202,46 @@ def test_photoprism_wrapper_published_output_triggers_index(tmp_path: Path) -> N
     assert result.returncode == 0, result.stderr
     assert sum(call.startswith("exec ") for call in calls) == 1
     assert "1 newly published files" in result.stdout
+
+
+def test_photoprism_wrapper_mounts_duplicate_archive(tmp_path: Path) -> None:
+    """Mount the configured duplicate archive at the required container path.
+
+    Args:
+        tmp_path: Isolated test directory.
+
+    Returns:
+        None.
+    """
+    result, calls = _run_wrapper(tmp_path, _summary_line(), scrub_exit=0)
+
+    assert result.returncode == 0, result.stderr
+    run_calls = [call for call in calls if call.startswith("run ")]
+    assert len(run_calls) == 1
+    assert f"-v {tmp_path / 'errors'}:/photos/errors" in run_calls[0]
+
+
+def test_photoprism_wrapper_missing_duplicate_archive_fails_before_docker(
+    tmp_path: Path,
+) -> None:
+    """Reject a missing duplicate archive before starting the container.
+
+    Args:
+        tmp_path: Isolated test directory.
+
+    Returns:
+        None.
+    """
+    result, calls = _run_wrapper(
+        tmp_path,
+        _summary_line(),
+        scrub_exit=0,
+        create_errors_dir=False,
+    )
+
+    assert result.returncode == 1
+    assert calls == []
+    assert f"Directory does not exist: {tmp_path / 'errors'}" in result.stderr
 
 
 def test_photoprism_wrapper_no_publication_skips_index(tmp_path: Path) -> None:

@@ -56,8 +56,7 @@ This is a failure-handling safeguard, **not a guarantee** that an image contains
 
 > **High-stakes use**: Independently verify the resulting files before publishing or distributing them.
 
-**Full documentation moved** → [`DETAILS.md`](doc/DETAILS.md)  
- This README is intentionally short for Docker Hub visibility.
+Detailed behavior and CLI reference → [`DETAILS.md`](doc/DETAILS.md)
 
 ## Quick Start
 
@@ -349,14 +348,14 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
 ## Key Features
 
 - Scrubexif is JPEG‑only by design. This avoids format‑specific edge cases and ensures predictable behavior.
-- Allowlist-based scrubbing: jpegtran strips all JPEG APP segments at the byte level (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation)
+- Allowlist-based scrubbing: jpegtran discards input JPEG APP metadata (including unknown/proprietary vendor segments), then ExifTool writes back a small allowlist of technical tags (exposure, ISO, focal length, orientation). JPEG/JFIF structural fields may remain or be regenerated
 - Removes common privacy-sensitive metadata, including GPS coordinates, serial numbers, and maker notes
 - Preserves color profiles (ICC) by default; normal mode re-embeds the ICC profile after the `jpegtran` strip
 - Auto mode audits and compares same-name files before applying duplicate handling (`--on-duplicate move|fail|delete`; default `move`)
 - Optional stability gate for hot upload directories  (e.g., PhotoSync, rclone, FTP uploads) (`--stable-seconds`, `--state-file`)
 - Metadata inspection and dry-run support (`--show-tags`, `--preview`, `--dry-run`)
 - Optional stamping of copyright and comment into EXIF/XMP (`--copyright`, `--comment`)
-- Hardened container defaults in examples (read-only + no-new-privileges)
+- Hardened container examples using a read-only root filesystem, a writable `/tmp` tmpfs, and no-new-privileges
 
 ## Acknowledgements
 
@@ -369,33 +368,34 @@ Any arguments appended to `docker run … scrubexif:*` are forwarded to the unde
   
 ## Supply Chain Transparency
 
-Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature is tied directly to the specific GitHub Actions run that built the image, ensuring there are no long-lived signing keys that could be compromised. Anyone can verify that a pulled image genuinely came from this repository and was not tampered with in transit or on Docker Hub.
+Every release image is **cryptographically signed** using [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. The signature binds an image digest to the identity of the GitHub Actions workflow that signed it, without a long-lived project signing key. Verification establishes image integrity and workflow provenance; it does not prove that the source, workflow, runner, or resulting image was free from compromise.
 
 **Verify any release in one command** (requires [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)):
 
 ```bash
 cosign verify per2jensen/scrubexif:0.7.28 \
-  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-identity="https://github.com/per2jensen/scrubexif/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
 
-Replace the tag with the version you wish to verify.
+Replace the tag with another immutable release version when needed. Refresh
+tags use the separate workflow identity documented in DETAILS.
 
-A successful verification prints the signing certificate, which includes the exact workflow URL, the Git commit SHA, and the GitHub Actions run URL — proving provenance down to the individual CI run.
+A successful verification confirms that the image digest was signed under the expected release-workflow identity. Cosign's displayed certificate and bundle details vary by version; inspect the workflow identity, source revision, and run information when shown.
 
 Full details on installation, verification, and what the certificate fields mean → [`doc/DETAILS.md#image-signing-and-supply-chain-verification`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md#image-signing-and-supply-chain-verification)
 
 The `:latest` image is rebuilt every Saturday from the exact source of the
 latest stable release. A successful refresh is tested, scanned, signed, and
-published with an immutable numeric suffix such as `:0.7.28`. Weekly
+published with an immutable numeric suffix such as `:0.7.28-1`. Weekly
 refreshes do not change the stable release version shown in this README; their
 complete audit trail is recorded in `doc/build-history.json`, with compressed
 SBOM and SARIF files stored under `doc/`.
 
-**Additional supply chain artefacts per release and scheduled refresh:**
+**Additional supply-chain artefacts:**
 
-- SPDX SBOM (`sbom-<version>.spdx.json`) — attached to each GitHub Release and as a signed in-toto attestation on the image itself
-- Grype vulnerability scan (`grype-results-<version>.sarif`) — attached to the release, uploaded to the GitHub Security tab; releases are blocked on any high or critical CVE
+- SPDX SBOM (`sbom-<version>.spdx.json`) — a GitHub Release asset for releases, a compressed repository audit file for refreshes, and a signed in-toto image attestation for both
+- Grype vulnerability scan (`grype-results-<version>.sarif`) — a release asset or compressed refresh audit file and an upload to GitHub Security; publication is blocked on any High or Critical finding
 - `doc/build-history.json` — tracks every release and refresh with Git commit, image digest, Grype counts, cosign Rekor log entry, and CI run URL
 
 ## Common Options
@@ -410,7 +410,7 @@ SBOM and SARIF files stored under `doc/`.
     --show-container-paths include container paths in output
     -q, --quiet           no output on success
     --preview             scrub/audit all in-scope JPEGs temporarily; unavailable in auto mode
-    --paranoia            byte-level wipe via jpegtran only — removes JPEG APP metadata, including EXIF and ICC profiles
+    --paranoia            discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; JPEG/JFIF structural fields remain
     --comment             stamp comment into EXIF/XMP
     --copyright           stamp copyright into EXIF/XMP
     --on-duplicate        move | fail | delete (default: move)
@@ -418,14 +418,15 @@ SBOM and SARIF files stored under `doc/`.
     --state-file PATH     override queue DB
     -o, --output DIR      write scrubbed files to DIR (default safe mode)
 
-Full CLI reference → in [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
+Full CLI reference → [`DETAILS.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/DETAILS.md)
 
-The process exits `0` only when the run completes without scrub, audit, or
-post-processing errors. A failed file, failed preview, same-name content
-collision, unsafe existing output, or unsafe archive/delete operation returns
-`1`; handled skips and verified duplicates do not. With `--quiet`, successful
-runs remain silent, while failure diagnostics and the summary are replayed to
-standard error. The machine-readable line begins with `schema=2`; consumers
+The process exits `0` when the run completes without scrub, audit, or
+post-processing errors. A controlled operational failure returns `1`; command-line
+syntax errors return `2`; and a handled keyboard interruption returns `130`.
+Handled skips and successfully handled verified duplicates are not errors. Help,
+version, and argument-parser exits do not emit a summary. With `--quiet`,
+successful operational runs remain silent, while failure diagnostics and the
+summary are replayed to standard error. The machine-readable line begins with `schema=2`; consumers
 must require that version because 0.8.0 changes counter meanings as well as
 adding fields. `total` remains a JPEG-only alias for `jpeg_total`, while
 `examined` reconciles all terminal outcomes, including unsupported inputs.
@@ -437,49 +438,63 @@ The implementation decisions and acceptance criteria are recorded in the
 
 ## Example setup
 
-This is an example of my workflow to quickly upload JPEG files to PhotoPrism.
-One use case is to quickly show dog owners photos at exhibitions.
+This example runs an intake directory through scrubexif before PhotoPrism
+indexing, using a systemd timer for periodic processing.
 
 | Host filesystem path     | Container path       | Purpose                                                     |
 | ------------------------ | -------------------- | ----------------------------------------------------------- |
 | `/some/directory/`       | `/photos/input/`     | Location for new JPEG uploads on the server                 |
 | `/photoprism/sooc/`      | `/photos/output/`    | Destination for scrubbed JPEG versions, for PhotoPrism import|
 | `/photoprism/processed/` | `/photos/processed/` | Holding area for already-imported files.                    |
+| `/photoprism/errors/`    | `/photos/errors/`    | Verified duplicates and same-name content collisions.       |
 
 ### Systemd
 
 `/etc/systemd/system/scrubexif.service`:
 
 ```txt
-    [Service]
-    ExecStart=/usr/bin/docker run --rm \
-      --read-only --security-opt no-new-privileges \
-      --tmpfs /tmp \
-      -v /some/directory:/photos/input \
-      -v /photoprism/sooc:/photos/output \
-      -v /photoprism/processed:/photos/processed \
-      per2jensen/scrubexif:0.7.28 --from-input --stable-seconds 10
+[Unit]
+Description=Run scrubexif intake processing
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker run --rm \
+  --read-only --security-opt no-new-privileges \
+  --tmpfs /tmp \
+  -v /some/directory:/photos/input \
+  -v /photoprism/sooc:/photos/output \
+  -v /photoprism/processed:/photos/processed \
+  -v /photoprism/errors:/photos/errors \
+  per2jensen/scrubexif:0.7.28 --from-input --stable-seconds 10
 ```
+
+Create all four host directories first and ensure UID 1000, the image's default
+runtime user, can write to them. Alternatively, add an explicit Docker `--user`
+matching their host ownership.
 
 `/etc/systemd/system/scrubexif.timer`:
 
 ```txt
-    [Unit]
-    Description=Run scrubexif every 5 minutes
+[Unit]
+Description=Run scrubexif every 5 minutes
 
-    [Timer]
-    OnBootSec=1min
-    OnUnitActiveSec=5min
-    Persistent=true
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=scrubexif.service
 
-    [Install]
-    WantedBy=timers.target
+[Install]
+WantedBy=timers.target
 ```
-### Photoprism systemd script
 
-I use `scrubexif` to clean my jpegs on dog exhibitions. I upload the files to a server using rclone and a systemd timer runs the script below every 5 minutes.
+### PhotoPrism systemd script
 
-You can see my (anonymized) script in [the Github scrubexif repo](https://github.com/per2jensen/scrubexif/blob/main/scripts/run_scrubexif_photoprism.sh)
+The repository includes a configurable
+[PhotoPrism integration script](https://github.com/per2jensen/scrubexif/blob/main/scripts/run_scrubexif_photoprism.sh)
+that validates schema-2 summaries and indexes only newly published outputs.
 
 ## Development
 

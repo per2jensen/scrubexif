@@ -1468,7 +1468,7 @@ def _do_scrub_pipeline(
     Args:
         input_path: Source JPEG (never modified).
         output_path: Destination for the scrubbed JPEG.
-        paranoia: True for zero-metadata output.
+        paranoia: True to avoid restoring EXIF, XMP, IPTC, or ICC metadata.
         copyright_text: Copyright notice to stamp (normal mode only).
         comment_text: Comment to stamp (normal mode only).
 
@@ -1578,7 +1578,7 @@ def _audit_scrubbed_output(
 
     Args:
         output_path: Completed private staging JPEG.
-        paranoia: Whether the zero-metadata policy applies.
+        paranoia: Whether the APP-metadata minimization policy applies.
         copyright_text: Requested copyright stamp, if any.
         comment_text: Requested comment stamp, if any.
 
@@ -4050,12 +4050,13 @@ def _run_inner(args: argparse.Namespace, summary: ScrubSummary) -> None:
         max_database_bytes=args.rename_plan_max_mib * 1024 * 1024,
     )
 
-    # --paranoia removes all metadata; --copyright and --comment are incompatible.
+    # Paranoia mode deliberately restores no user-supplied metadata, so stamps
+    # are incompatible even though JPEG/JFIF structural fields can remain.
     if args.paranoia and (args.copyright or args.comment):
         _abort_run(
             "invalid_option_combination",
             ProcessingPhase.PREFLIGHT,
-            "--paranoia removes all metadata. --copyright and --comment "
+            "--paranoia does not restore stamped metadata. --copyright and --comment "
             "cannot be combined with --paranoia.",
         )
 
@@ -4236,7 +4237,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-r", "--recursive", action="store_true", help="Recurse into directories")
     parser.add_argument("--show-tags", choices=["before", "after", "both"], help="Show metadata before/after")
     parser.add_argument("--paranoia", action="store_true",
-                        help="Maximum scrubbing: jpegtran -copy none only — zero metadata output. "
+                        help="Do not restore EXIF, XMP, IPTC, or ICC after jpegtran discards input APP metadata. "
                              "Incompatible with --copyright and --comment.")
     parser.add_argument("--preview", action="store_true",
                         help=("Scrub and audit all in-scope JPEGs in temporary "

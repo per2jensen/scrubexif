@@ -475,7 +475,7 @@ def scrubbed_output_violations(
 
     Args:
         audit: Independently parsed JPEG audit.
-        paranoia: Whether the zero-metadata policy applies.
+        paranoia: Whether the APP-metadata minimization policy applies.
         copyright_text: Exact copyright stamp expected in EXIF and XMP.
         comment_text: Exact comment stamp expected in EXIF and XMP.
 

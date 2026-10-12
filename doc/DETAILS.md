@@ -4,7 +4,7 @@
 
 <!-- 📦 Project Metadata -->
 <a href="https://github.com/per2jensen/scrubexif/releases"><img alt="Tag" src="https://img.shields.io/github/v/tag/per2jensen/scrubexif"/></a>
-<a href="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/test.yml/badge.svg"/></a>
+<a href="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml"><img alt="CI" src="https://github.com/per2jensen/scrubexif/actions/workflows/CI.yml/badge.svg"/></a>
 <img alt="License" src="https://img.shields.io/badge/license-GPL--3.0--or--later-blue"/>
 
 <!-- 🐳 Docker Hub Stats -->
@@ -94,7 +94,8 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
 
 ## Quick Start
 
-There are **two modes**:
+There are three operating modes: default safe-copy mode, destructive
+`--clean-inline` mode, and intake-oriented `--from-input` auto mode.
 
 ### Build & Run Locally
 
@@ -135,15 +136,17 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm  \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:$VERSION  001_4888.jpg 001_4789.jpg
+  per2jensen/scrubexif:$VERSION 001_4888.jpg 001_4789.jpg
+```
 
-...
+Example output from a schema-2 image (scrubexif 0.8.0 or newer):
 
+```text
 📊 Summary:
   Total JPEGs found        : 2
   Successfully scrubbed    : 2
@@ -194,8 +197,10 @@ reject schema-1, missing, or unknown versions.
 | `examined` | Inputs assigned exactly one terminal outcome. |
 | `duration` | Non-negative elapsed run time in seconds. |
 
-All fields except `duration` are non-negative decimal integers. A valid summary
-obeys these identities:
+Consumers must require exactly this field set, with no missing, duplicated, or
+unknown fields. All fields except `duration` are non-negative decimal integers;
+`duration` is a finite, non-negative decimal number. A valid summary obeys these
+identities and bounds:
 
 ```text
 total = jpeg_total
@@ -203,6 +208,10 @@ examined = scrubbed + duplicates_handled + unsupported + planned + previewed + s
 jpeg_total = scrubbed + duplicates_handled + planned + previewed + skipped + failed
 verified_duplicates = duplicates_deleted + duplicates_moved + duplicates_unchanged + duplicates_missing
 errors = failed + run_errors
+duplicates_handled <= verified_duplicates
+published <= scrubbed + failed
+interrupted in {0, 1}
+interrupted = 1 implies run_errors > 0
 ```
 
 `published` and `verified_duplicates` are facts rather than terminal outcomes.
@@ -221,15 +230,17 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  per2jensen/scrubexif:$VERSION -o scrub-test  001_4888.jpg 001_4789.jpg
+  per2jensen/scrubexif:$VERSION -o scrub-test 001_4888.jpg 001_4789.jpg
+```
 
-...
+Example output from a schema-2 image (scrubexif 0.8.0 or newer):
 
+```text
 📊 Summary:
   Total JPEGs found        : 2
   Successfully scrubbed    : 2
@@ -260,7 +271,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -281,7 +292,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -294,7 +305,8 @@ VERSION=latest; docker run -it --rm \
 
 Recursively scrub nested folders
 
-**Observe** that all scrubbed jpegs, including in nested directories, are put in the same directoty: $PWD/output/
+All scrubbed JPEGs, including files discovered in nested directories, are
+flattened into `$PWD/output/`.
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -303,7 +315,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -322,7 +334,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -332,7 +344,7 @@ VERSION=latest; docker run -it --rm \
 
 ---
 
-Scrub all JEPGs **in-place** (destructively) in current directory (-v $PWD:/photos).
+Scrub all JPEGs **in-place** (destructively) in the current directory (`-v "$PWD:/photos"`).
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -341,7 +353,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -360,7 +372,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -397,7 +409,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=latest; docker run -it --rm \
+VERSION=0.7.28; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -441,22 +453,23 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --read-only --security-opt no-new-privileges \
+VERSION=0.7.28; docker run --read-only --security-opt no-new-privileges \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
   -v "$PWD/errors:/photos/errors" \
-  scrubexif:dev --from-input --on-duplicate move
+  per2jensen/scrubexif:$VERSION --from-input --on-duplicate move
 ```
 
-📌 **Observe** the `-v "$PWD/errors:/photos/errors"` volume specification needed for the default `--on-duplicate move` policy.
+The `-v "$PWD/errors:/photos/errors"` mount is required by the default
+`--on-duplicate move` policy.
 
 ## Options
 
 - `--delete-original` — delete originals instead of moving them
-- `--clean-inline` — scrub in-place (destructive). Required for positional file/dir arguments
+- `--clean-inline` — scrub in-place (destructive); positional files/directories otherwise use safe-copy mode
 - `--output PATH` — override output directory in default safe mode (not allowed with `--from-input` or `--clean-inline`)
 - `--rename FORMAT` — rename output files using a format string; see [Filename sanitisation](#filename-sanitisation---rename) and [`doc/rename-spec.md`](https://github.com/per2jensen/scrubexif/blob/main/doc/rename-spec.md)
 - `-q`, `--quiet` — suppress all output on success
@@ -465,14 +478,14 @@ docker run --read-only --security-opt no-new-privileges \
 - `--debug` - shortcut for `--log-level debug`; also enables extra diagnostic logging (takes precedence if `--log-level` is also supplied)
 - `--log-level` - choices=["debug", "info", "warn", "error", "crit"], default="info"
 - `--max-files N` - limit JPEG operation attempts; unsupported, temporary, unstable, and other skipped files do not consume the limit
-- `--paranoia` - maximum metadata scrubbing, removes ICC profile including its (potential) fingerprinting vector
+- `--paranoia` - discard input APP metadata without restoring EXIF/XMP/IPTC/ICC; JPEG/JFIF structural fields may remain
 - `--preview` - scrub and audit every in-scope JPEG in temporary storage without publishing output or modifying sources; unavailable with `--from-input`
 - `--copyright` - stamp a copyright notice into EXIF and XMP (replaces existing values)
 - `--comment` - stamp a comment into EXIF and XMP (replaces existing values)
 - `--show-container-paths` - include container paths alongside host paths in output
 - `-r`, `--recursive` - Recurse into directories
 - `--show-tags` - choices=["before", "after", "both"], show metadata tags before, after, or both for each image
-- `--stable-seconds` <secs> - Number of seconds a file must not change before being processed. Default is 120 secs
+- `--stable-seconds SECS` - auto-mode minimum mtime age; previously seen files must also have unchanged size and mtime (default: 120 seconds)
 - `--state-file PATH|disabled` — Override stability tracking path or disable persistence entirely
 - positional files/dirs — Optional list of files or directories (relative to `/photos` when running in Docker); default mode writes copies while `--clean-inline` replaces sources
 - `--from-input` — Run in auto mode, consuming `/photos/input` and emitting to `/photos/output`
@@ -503,6 +516,12 @@ archived/deleted safely. Expected skips and verified duplicates handled by the
 selected policy are not errors. With `--quiet`, successful output is
 suppressed; on failure, the buffered diagnostics and final summary are written
 to standard error.
+
+Argument syntax errors reported by the command-line parser exit `2`. A handled
+keyboard interruption exits `130` and records `interrupted=1` in the schema-2
+summary. Help, version, and argument-parser exits occur before an operational
+run and therefore do not emit `SCRUBEXIF_SUMMARY`; operational runs emit exactly
+one final schema-2 summary, including controlled failures and interruptions.
 
 The scrub pipeline and ICC extraction run in a fresh private system temporary
 directory outside the output folder. The completed JPEG is independently parsed
@@ -553,7 +572,7 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --recursive
 ```
 
-Dry-run (preview only):
+Dry-run (planning only):
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -587,7 +606,8 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --recursive --dry-run
 ```
 
-📌 **Observe** In clean-inline mode, files are scrubbed in-place and will overwrite the originals. Duplicate handling (e.g. move/delete) is not applicable here.
+In clean-inline mode, files are scrubbed in place and replace the originals.
+Auto-mode duplicate handling does not apply.
 
 ## Features
 
@@ -595,30 +615,35 @@ VERSION=0.7.28; docker run -it --rm \
 - Removes most EXIF, IPTC, and XMP metadata
 - **Preserves** useful photography tags:
   - `ExposureTime`, `FNumber`, `ISO`
-  - `ImageSize`, `Orientation`
+  - `Orientation`
   - `FocalLength`
+- Reports `ImageSize` from the scrubbed JPEG structure rather than restoring it from EXIF
 - Show tags before & after (see below)
 - Preserves Color profile, with a compromise in scrubbing (see below)
 - A --paranoia option to scrub color profile tags (see below)
 - A --preview option to check tag before/after scrub (see below)
 - An --on-duplicate option controlling what to do if a file in /output is already there
-- Based on the most excellent [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
+- Uses [ExifTool](https://exiftool.org/) inside a minimal Ubuntu base image
 - Docker-friendly for pipelines and automation
 
 ### Metadata Preservation Strategy
 
-By default, `scrubexif` preserves important non-private metadata such as **exposure settings**, **ISO**, **focal length**, **image size/orientation**, and **color profile** information. This ensures that images look correct in color-managed environments (e.g. Apple Photos, Lightroom, web browsers with ICC support).
+By default, `scrubexif` preserves selected technical metadata such as **exposure settings**, **ISO**, **focal length**, **orientation**, and **color profile** information. Image dimensions remain available from the JPEG structure. Preserving the ICC profile helps images render consistently in color-managed environments.
 
-For users who require maximum privacy, an optional `--paranoia` mode is available.
+For users who want stricter metadata minimization, an optional `--paranoia` mode is available.
 
 ### `--paranoia` Mode
 
-When enabled, `--paranoia` disables color profile preservation and removes fingerprintable metadata like ICC profile hashes (`ProfileID`). This may degrade color rendering on some devices, but ensures all embedded fingerprint vectors are scrubbed.
+When enabled, `--paranoia` disables ICC preservation and does not restore
+EXIF, XMP, IPTC, or ICC data after jpegtran discards the input APP metadata.
+This may degrade color rendering. JPEG/JFIF structural fields can remain or be
+regenerated, and scrubexif does not inspect pixels, sidecars, or filenames
+unless `--rename` is used.
 
-| Mode         | ICC Profile | Color Fidelity | Privacy Level |
-|--------------|-------------|----------------|---------------|
-| *(default)*  | ✅ Preserved   | ✅ High         | ⚠️ Moderate |
-| `--paranoia` | ❌ Removed     | ❌ May degrade  | ✅ Maximum  |
+| Mode         | ICC Profile | Color Fidelity | Metadata policy |
+|--------------|-------------|----------------|-----------------|
+| *(default)*  | Preserved   | Best available | Selected technical tags restored |
+| `--paranoia` | Removed     | May degrade     | No EXIF/XMP/IPTC/ICC restored |
 
 ### Inspecting Metadata with `--show-tags`
 
@@ -628,7 +653,8 @@ The `--show-tags` option lets you inspect metadata **before**, **after**, or **b
 - Verifying that scrubbed output removes private metadata
 - Confirming what remains (e.g. focal length, exposure settings, etc.)
 
-If you want to **inspect metadata only without modifying any files**, you must pass `--dry-run` and use `--clean-inline` when targeting specific files.
+To inspect metadata without modifying files, pass `--dry-run`. Positional files
+work in default safe-copy mode; `--clean-inline` is not required for selection.
 
 ```bash
 # See tags BEFORE scrub (no modifications)
@@ -638,12 +664,12 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --rm \
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev --clean-inline image.jpg --show-tags before --dry-run
+  per2jensen/scrubexif:$VERSION image.jpg --show-tags before --dry-run
 
 # See both BEFORE and AFTER (scrub still happens)
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -652,12 +678,12 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --rm \
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev --clean-inline image.jpg --show-tags both
+  per2jensen/scrubexif:$VERSION --clean-inline image.jpg --show-tags both
 ```
 
 ### Preview Mode (`--preview`)
@@ -698,15 +724,16 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --rm \
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD:/photos" \
-  scrubexif:dev --preview --recursive --max-files 25 .
+  per2jensen/scrubexif:$VERSION --preview --recursive --max-files 25 .
 ```
 
-🛡 Tip: Combine `--preview --paranoia` to verify the color profile tags including the ProfileId tag has been scrubbed.
+Combine `--preview --paranoia --show-tags both` to inspect that ICC profile
+tags, including `ProfileID`, are absent after scrubbing.
 
 ### Filename sanitisation (`--rename`)
 
@@ -823,7 +850,7 @@ The tool removes:
 - Software version strings
 - Embedded thumbnails
 - XMP/IPTC descriptive metadata
-- MakerNotes (where safely possible)
+- MakerNotes contained in discarded input metadata
 
 It **preserves** key tags important for photographers and viewers.
 
@@ -839,7 +866,9 @@ A JPEG is eligible only if now - mtime >= stable_seconds (default 120).
 
 If the file was seen before, its size and mtime must be unchanged since the last run.
 
-First-seen files that are already older than the threshold pass on the next run unless they change again.
+A first-seen file whose mtime is already at least the threshold age is eligible
+immediately. A younger file is deferred; on later runs it must be old enough
+and, when a prior state entry exists, retain the recorded size and mtime.
 
 ### State tracking
 
@@ -860,13 +889,15 @@ These are still recorded in state but never processed while they look temporary.
 
 Applies to auto mode (--from-input) only. Clean-inline mode stays unchanged.
 
-Summary now reports “Skipped (unstable)”. Duplicates/error logic unaffected.
+Deferred temporary or unstable JPEGs contribute to the `skipped` summary field;
+the diagnostic output records the specific reason. Duplicate and error handling
+are otherwise unaffected.
 
 ### Configuration
 
-CLI: --stable-seconds N.
+CLI: `--stable-seconds N`.
 
-Env: SCRUBEXIF_STABLE_SECONDS if the flag is omitted. Default 120.
+Environment: `SCRUBEXIF_STABLE_SECONDS` if the flag is omitted. Default: 120.
 
 ## Integration (optional)
 
@@ -887,12 +918,14 @@ summaries fail closed and do not trigger PhotoPrism. The default image version
 is `0.8.0`; set `SCRUBEXIF_VERSION` or `SCRUBEXIF_IMAGE` explicitly to select a
 different schema-2-compatible image.
 
-The script expects that you have three directories:
+The script expects four host directories. Configure them with `INPUT_DIR`,
+`OUTPUT_DIR`, `PROCESSED_DIR`, and `ERRORS_DIR`:
 
-``` bash
+```text
 /photos/input       # new JPEGs arrive here
-/photos/output      # scrubbed JPEGs written here
-/photos/processed   # originals moved here after scrub
+/photos/output      # scrubbed JPEGs are written here
+/photos/processed   # originals are moved here after scrub
+/photos/errors      # verified duplicates and collisions are preserved here
 ```
 
 These can be mapped to any host paths via `-v` mounts, as shown in the example.
@@ -923,6 +956,7 @@ Description=Run scrubexif every 5 minutes
 [Timer]
 OnBootSec=300s
 OnUnitActiveSec=5min
+Unit=scrubexif.service
 
 [Install]
 WantedBy=timers.target
@@ -932,10 +966,15 @@ This makes scrubexif completely automatic in a PhotoPrism setup.
 
 ## User Privileges and Running as Root
 
-By default, the `scrubexif` container runs as user ID 1000, not root. This is a best-practice security measure to avoid unintended file permission changes or elevated access.
+By default, the `scrubexif` container runs as user ID 1000, not root. Confirm
+the configured host directories are writable by that UID, or select a matching
+non-root UID explicitly. The following command demonstrates the default user
+without starting a photo-processing run:
 
 ```bash
-docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev
+VERSION=0.7.28; docker run --rm --read-only \
+  --security-opt no-new-privileges --tmpfs /tmp \
+  per2jensen/scrubexif:$VERSION --version
 ```
 
 - Specify a custom UID with `--user $(id -u)` to match host permissions.
@@ -947,11 +986,11 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --rm \
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
-  scrubexif:dev
+  per2jensen/scrubexif:$VERSION --version
 ```
 
 ## Hardening & Recommendations
@@ -969,28 +1008,33 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-docker run --rm \
+mkdir -p input output processed errors
+VERSION=0.7.28; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
   -v "$PWD/output:/photos/output" \
   -v "$PWD/processed:/photos/processed" \
-  scrubexif:dev --from-input
+  -v "$PWD/errors:/photos/errors" \
+  per2jensen/scrubexif:$VERSION --from-input
 ```
 
 What these flags do (and how they can bite you)
 
 - **`--read-only`** mounts the container root filesystem as read-only so the image can’t be mutated at runtime. All app writes *must* land in writable mounts such as `/photos/*`.  
-  - *Watch out*: if you rely on a custom `--state-file` path or duplicate handling output, make sure that path lives on a mounted volume. Docker normally provisions `/tmp` as a tmpfs when `--read-only` is used, but other runtimes might require an explicit `--tmpfs /tmp`.
+  - *Watch out*: Docker does not make `/tmp` writable automatically. Supply
+    `--tmpfs /tmp`, and ensure custom state or duplicate-archive paths are on
+    writable mounts.
 - **`--security-opt no-new-privileges`** blocks any attempt to gain more privileges (e.g. via setuid binaries).  
-  - *Watch out*: commands that expect to invoke `sudo`, or wrappers that rely on setuid/setgid helpers inside the container, will fail silently. `scrubexif` doesn’t need them, but your surrounding tooling might.
+  - *Watch out*: commands that expect to invoke `sudo`, or wrappers that rely on setuid/setgid helpers inside the container, will fail. `scrubexif` does not need them, but surrounding tooling might.
 
 If you orchestrate with Kubernetes, set `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false` to mirror these flags. Always verify that mounted host directories (input/output/processed/errors/state) stay writable by the container UID when the root filesystem is locked down.
 
-Avoid using symbolic links for input, output, or processed paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
+Avoid using symbolic links for input, output, processed, or errors paths. Due to Docker's volume resolution behavior, symlinks are flattened and no longer detectable inside the container.
 
-Ensure the input, output, and processed directories exist on the host, are not files or symlinks, and are writable by the container’s user.
+Ensure the input, output, processed, and errors directories exist on the host,
+are not files or symlinks, and are writable by the container user.
 
 ## Known limitations
 
@@ -1000,17 +1044,15 @@ If you bind-mount a symbolic link (e.g. `-v $(pwd)/symlink:/photos/input`), Dock
 
 ## Docker Images
 
-From version 0.7.22 I am using `latest`, as the images seem to work well and I have some confidence in them.
-
-If the Docker upload or cosign steps in release.yml fails, the uploaded version tag AND :latest are deleted.
-Until a new :latest is uploaded, that tag does not exist for `scrubexif`.
-
-I am currently going with:
+Published images use immutable release or refresh tags. `latest` is a movable
+convenience tag and points to the newest release or successful scheduled
+refresh. A release failure rolls back the new release tag where possible and
+does not move or delete the previously published `latest` image.
 
 | Tag          | Description                                                   | Docker Hub | Example Usage  |
 |--------------|---------------------------------------------------------------|------------|----------------|
-| `:0.x.y`     | Immutable semantic-versioned application release              | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.24`   |
-| `:0.x.y-N`   | Immutable Saturday rebuild of release `0.x.y`                  | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.24-1` |
+| `:0.x.y`     | Immutable semantic-versioned application release              | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.28`   |
+| `:0.x.y-N`   | Immutable Saturday rebuild of release `0.x.y`                  | ✅ Yes     | `docker pull per2jensen/scrubexif:0.7.28-1` |
 | `:latest`    | Most recent signed and scanned release or Saturday refresh     | ✅ Yes     | `docker pull per2jensen/scrubexif:latest` |
 | `:dev`       | Development version; may be broken or incomplete              | ❌ No      | `docker run --rm --read-only --security-opt no-new-privileges --tmpfs /tmp scrubexif:dev` |
 
@@ -1026,7 +1068,7 @@ or Critical vulnerabilities. The immutable refresh tag is pushed and signed
 by digest with cosign before its SBOM attestation is attached. Only after those
 steps succeed is `:latest` moved to the refreshed image.
 
-Refreshes use numeric tags such as `0.7.24-1`, `0.7.24-2`, and so on. They do
+Refreshes use numeric tags such as `0.7.28-1`, `0.7.28-2`, and so on. They do
 not create GitHub Releases and do not update the stable version examples in
 README.md, this document, or the project page. Their SBOM, SARIF report,
 source revision, digest, Rekor entry, and workflow provenance are recorded in
@@ -1044,15 +1086,16 @@ Versioned image:
 VERSION=0.7.28; docker pull per2jensen/scrubexif:$VERSION
 ```
 
-Pull the latest `stable` release (when available)
+Pull the movable `latest` image:
 
 ```bash
-docker pull per2jensen/scrubexif:stable
+docker pull per2jensen/scrubexif:latest
 ```
 
-✔️ All `:0.5.x` and `:stable` images run the test suite successfully as part of the release pipeline.
+Release and refresh images are published only after their respective test,
+scan, signing, and attestation gates succeed.
 
->`:dev` → Bleeding edge development, **only built >locally**, not pushed to Docker Hub
+>`:dev` is a local development tag and is not pushed to Docker Hub.
 
 🧼 Run to scrub all .jpg and .jpeg files in the current directory
 
@@ -1092,7 +1135,8 @@ exiftool "image.jpg"
 
 Inside the container (optional):
 
-Observe the "/photos" in the filename, that is because the container has your $PWD mounted on /photos.
+The container path is `/photos/image.jpg` because the command bind-mounts the
+current host directory at `/photos`.
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -1128,15 +1172,18 @@ VERSION=0.7.28; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.
 
 ### The problem cosign solves
 
-When you pull a Docker image you are trusting that the bytes you download are exactly what the author intended. Without a signature, three things can go wrong without you knowing: the image could be tampered with on Docker Hub, a compromised build machine could have injected malicious layers, or someone could push a rogue image to the same repository name. A signed image closes all three gaps.
+When you pull a Docker image, a signature lets you verify that its immutable
+digest was signed under an expected identity and was not changed afterwards.
+It does not establish that the source, workflow, runner, or signed content was
+safe or uncompromised.
 
-`scrubexif` uses [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. Every release image (starting with 0.7.16) is signed by the GitHub Actions runner that built it, using a short-lived certificate issued by Sigstore's certificate authority and anchored to a GitHub OIDC token. The signature and certificate are recorded permanently in the [Rekor](https://rekor.sigstore.dev) transparency log — a public, append-only audit ledger. No long-lived private key exists anywhere; there is nothing to leak, rotate, or protect.
+`scrubexif` uses [cosign](https://github.com/sigstore/cosign) keyless signing via the [Sigstore](https://sigstore.dev) public infrastructure. Every release image (starting with 0.7.16) is signed by the GitHub Actions workflow that built it, using a short-lived certificate issued from a GitHub OIDC identity. The signing event is recorded in the [Rekor](https://rekor.sigstore.dev) transparency log. The project does not store a long-lived image-signing private key.
 
 When you verify an image, cosign checks three things simultaneously:
 
 1. The cryptographic signature matches the image digest — confirming the image was not modified after signing
 2. The signing certificate was issued to the exact GitHub Actions workflow in this repository — confirming it was not signed by some other party
-3. The certificate and signature are present in the Rekor transparency log — confirming the signature was made publicly and cannot be silently revoked
+3. The signing event is recorded in Rekor's append-only transparency log
 
 ### Installing cosign
 
@@ -1161,15 +1208,25 @@ Or download a binary directly from the [cosign releases page](https://github.com
 
 ### Verifying a release image
 
-Replace `0.7.16` with the version you pulled:
+For the current release image, require the exact release-workflow identity:
 
 ```bash
-cosign verify per2jensen/scrubexif:0.7.16 \
-  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+cosign verify per2jensen/scrubexif:0.7.28 \
+  --certificate-identity="https://github.com/per2jensen/scrubexif/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
 ```
 
-A successful result prints a JSON array containing the signing certificate details, followed by a confirmation line. The key fields to look at in the certificate:
+For an immutable weekly refresh tag such as `0.7.28-1`, replace the image tag
+and require the refresh workflow instead:
+
+```bash
+cosign verify per2jensen/scrubexif:0.7.28-1 \
+  --certificate-identity="https://github.com/per2jensen/scrubexif/.github/workflows/image-refresh.yml@refs/heads/main" \
+  --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+```
+
+Cosign output varies by version. When certificate details are displayed, these
+fields are useful corroborating evidence:
 
 | Field | What it proves |
 |---|---|
@@ -1180,21 +1237,25 @@ A successful result prints a JSON array containing the signing certificate detai
 | `OIDC Issuer` | `token.actions.githubusercontent.com` — GitHub issued the identity token |
 | `Source Repository URI` | `https://github.com/per2jensen/scrubexif` — your expected repository |
 
-If any of these fields are wrong or missing, the verification fails. You cannot spoof them — they are bound into the certificate by Sigstore at signing time.
+The `--certificate-identity` and issuer arguments make a mismatched signing
+identity fail verification. Certificate claims are bound to the short-lived
+certificate issued for that workflow run.
 
 ### Verifying the SBOM attestation
 
 Each release also attaches the SPDX SBOM as a signed [in-toto attestation](https://in-toto.io/) directly to the image in the registry. You can retrieve and verify it:
 
 ```bash
-cosign verify-attestation per2jensen/scrubexif:0.7.16 \
+cosign verify-attestation per2jensen/scrubexif:0.7.28 \
   --type spdxjson \
-  --certificate-identity-regexp="https://github.com/per2jensen/scrubexif" \
+  --certificate-identity="https://github.com/per2jensen/scrubexif/.github/workflows/release.yml@refs/heads/main" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
   | jq '.payload | @base64d | fromjson | .predicate.name'
 ```
 
-This confirms that the SBOM was produced by the same workflow that built the image, not added separately after the fact.
+This verifies that the attestation is bound to the selected image and was
+signed under the expected release-workflow identity. It does not independently
+prove the accuracy or completeness of the SBOM contents.
 
 ### Checking the Rekor transparency log entry
 
@@ -1260,23 +1321,29 @@ built it, the Sigstore transparency log entry, and the SBOM.
 
 ## Dev setup
 
-On Ubuntu, some extras are needed
+On Ubuntu, create an isolated virtual environment and install the native tools
+plus the project's test dependencies:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y exiftool
+sudo apt-get update
+sudo apt-get install -y libimage-exiftool-perl libjpeg-turbo-progs python3-venv
+python3 -m venv venv
+source venv/bin/activate
 python -m pip install --upgrade pip
-pip install pytest
+python -m pip install -e ".[test]"
 ```
 
 ## Test Image
 
 To verify that a specific scrubexif Docker image functions correctly, the test suite supports containerized testing using any image tag. By default, it uses the local tag  `scrubexif:dev` for testing. You can override this with the `SCRUBEXIF_IMAGE` environment variable.
 
-🔧 Default behavior
+Default behavior:
 
 When running pytest, the following fallback is used if no override is set:
 
+```python
 IMAGE_TAG = os.getenv("SCRUBEXIF_IMAGE", "scrubexif:dev")
+```
 
 This means that the tests will attempt to run:
 
@@ -1325,10 +1392,8 @@ See section 15 and section 16 in the supplied "LICENSE" file.
 
 ## Related Tools
 
-📸 [Exiftool](https://github.com/exiftool/exiftool) - The wonderful swiss knife of metadata handling
-📸 [file-manager-scripts](https://github.com/per2jensen/file-manager-scripts) — Nautilus context menu integrations  
-📸 image-scrubber — Browser-based interactive metadata removal  
-📸 jpg-exif-scrubber — Python tool that strips all metadata (no preservation)
+- [ExifTool](https://github.com/exiftool/exiftool) — metadata inspection and editing
+- [file-manager-scripts](https://github.com/per2jensen/file-manager-scripts) — Nautilus context-menu integration
 
 `scrubexif` focuses on **automated, container-friendly workflows** with **safe defaults** for photographers.
 
@@ -1353,19 +1418,19 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 
 | Option | Description |
 |---|---|
-| `--clean-inline` | Destructive, in-place scrubbing. Required when passing positional file/dir arguments. |
-| `--comment TEXT` | Stamp a comment into EXIF and XMP (replaces existing values). |
-| `--copyright TEXT` | Stamp a copyright notice into EXIF and XMP (replaces existing values). |
+| `--clean-inline` | Destructive, in-place scrubbing. Without it, positional inputs use safe-copy mode. |
+| `--comment TEXT` | Stamp a comment into EXIF and XMP (replaces existing values; UTF-8 value truncated at 4,096 bytes with a warning). |
+| `--copyright TEXT` | Stamp a copyright notice into EXIF and XMP (replaces existing values; UTF-8 value truncated at 1,024 bytes with a warning). |
 | `--debug` | Shortcut for `--log-level debug`; enables extra diagnostic logging. |
 | `--delete-original` | Auto mode only. Delete originals instead of moving them to `/photos/processed`. |
 | `--dry-run` | Print planned actions without modifying files. |
-| `files...` | Positional files/dirs (relative to `/photos` in Docker). Requires `--clean-inline`. |
+| `files...` | Positional files/directories (relative to `/photos` in Docker). Safe-copy mode is the default; add `--clean-inline` only to replace sources. |
 | `--from-input` | Auto mode. Reads `/photos/input`, writes to `/photos/output`, and moves originals to `/photos/processed` (or deletes with `--delete-original`). |
 | `--log-level {debug,info,warn,error,crit}` | Set log verbosity (default: `info`). |
 | `--max-files N` | Limit JPEG operation attempts. Unsupported and skipped files do not consume the limit. |
 | `--on-duplicate {move,fail,delete}` | Auto-mode policy for verified duplicates. Default `move` preserves them in `/photos/errors`; `fail` leaves the source in input and returns nonzero; explicit `delete` removes it only after output audit and byte-identity verification. Same-name different content is always a nonzero collision. |
 | `-o`, `--output` PATH | Override output directory in default safe mode. Not allowed with `--from-input` or `--clean-inline`. |
-| `--paranoia` | Maximum metadata scrubbing (removes ICC profile). |
+| `--paranoia` | Do not restore EXIF, XMP, IPTC, or ICC after input APP metadata is discarded. JPEG/JFIF structural fields may remain. |
 | `--preview` | Scrub and audit every in-scope JPEG in disposable storage without publishing output or modifying sources. Honors `--max-files`; unavailable with `--from-input`. |
 | `-q`, `--quiet` | Suppress all output on success. |
 | `-r`, `--recursive` | Recurse into directories when scanning. |
@@ -1375,12 +1440,16 @@ All arguments are passed to `python3 -m scrubexif.scrub` inside the container.
 | `--rename-plan-max-mib MIB` | Stop rename planning when its temporary SQLite index exceeds this size (default: 512 MiB). |
 | `--show-container-paths` | Include container paths alongside host paths in output. |
 | `--show-tags {before,after,both}` | Print metadata before/after scrub for each file. |
-| `--stable-seconds SECS` | Only process files whose mtime age is at least this many seconds (default: 120). |
+| `--stable-seconds SECS` | Auto mode: require at least this mtime age and, for previously seen files, unchanged size and mtime (default: 120). |
 | `--state-file PATH\|disabled` | Override stability tracking path or disable persistence (`disabled`, `none`, or `-`). |
 | `-v`, `--version` | Show version and license. |
 
 **Constraints**
 
-- `--from-input` cannot be used with `--clean-inline` or `--output`.
+- `--from-input` cannot be used with `--clean-inline`.
 - `--preview` cannot be used with `--from-input` auto mode.
+- `--paranoia` cannot be combined with `--copyright` or `--comment`.
+- `--output` cannot be used with `--clean-inline` or `--from-input`.
+- `--max-files` must be non-negative. Rename-planning limits must be positive;
+  the timeout must also be finite.
 - Positional `files...` use default safe copy mode unless `--clean-inline` is supplied.

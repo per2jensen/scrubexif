@@ -110,6 +110,18 @@ def test_release_workflow_keeps_audited_image_if_latest_fails() -> None:
     assert "scripts/remove_dockerhub_tag.py" not in latest
 
 
+def test_release_notes_require_exact_signing_workflow_identity() -> None:
+    """Generated verification guidance rejects other repository workflows."""
+    workflow = _workflow_text()
+    expected_identity = (
+        'https://github.com/${{ github.repository }}/.github/workflows/'
+        'release.yml@refs/heads/main'
+    )
+
+    assert f'--certificate-identity="{expected_identity}"' in workflow
+    assert "--certificate-identity-regexp" not in workflow
+
+
 def test_release_workflow_records_registry_digest_and_source_revision() -> None:
     """Build history receives registry and tagged-source provenance."""
     workflow = _workflow_text()

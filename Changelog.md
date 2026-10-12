@@ -34,6 +34,13 @@
   directly instead of inferring them from schema-1 counters.
 - The demo wrapper now defaults to the schema-2-compatible 0.8.0 image and
   accepts an explicit `SCRUBEXIF_IMAGE` override.
+- User documentation now matches the schema-2 contract, current CLI modes,
+  Docker tag lifecycle, hardening requirements, and exact signing identities.
+
+### Fixed
+
+- The PhotoPrism wrapper now validates and mounts a dedicated errors directory
+  required by the default duplicate-preservation policy.
 
 ## 0.7.28 - 2026-10-10
 

@@ -7,7 +7,7 @@
 # - only triggers PhotoPrism index when new audited outputs were published
 #
 # Place this in scripts/run_scrubexif_photoprism.sh (or similar)
-# and adjust INPUT_DIR / OUTPUT_DIR / PROCESSED_DIR for your setup.
+# and adjust INPUT_DIR / OUTPUT_DIR / PROCESSED_DIR / ERRORS_DIR for your setup.
 
 set -euo pipefail
 
@@ -67,9 +67,11 @@ PHOTOPRISM_CONTAINER="${PHOTOPRISM_CONTAINER:-photoprism}"
 # - INPUT_DIR: where new JPEGs arrive (e.g. from Photosync / rsync / rclone)
 # - OUTPUT_DIR: scrubbed JPEGs for PhotoPrism to index
 # - PROCESSED_DIR: originals moved here after scrub
+# - ERRORS_DIR: verified duplicates moved here by the default duplicate policy
 INPUT_DIR="${INPUT_DIR:-/srv/photosync/input/sooc}"
 OUTPUT_DIR="${OUTPUT_DIR:-/srv/photosync/output/scrubbed}"
 PROCESSED_DIR="${PROCESSED_DIR:-/srv/photosync/processed}"
+ERRORS_DIR="${ERRORS_DIR:-/srv/photosync/errors}"
 
 # Optional: stability window in seconds (see SCRUBEXIF_STABLE_SECONDS in DETAILS.md)
 SCRUBEXIF_STABLE_SECONDS="${SCRUBEXIF_STABLE_SECONDS:-120}"
@@ -81,9 +83,9 @@ LOCKFILE="${LOCKFILE:-/tmp/scrubexif.lock}"
 # Basic sanity checks
 # ------------------------------------------------------------
 
-for d in "$INPUT_DIR" "$OUTPUT_DIR" "$PROCESSED_DIR"; do
-  if [ ! -d "$d" ]; then
-    echo "❌ Directory does not exist: $d" >&2
+for d in "${INPUT_DIR}" "${OUTPUT_DIR}" "${PROCESSED_DIR}" "${ERRORS_DIR}"; do
+  if [ ! -d "${d}" ]; then
+    echo "❌ Directory does not exist: ${d}" >&2
     exit 1
   fi
 done
@@ -115,6 +117,7 @@ scrub_output="$(
     -v "${INPUT_DIR}:/photos/input" \
     -v "${OUTPUT_DIR}:/photos/output" \
     -v "${PROCESSED_DIR}:/photos/processed" \
+    -v "${ERRORS_DIR}:/photos/errors" \
     --user "$(id -u):$(id -g)" \
     "${SCRUBEXIF_IMAGE}" \
     --from-input \
