@@ -122,16 +122,18 @@ def _run_demo_wrapper(
     tmp_path: Path,
     summary_line: str,
     docker_exit: int,
-) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    scrubexif_image: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[str], list[str]]:
     """Run the demo wrapper with real subprocesses and controlled adapters.
 
     Args:
         tmp_path: Isolated directory for inputs, logs, and fake executables.
         summary_line: Current invocation summary emitted by fake Docker.
         docker_exit: Exit status returned by fake Docker.
+        scrubexif_image: Optional image override supplied to the wrapper.
 
     Returns:
-        Completed wrapper process and captured notification arguments.
+        Completed wrapper process, notification arguments, and Docker arguments.
 
     Raises:
         OSError: If test files cannot be created or read.
@@ -148,6 +150,7 @@ def _run_demo_wrapper(
     binary_dir.mkdir()
 
     capture_path = tmp_path / "notification.txt"
+    docker_arguments_path = tmp_path / "docker-arguments.txt"
     _write_fake_notifier(binary_dir, capture_path)
     docker_path = binary_dir / "docker"
     docker_path.write_text(
@@ -155,6 +158,7 @@ def _run_demo_wrapper(
         "set -euo pipefail\n"
         "if [[ \"${1:-}\" == \"info\" ]]; then exit 0; fi\n"
         "if [[ \"${1:-}\" == \"run\" ]]; then\n"
+        "    printf '%s\\n' \"$@\" > \"${DOCKER_ARGUMENTS_CAPTURE}\"\n"
         "    printf '%s\\n' \"${DOCKER_SUMMARY}\"\n"
         "    exit \"${DOCKER_EXIT}\"\n"
         "fi\n"
@@ -171,17 +175,21 @@ def _run_demo_wrapper(
         encoding="utf-8",
     )
     environment = os.environ.copy()
+    environment.pop("SCRUBEXIF_IMAGE", None)
     environment.update(
         {
             "PATH": f"{binary_dir}:{environment['PATH']}",
             "NOTIFY_CAPTURE": str(capture_path),
             "DOCKER_SUMMARY": summary_line,
             "DOCKER_EXIT": str(docker_exit),
+            "DOCKER_ARGUMENTS_CAPTURE": str(docker_arguments_path),
             "RUN_AS_UID": "1000",
             "RUN_AS_GID": "1000",
             "SCRUBEXIF_LOGFILE": str(log_path),
         }
     )
+    if scrubexif_image is not None:
+        environment["SCRUBEXIF_IMAGE"] = scrubexif_image
     result = subprocess.run(
         [str(SCRIPT), str(input_dir), str(output_dir)],
         check=False,
@@ -190,7 +198,8 @@ def _run_demo_wrapper(
         text=True,
     )
     arguments = capture_path.read_text(encoding="utf-8").splitlines()
-    return result, arguments
+    docker_arguments = docker_arguments_path.read_text(encoding="utf-8").splitlines()
+    return result, arguments, docker_arguments
 
 
 def test_notification_success_with_unsupported_file_stays_green(
@@ -269,11 +278,47 @@ def test_demo_wrapper_uses_current_summary_not_stale_log(tmp_path: Path) -> None
         None.
     """
     current_summary = _summary_line(unsupported=1, examined=1)
-    result, arguments = _run_demo_wrapper(tmp_path, current_summary, docker_exit=0)
+    result, arguments, _ = _run_demo_wrapper(
+        tmp_path, current_summary, docker_exit=0
+    )
 
     assert result.returncode == 0, result.stderr
     assert arguments[:4] == ["-u", "low", "-i", "dialog-information"]
     assert arguments[5] == "Nothing processed — 1 unsupported file examined"
+
+
+@pytest.mark.parametrize(
+    ("scrubexif_image", "expected_image"),
+    [
+        (None, "per2jensen/scrubexif:0.8.0"),
+        ("registry.example/scrubexif:test", "registry.example/scrubexif:test"),
+    ],
+    ids=["schema-two-default", "explicit-override"],
+)
+def test_demo_wrapper_selects_configured_image(
+    tmp_path: Path,
+    scrubexif_image: str | None,
+    expected_image: str,
+) -> None:
+    """Use the schema-2 default image unless the caller supplies an override.
+
+    Args:
+        tmp_path: Isolated directory for files and fake executables.
+        scrubexif_image: Optional image override supplied to the wrapper.
+        expected_image: Exact image expected in the Docker invocation.
+
+    Returns:
+        None.
+    """
+    result, _, docker_arguments = _run_demo_wrapper(
+        tmp_path,
+        _summary_line(),
+        docker_exit=0,
+        scrubexif_image=scrubexif_image,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert docker_arguments[-3:] == [expected_image, "-o", "/scrubbed"]
 
 
 def test_demo_wrapper_preserves_failed_docker_status(tmp_path: Path) -> None:
@@ -292,7 +337,9 @@ def test_demo_wrapper_preserves_failed_docker_status(tmp_path: Path) -> None:
         errors=1,
         examined=1,
     )
-    result, arguments = _run_demo_wrapper(tmp_path, current_summary, docker_exit=1)
+    result, arguments, _ = _run_demo_wrapper(
+        tmp_path, current_summary, docker_exit=1
+    )
 
     assert result.returncode == 1
     assert arguments[:4] == ["-u", "critical", "-i", "dialog-error"]
@@ -314,7 +361,9 @@ def test_demo_wrapper_preserves_interrupted_status(tmp_path: Path) -> None:
         interrupted=1,
     )
 
-    result, arguments = _run_demo_wrapper(tmp_path, current_summary, docker_exit=130)
+    result, arguments, _ = _run_demo_wrapper(
+        tmp_path, current_summary, docker_exit=130
+    )
 
     assert result.returncode == 130
     assert arguments[:4] == ["-u", "critical", "-i", "dialog-error"]
@@ -344,7 +393,7 @@ def test_demo_wrapper_inconsistent_exit_status_fails_closed(
     Returns:
         None.
     """
-    result, arguments = _run_demo_wrapper(tmp_path, summary_line, docker_exit)
+    result, arguments, _ = _run_demo_wrapper(tmp_path, summary_line, docker_exit)
 
     assert result.returncode == 1
     assert arguments[:4] == ["-u", "critical", "-i", "dialog-error"]
@@ -365,6 +414,20 @@ def test_demo_wrapper_inconsistent_exit_status_fails_closed(
         f"{_summary_line()} future_counter=0",
         _summary_line().replace("errors=0", "errors=invalid"),
         _summary_line(total=1),
+        _summary_line(total=1, jpeg_total=1),
+        _summary_line(unsupported=1),
+        _summary_line(verified_duplicates=1),
+        _summary_line(errors=1),
+        _summary_line(
+            total=1,
+            jpeg_total=1,
+            duplicates_handled=1,
+            examined=1,
+        ),
+        _summary_line(published=1),
+        _summary_line(interrupted=2),
+        _summary_line(interrupted=1),
+        _summary_line(duration="invalid"),
         f"{_summary_line()}\n{_summary_line()}",
     ],
     ids=[
@@ -374,7 +437,16 @@ def test_demo_wrapper_inconsistent_exit_status_fails_closed(
         "duplicate-field",
         "unexpected-field",
         "non-numeric-field",
-        "inconsistent-counts",
+        "total-alias-mismatch",
+        "jpeg-terminal-mismatch",
+        "examined-mismatch",
+        "duplicate-fact-mismatch",
+        "error-mismatch",
+        "handled-duplicate-bound",
+        "published-bound",
+        "invalid-interrupted-value",
+        "interrupted-without-run-error",
+        "invalid-duration",
         "multiple-lines",
     ],
 )
@@ -391,7 +463,9 @@ def test_demo_wrapper_invalid_summary_fails_closed(
     Returns:
         None.
     """
-    result, arguments = _run_demo_wrapper(tmp_path, summary_line, docker_exit=0)
+    result, arguments, _ = _run_demo_wrapper(
+        tmp_path, summary_line, docker_exit=0
+    )
 
     assert result.returncode == 1
     assert arguments[:4] == ["-u", "critical", "-i", "dialog-error"]

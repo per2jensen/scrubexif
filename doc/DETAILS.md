@@ -876,10 +876,16 @@ This script:
 
 - runs scrubexif in **auto mode** (`--from-input`)
 - uses the hardened Docker flags recommended in this document
-- parses the machine-readable `SCRUBEXIF_SUMMARY` line
+- requires scrubexif 0.8.0 or newer and a reconciled
+  `SCRUBEXIF_SUMMARY schema=2` line
 - **only triggers PhotoPrism indexing when new audited outputs were published**
 - prevents overlapping runs through a lock file
 - allows users to quickly integrate scrubexif into an existing SOOC → scrubbed → PhotoPrism pipeline
+
+Legacy schema-1, missing, duplicated, malformed, or internally inconsistent
+summaries fail closed and do not trigger PhotoPrism. The default image version
+is `0.8.0`; set `SCRUBEXIF_VERSION` or `SCRUBEXIF_IMAGE` explicitly to select a
+different schema-2-compatible image.
 
 The script expects that you have three directories:
 

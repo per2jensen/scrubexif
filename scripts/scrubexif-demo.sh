@@ -7,6 +7,7 @@
 set -euo pipefail
 
 LOGFILE="${SCRUBEXIF_LOGFILE:-/tmp/scrubexif.log}"
+SCRUBEXIF_IMAGE="${SCRUBEXIF_IMAGE:-per2jensen/scrubexif:0.8.0}"
 MAX_LOG=102400
 HALF_LOG=51200
 RUN_LOG=""
@@ -203,7 +204,7 @@ main() {
         --tmpfs /tmp \
         -v "${photo_dir}:/photos" \
         -v "${output_dir}:/scrubbed" \
-        per2jensen/scrubexif:latest \
+        "${SCRUBEXIF_IMAGE}" \
         -o /scrubbed 2>&1 | tee -a "${LOGFILE}" "${RUN_LOG}"
     docker_status="${PIPESTATUS[0]}"
     set -e

@@ -60,6 +60,8 @@ def _run_wrapper(
     tmp_path: Path,
     summary_output: str,
     scrub_exit: int,
+    *,
+    scrubexif_image: str | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     """Run the real wrapper against an isolated fake Docker executable.
 
@@ -67,6 +69,7 @@ def _run_wrapper(
         tmp_path: Isolated directory for configuration and captured calls.
         summary_output: Output returned by the fake scrubexif container.
         scrub_exit: Exit status returned for the fake Docker run.
+        scrubexif_image: Optional explicit container image override.
 
     Returns:
         Completed wrapper process and captured Docker invocations.
@@ -77,6 +80,8 @@ def _run_wrapper(
     """
     if scrub_exit < 0 or scrub_exit > 255:
         raise ValueError("scrub_exit must be between zero and 255")
+    if scrubexif_image is not None and not scrubexif_image:
+        raise ValueError("scrubexif_image must not be empty")
 
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
@@ -102,6 +107,8 @@ def _run_wrapper(
     docker_path.chmod(0o755)
 
     environment = os.environ.copy()
+    environment.pop("SCRUBEXIF_IMAGE", None)
+    environment.pop("SCRUBEXIF_VERSION", None)
     environment.update(
         {
             "PATH": f"{binary_dir}:{environment['PATH']}",
@@ -114,6 +121,8 @@ def _run_wrapper(
             "LOCKFILE": str(tmp_path / "scrubexif.lock"),
         }
     )
+    if scrubexif_image is not None:
+        environment["SCRUBEXIF_IMAGE"] = scrubexif_image
     result = subprocess.run(
         ["bash", str(SCRIPT)],
         check=False,
@@ -123,6 +132,42 @@ def _run_wrapper(
     )
     calls = capture_path.read_text(encoding="utf-8").splitlines()
     return result, calls
+
+
+@pytest.mark.parametrize(
+    ("image_override", "expected_image"),
+    [
+        (None, "per2jensen/scrubexif:0.8.0"),
+        ("registry.example/scrubexif:test", "registry.example/scrubexif:test"),
+    ],
+    ids=["default-0.8.0", "explicit-override"],
+)
+def test_photoprism_wrapper_uses_schema_two_compatible_image(
+    tmp_path: Path,
+    image_override: str | None,
+    expected_image: str,
+) -> None:
+    """Use the 0.8.0 default while preserving explicit image selection.
+
+    Args:
+        tmp_path: Isolated test directory.
+        image_override: Optional image supplied through the environment.
+        expected_image: Image expected in the real wrapper's Docker arguments.
+
+    Returns:
+        None.
+    """
+    result, calls = _run_wrapper(
+        tmp_path,
+        _summary_line(),
+        scrub_exit=0,
+        scrubexif_image=image_override,
+    )
+
+    assert result.returncode == 0, result.stderr
+    run_calls = [call for call in calls if call.startswith("run ")]
+    assert len(run_calls) == 1
+    assert f" {expected_image} --from-input" in run_calls[0]
 
 
 def test_photoprism_wrapper_published_output_triggers_index(tmp_path: Path) -> None:
@@ -193,6 +238,36 @@ def test_photoprism_wrapper_partial_failure_indexes_then_preserves_status(
 
 
 @pytest.mark.parametrize(
+    ("summary_output", "scrub_exit"),
+    [
+        (_summary_line(errors=1, run_errors=1), 0),
+        (_summary_line(), 1),
+    ],
+    ids=["success-with-errors", "failure-without-errors"],
+)
+def test_photoprism_wrapper_inconsistent_exit_status_fails_closed(
+    tmp_path: Path,
+    summary_output: str,
+    scrub_exit: int,
+) -> None:
+    """Reject contradictory process status and schema-2 error facts.
+
+    Args:
+        tmp_path: Isolated test directory.
+        summary_output: Internally valid schema-2 summary under test.
+        scrub_exit: Inconsistent fake Docker status.
+
+    Returns:
+        None.
+    """
+    result, calls = _run_wrapper(tmp_path, summary_output, scrub_exit)
+
+    assert result.returncode == 1
+    assert not any(call.startswith("exec ") for call in calls)
+    assert "Inconsistent scrubexif exit status" in result.stderr
+
+
+@pytest.mark.parametrize(
     "summary_output",
     [
         "SCRUBEXIF_SUMMARY total=0 scrubbed=0 errors=0 duration=0.100",
@@ -202,6 +277,20 @@ def test_photoprism_wrapper_partial_failure_indexes_then_preserves_status(
         f"{_summary_line()} future_counter=0",
         _summary_line().replace("errors=0", "errors=invalid"),
         _summary_line(total=1),
+        _summary_line(total=1, jpeg_total=1),
+        _summary_line(unsupported=1),
+        _summary_line(verified_duplicates=1),
+        _summary_line(errors=1),
+        _summary_line(
+            total=1,
+            jpeg_total=1,
+            duplicates_handled=1,
+            examined=1,
+        ),
+        _summary_line(published=1),
+        _summary_line(interrupted=2),
+        _summary_line(interrupted=1),
+        _summary_line(duration="invalid"),
         f"{_summary_line()}\n{_summary_line()}",
     ],
     ids=[
@@ -211,7 +300,16 @@ def test_photoprism_wrapper_partial_failure_indexes_then_preserves_status(
         "duplicate-field",
         "unexpected-field",
         "non-numeric-field",
-        "inconsistent-counts",
+        "total-alias-mismatch",
+        "jpeg-terminal-mismatch",
+        "examined-mismatch",
+        "duplicate-fact-mismatch",
+        "error-mismatch",
+        "handled-duplicate-bound",
+        "published-bound",
+        "invalid-interrupted-value",
+        "interrupted-without-run-error",
+        "invalid-duration",
         "multiple-lines",
     ],
 )

@@ -57,7 +57,7 @@ parse_schema_two_summary() {
 # ------------------------------------------------------------
 
 # scrubexif image (matches DETAILS.md pattern: VERSION variable)
-SCRUBEXIF_VERSION="${SCRUBEXIF_VERSION:-0.7.9}"
+SCRUBEXIF_VERSION="${SCRUBEXIF_VERSION:-0.8.0}"
 SCRUBEXIF_IMAGE="${SCRUBEXIF_IMAGE:-per2jensen/scrubexif:${SCRUBEXIF_VERSION}}"
 
 # Photoprism container name used with `docker exec`

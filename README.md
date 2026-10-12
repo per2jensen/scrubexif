@@ -98,6 +98,10 @@ The [demo script](https://github.com/per2jensen/scrubexif/blob/main/scripts/scru
 - sanity checks
 - send notifications to desktop
 
+The demo requires the schema-2 summary contract from scrubexif 0.8.0 or newer.
+It runs `per2jensen/scrubexif:0.8.0` by default; set `SCRUBEXIF_IMAGE` to use a
+different schema-2-compatible image.
+
 ### Write to specific directory
 
 Use `-o` to control where scrubbed files are written.
