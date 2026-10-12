@@ -7,6 +7,9 @@
 - A validated immutable outcome and run-accounting model now distinguishes
   scrubbed, duplicate-handled, unsupported, planned, previewed, skipped, and
   failed inputs while preserving publication and duplicate-verification facts.
+- Machine-readable summaries now declare `schema=2` first and expose every
+  reconciled terminal outcome, publication fact, duplicate fact, run error,
+  and interruption state.
 - A `dev-nuke` Make target can remove all reclaimable Docker build caches and
   unused images before performing a fully uncached development-image build.
 
@@ -26,6 +29,9 @@
   planned destinations, and remains unavailable in auto mode.
 - Final report validation, emission, and exit-status calculation now occur at
   one runner boundary for successful and controlled failing operational runs.
+- Bundled automation wrappers now require and reconcile summary schema 2,
+  reject legacy or malformed summaries, and use publication and duplicate facts
+  directly instead of inferring them from schema-1 counters.
 
 ## 0.7.28 - 2026-10-10
 

@@ -148,13 +148,25 @@ def test_corrupted_inputs_moved_to_processed(tmp_path: Path) -> None:
     duration = summary_fields.pop("duration", None)
     assert duration is not None, f"Summary duration missing: {summary_line}"
     assert summary_fields == {
+        "schema": "2",
         "total": str(TOTAL_IMAGES),
+        "jpeg_total": str(TOTAL_IMAGES),
         "scrubbed": str(len(good_files)),
+        "duplicates_handled": "0",
+        "unsupported": "0",
+        "planned": "0",
+        "previewed": "0",
         "skipped": "0",
+        "failed": str(len(damaged_files)),
         "errors": str(len(damaged_files)),
+        "verified_duplicates": "0",
         "duplicates_deleted": "0",
         "duplicates_moved": "0",
-        "unsupported": "0",
+        "duplicates_unchanged": "0",
+        "duplicates_missing": "0",
+        "published": str(len(good_files)),
+        "run_errors": "0",
+        "interrupted": "0",
         "examined": str(TOTAL_IMAGES),
     }
     assert float(duration) >= 0.0

@@ -43,7 +43,7 @@ def test_unstable_files_are_skipped_without_processing(tmp_path: Path):
     print(cp.stdout)
     print(cp.stderr)
     assert cp.returncode == 0
-    assert "Skipped (unstable/temp)  : 2" in cp.stdout
+    assert "Skipped                  : 2" in cp.stdout
     assert not (output_dir / "recent1.jpg").exists()
     assert not (output_dir / "recent2.jpg").exists()
     assert (input_dir / "recent1.jpg").exists()  # not moved

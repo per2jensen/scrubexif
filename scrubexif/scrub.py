@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -61,6 +62,29 @@ sys.stdout.reconfigure(line_buffering=True)
 # ----------------------------
 # Results and summary structs
 # ----------------------------
+
+_SUMMARY_SCHEMA_VERSION = 2
+_SUMMARY_COUNTER_FIELDS = (
+    "total",
+    "jpeg_total",
+    "scrubbed",
+    "duplicates_handled",
+    "unsupported",
+    "planned",
+    "previewed",
+    "skipped",
+    "failed",
+    "errors",
+    "verified_duplicates",
+    "duplicates_deleted",
+    "duplicates_moved",
+    "duplicates_unchanged",
+    "duplicates_missing",
+    "published",
+    "run_errors",
+    "interrupted",
+    "examined",
+)
 
 _SCRUB_RESULT_REASON_KINDS = MappingProxyType({
     "destination_appeared": OutcomeKind.FAILED,
@@ -420,13 +444,58 @@ def _scrub_result_to_file_outcome(
     )
 
 
+def _format_machine_summary(counts: dict[str, int], duration: float) -> str:
+    """Format one complete schema-2 machine-readable summary.
+
+    Args:
+        counts: Validated `RunReport` counter snapshot.
+        duration: Non-negative elapsed run time in seconds.
+
+    Returns:
+        Stable single-line schema-2 summary.
+
+    Raises:
+        ValueError: If counters or duration do not match the schema contract.
+    """
+    if not isinstance(counts, dict):
+        raise ValueError("summary counts must be a dictionary")
+    expected_fields = set(_SUMMARY_COUNTER_FIELDS)
+    actual_fields = set(counts)
+    if actual_fields != expected_fields:
+        missing = sorted(expected_fields - actual_fields)
+        unexpected = sorted(actual_fields - expected_fields)
+        raise ValueError(
+            f"summary counter fields do not match schema 2; "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    if any(
+        not isinstance(counts[field], int)
+        or isinstance(counts[field], bool)
+        or counts[field] < 0
+        for field in _SUMMARY_COUNTER_FIELDS
+    ):
+        raise ValueError("summary counters must be non-negative integers")
+    if (
+        not isinstance(duration, (int, float))
+        or isinstance(duration, bool)
+        or not math.isfinite(duration)
+        or duration < 0
+    ):
+        raise ValueError("summary duration must be a finite non-negative number")
+
+    fields = [f"schema={_SUMMARY_SCHEMA_VERSION}"]
+    fields.extend(f"{name}={counts[name]}" for name in _SUMMARY_COUNTER_FIELDS)
+    fields.append(f"duration={duration:.3f}")
+    return f"SCRUBEXIF_SUMMARY {' '.join(fields)}"
+
+
 class ScrubSummary:
-    """Present the legacy summary while delegating accounting to RunReport."""
+    """Present human and schema-2 summaries backed by one `RunReport`."""
 
     __slots__ = ("_report", "started_at")
 
     def __init__(self, report: RunReport | None = None) -> None:
-        """Initialize a compatibility summary for one invocation.
+        """Initialize a summary for one invocation.
 
         Args:
             report: Optional fresh report owned by the current invocation.
@@ -437,7 +506,7 @@ class ScrubSummary:
         if report is not None and not isinstance(report, RunReport):
             raise ValueError("report must be a RunReport or None")
         self._report = report if report is not None else RunReport()
-        self.started_at = time.time()
+        self.started_at = time.monotonic()
 
     @property
     def report(self) -> RunReport:
@@ -448,79 +517,68 @@ class ScrubSummary:
         """
         return self._report
 
-    def _legacy_count(self, counter_name: str) -> int:
-        """Read one validated compatibility counter.
-
-        Args:
-            counter_name: Counter key in the schema-1 projection.
-
-        Returns:
-            Current non-negative counter value.
-        """
-        return self._report.legacy_counts()[counter_name]
-
     @property
     def total(self) -> int:
-        """Return the legacy JPEG total.
+        """Return the JPEG-only total.
 
         Returns:
-            Number of JPEG inputs visible in the schema-1 summary.
+            Number of eligible JPEG inputs with terminal outcomes.
         """
-        return self._legacy_count("total")
+        return self._report.total
 
     @property
     def scrubbed(self) -> int:
-        """Return the legacy successful-scrub count.
+        """Return the successful-scrub count.
 
         Returns:
-            Number reported as successfully scrubbed by schema 1.
+            Number of inputs whose complete scrub operation succeeded.
         """
-        return self._legacy_count("scrubbed")
+        return self._report.scrubbed
 
     @property
     def skipped(self) -> int:
-        """Return the legacy skipped count.
+        """Return the skipped-input count.
 
         Returns:
-            Number reported as skipped by schema 1.
+            Number of eligible JPEG inputs deliberately excluded.
         """
-        return self._legacy_count("skipped")
+        return self._report.skipped
 
     @property
     def duplicates_deleted(self) -> int:
-        """Return the legacy deleted-duplicate count.
+        """Return the deleted verified-duplicate count.
 
         Returns:
-            Number reported as deleted duplicates by schema 1.
+            Number of verified duplicate sources deleted.
         """
-        return self._legacy_count("duplicates_deleted")
+        return self._report.duplicates_deleted
 
     @property
     def duplicates_moved(self) -> int:
-        """Return the legacy moved-duplicate count.
+        """Return the moved verified-duplicate count.
 
         Returns:
-            Number reported as moved duplicates by schema 1.
+            Number of verified duplicate sources moved.
         """
-        return self._legacy_count("duplicates_moved")
+        return self._report.duplicates_moved
 
     @property
     def errors(self) -> int:
-        """Return the legacy processing-error count.
+        """Return the aggregate error count.
 
         Returns:
-            Number reported as errors by schema 1.
+            Sum of failed inputs and run-level failures.
         """
-        return self._legacy_count("errors")
+        return self._report.errors
 
     @property
     def unsupported(self) -> int:
-        """Return the legacy unsupported-file count.
+        """Return the unsupported-file count.
 
         Returns:
-            Number reported as unsupported by schema 1.
+            Number of unsupported regular-file inputs.
         """
-        return self._legacy_count("unsupported")
+        return self._report.unsupported
 
     @property
     def examined(self) -> int:
@@ -529,7 +587,7 @@ class ScrubSummary:
         Returns:
             Sum of JPEG candidates and unsupported regular files.
         """
-        return self._legacy_count("examined")
+        return self._report.examined
 
     def record(self, outcome: FileOutcome) -> None:
         """Record one terminal outcome through the sole accounting writer.
@@ -562,32 +620,33 @@ class ScrubSummary:
         Returns:
             None.
         """
-        duration = time.time() - self.started_at
+        duration = time.monotonic() - self.started_at
+        counts = self._report.counts()
+        machine_summary = _format_machine_summary(counts, duration)
         print("📊 Summary:")
-        print(f"  Total JPEGs found        : {self.total}")
-        print(f"  Successfully scrubbed    : {self.scrubbed}")
-        print(f"  Skipped (unstable/temp)  : {self.skipped}")
-        print(f"  Errors                   : {self.errors}")
-        print(f"  Unsupported files        : {self.unsupported}")
-        print(f"  Files examined           : {self.examined}")
-        if self.duplicates_deleted:
-            print(f"  Duplicates deleted       : {self.duplicates_deleted}")
-        if self.duplicates_moved:
-            print(f"  Duplicates moved         : {self.duplicates_moved}")
+        print(f"  Total JPEGs found        : {counts['jpeg_total']}")
+        print(f"  Successfully scrubbed    : {counts['scrubbed']}")
+        print(f"  Duplicates handled       : {counts['duplicates_handled']}")
+        print(f"  Dry-run plans            : {counts['planned']}")
+        print(f"  Previews completed       : {counts['previewed']}")
+        print(f"  Skipped                  : {counts['skipped']}")
+        print(f"  Failed inputs            : {counts['failed']}")
+        print(f"  Run errors               : {counts['run_errors']}")
+        print(f"  Errors                   : {counts['errors']}")
+        print(f"  Unsupported files        : {counts['unsupported']}")
+        print(f"  Outputs published        : {counts['published']}")
+        print(f"  Verified duplicates      : {counts['verified_duplicates']}")
+        print(f"  Files examined           : {counts['examined']}")
+        if counts["duplicates_deleted"]:
+            print(f"  Duplicates deleted       : {counts['duplicates_deleted']}")
+        if counts["duplicates_moved"]:
+            print(f"  Duplicates moved         : {counts['duplicates_moved']}")
+        if counts["duplicates_unchanged"]:
+            print(f"  Duplicates unchanged     : {counts['duplicates_unchanged']}")
+        if counts["duplicates_missing"]:
+            print(f"  Duplicates missing       : {counts['duplicates_missing']}")
         print(f"  Duration                 : {duration:.2f}s")
-        # Machine-parsable one-liner for the bash script
-        print(
-            "SCRUBEXIF_SUMMARY "
-            f"total={self.total} "
-            f"scrubbed={self.scrubbed} "
-            f"skipped={self.skipped} "
-            f"errors={self.errors} "
-            f"duplicates_deleted={self.duplicates_deleted} "
-            f"duplicates_moved={self.duplicates_moved} "
-            f"unsupported={self.unsupported} "
-            f"examined={self.examined} "
-            f"duration={duration:.3f}"
-        )
+        print(machine_summary)
 
 
 # ----------------------------
@@ -3784,12 +3843,11 @@ def _emit_final_summary(summary: ScrubSummary) -> bool:
     if not isinstance(summary, ScrubSummary):
         raise ValueError("summary must be a ScrubSummary")
     try:
-        summary.report.validate()
-    except RunReportValidationError as exc:
+        summary.print()
+    except (RunReportValidationError, ValueError) as exc:
         print(f"❌ Summary validation failed: {exc}", file=sys.stderr)
         print("SCRUBEXIF_SUMMARY_ERROR reason=summary_validation_failed")
         return False
-    summary.print()
     return True
 
 

@@ -348,7 +348,6 @@ class RunReport:
         "_duplicate_counts",
         "_input_keys",
         "_interrupted",
-        "_legacy_counts",
         "_published",
         "_run_errors",
         "_terminal_counts",
@@ -364,17 +363,6 @@ class RunReport:
         self._published = 0
         self._run_errors = 0
         self._interrupted = False
-        # Schema-1 output remains public until the schema-2 migration. Keep
-        # this compatibility projection inside the sole accounting writer.
-        self._legacy_counts = {
-            "total": 0,
-            "scrubbed": 0,
-            "skipped": 0,
-            "errors": 0,
-            "duplicates_deleted": 0,
-            "duplicates_moved": 0,
-            "unsupported": 0,
-        }
 
     def record(self, outcome: FileOutcome) -> None:
         """Record one terminal outcome atomically.
@@ -401,8 +389,6 @@ class RunReport:
             raise RunReportValidationError(
                 "validated duplicate outcome has no duplicate disposition"
             )
-        legacy_deltas = self._legacy_deltas(outcome)
-
         # All rejection checks happen above this point so a failed record call
         # cannot leave partially incremented counters behind.
         self._input_keys.add(input_key)
@@ -411,60 +397,6 @@ class RunReport:
             self._duplicate_counts[duplicate_disposition] += 1
         if outcome.published:
             self._published += 1
-        for counter_name, increment in legacy_deltas.items():
-            self._legacy_counts[counter_name] += increment
-
-    @staticmethod
-    def _legacy_deltas(outcome: FileOutcome) -> dict[str, int]:
-        """Calculate the temporary schema-1 projection for one outcome.
-
-        Args:
-            outcome: Validated terminal outcome being recorded.
-
-        Returns:
-            Counter increments that preserve the pre-schema-2 CLI meanings.
-        """
-        deltas = {
-            "total": 0,
-            "scrubbed": 0,
-            "skipped": 0,
-            "errors": 0,
-            "duplicates_deleted": 0,
-            "duplicates_moved": 0,
-            "unsupported": 0,
-        }
-        if outcome.kind is OutcomeKind.UNSUPPORTED:
-            deltas["unsupported"] = 1
-            return deltas
-        if outcome.kind is OutcomeKind.PREVIEWED:
-            return deltas
-
-        deltas["total"] = 1
-        if outcome.kind is OutcomeKind.SCRUBBED:
-            deltas["scrubbed"] = 1
-            return deltas
-        if outcome.kind is OutcomeKind.FAILED:
-            deltas["errors"] = 1
-            deltas["scrubbed"] = int(outcome.published)
-            return deltas
-        if outcome.kind is OutcomeKind.SKIPPED:
-            deltas["skipped"] = 1
-            return deltas
-        if outcome.kind is OutcomeKind.PLANNED:
-            if outcome.reason_code == "scrub_planned":
-                deltas["scrubbed"] = 1
-            elif outcome.reason_code == "existing_output_check_planned":
-                deltas["duplicates_deleted"] = 1
-            return deltas
-        if outcome.kind is OutcomeKind.DUPLICATE_HANDLED:
-            if outcome.duplicate_disposition is DuplicateDisposition.MOVED:
-                deltas["duplicates_moved"] = 1
-            elif outcome.duplicate_disposition is DuplicateDisposition.DELETED:
-                deltas["duplicates_deleted"] = 1
-            elif outcome.duplicate_disposition is DuplicateDisposition.UNCHANGED:
-                deltas["skipped"] = 1
-            return deltas
-        return deltas
 
     def record_run_failure(self, failure: RunFailure) -> None:
         """Record one controlled failure not assigned to a classified input.
@@ -481,10 +413,6 @@ class RunReport:
         if not isinstance(failure, RunFailure):
             raise ValueError("failure must be a RunFailure")
         self._run_errors += 1
-        # Schema 1 has no run_errors field. Project the failure into its
-        # existing aggregate so controlled preflight failures cannot print a
-        # misleading successful summary before the schema-2 migration.
-        self._legacy_counts["errors"] += 1
         self._interrupted = self._interrupted or failure.interrupted
 
     @property
@@ -591,7 +519,6 @@ class RunReport:
         all_counts = (
             *self._terminal_counts.values(),
             *self._duplicate_counts.values(),
-            *self._legacy_counts.values(),
             self._published,
             self._run_errors,
         )
@@ -694,21 +621,6 @@ class RunReport:
             "interrupted": int(self.interrupted),
             "examined": self.examined,
         }
-
-    def legacy_counts(self) -> dict[str, int]:
-        """Return the temporary schema-1 counter projection.
-
-        Returns:
-            Fresh dictionary preserving the existing CLI summary meanings.
-
-        Raises:
-            RunReportValidationError: If internal report state is inconsistent.
-        """
-        self.validate()
-        counts = dict(self._legacy_counts)
-        counts["examined"] = counts["total"] + counts["unsupported"]
-        return counts
-
 
 def _validate_path(name: str, path: Path | None, required: bool) -> None:
     """Validate one path value without consulting mutable filesystem state.

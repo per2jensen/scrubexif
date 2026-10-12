@@ -31,25 +31,45 @@ abort() {
     exit 1
 }
 
-summary_value() {
+parse_schema_two_summary() {
     local summary_line="${1:-}"
-    local key="${2:-}"
 
-    if [[ -z "${summary_line}" || -z "${key}" ]]; then
-        return 1
-    fi
-
-    printf '%s\n' "${summary_line}" | awk -v wanted="${key}" '
-        {
-            for (i = 1; i <= NF; i++) {
-                if ($i ~ ("^" wanted "=")) {
-                    split($i, value, "=")
-                    print value[2]
-                    exit
-                }
-            }
+    [[ "${summary_line}" == "SCRUBEXIF_SUMMARY schema=2 "* ]] || return 2
+    awk '
+        BEGIN {
+            field_names = "schema total jpeg_total scrubbed duplicates_handled unsupported planned previewed skipped failed errors verified_duplicates duplicates_deleted duplicates_moved duplicates_unchanged duplicates_missing published run_errors interrupted examined duration"
+            count_names = "total jpeg_total scrubbed duplicates_handled unsupported planned previewed skipped failed errors verified_duplicates duplicates_deleted duplicates_moved duplicates_unchanged duplicates_missing published run_errors interrupted examined"
+            field_count = split(field_names, fields, " ")
+            count_count = split(count_names, counts, " ")
+            for (i = 1; i <= field_count; i++) required[fields[i]] = 1
         }
-    '
+        {
+            if ($1 != "SCRUBEXIF_SUMMARY" || $2 != "schema=2") exit 1
+            for (i = 2; i <= NF; i++) {
+                if (split($i, pair, "=") != 2) exit 1
+                if (!(pair[1] in required) || seen[pair[1]]++) exit 1
+                value[pair[1]] = pair[2]
+            }
+            for (name in required) if (!(name in seen)) exit 1
+            for (i = 1; i <= count_count; i++) {
+                name = counts[i]
+                if (value[name] !~ /^[0-9][0-9]*$/) exit 1
+            }
+            if (value["duration"] !~ /^[0-9][0-9]*([.][0-9][0-9]*)?$/) exit 1
+            if (value["total"] != value["jpeg_total"]) exit 1
+            terminal = value["scrubbed"] + value["duplicates_handled"] + value["planned"] + value["previewed"] + value["skipped"] + value["failed"]
+            if (value["jpeg_total"] != terminal) exit 1
+            if (value["examined"] != terminal + value["unsupported"]) exit 1
+            duplicate_facts = value["duplicates_deleted"] + value["duplicates_moved"] + value["duplicates_unchanged"] + value["duplicates_missing"]
+            if (value["verified_duplicates"] != duplicate_facts) exit 1
+            if (value["duplicates_handled"] > value["verified_duplicates"]) exit 1
+            if (value["errors"] != value["failed"] + value["run_errors"]) exit 1
+            if (value["published"] > value["scrubbed"] + value["failed"]) exit 1
+            if (value["interrupted"] != 0 && value["interrupted"] != 1) exit 1
+            if (value["interrupted"] == 1 && value["run_errors"] == 0) exit 1
+            print value["total"], value["scrubbed"], value["skipped"], value["errors"], value["unsupported"], value["examined"], value["duplicates_handled"], value["interrupted"]
+        }
+    ' <<< "${summary_line}"
 }
 
 validate_count() {
@@ -68,10 +88,8 @@ send_summary_notification() {
     local errors="${4}"
     local unsupported="${5}"
     local examined="${6}"
-    local duplicates_deleted="${7}"
-    local duplicates_moved="${8}"
-    local output_dir="${9}"
-    local duplicates_handled=$((duplicates_deleted + duplicates_moved))
+    local duplicates_handled="${7}"
+    local output_dir="${8}"
     local body=""
     local duplicate_detail=""
 
@@ -144,15 +162,16 @@ main() {
     local run_as_uid="${RUN_AS_UID:-$(id -u)}"
     local run_as_gid="${RUN_AS_GID:-$(id -g)}"
     local docker_status=0
-    local summary_line=""
+    local summary_line="" parsed_summary=""
     local total=""
     local scrubbed=""
     local skipped=""
     local errors=""
     local unsupported=""
     local examined=""
-    local duplicates_deleted=""
-    local duplicates_moved=""
+    local duplicates_handled=""
+    local interrupted=""
+    local -a summary_lines=()
 
     trap cleanup EXIT
     rotate_log_if_needed
@@ -189,33 +208,30 @@ main() {
     docker_status="${PIPESTATUS[0]}"
     set -e
 
-    summary_line="$(awk '/^SCRUBEXIF_SUMMARY / { line=$0 } END { print line }' "${RUN_LOG}")"
-    [[ -n "${summary_line}" ]] || abort "No summary line found — scrubexif may have failed. Check log: ${LOGFILE}"
+    mapfile -t summary_lines < <(grep '^SCRUBEXIF_SUMMARY ' "${RUN_LOG}" || true)
+    ((${#summary_lines[@]} == 1)) || abort "Expected exactly one SCRUBEXIF_SUMMARY line, got ${#summary_lines[@]}. Check log: ${LOGFILE}"
+    summary_line="${summary_lines[0]}"
+    if [[ "${summary_line}" != "SCRUBEXIF_SUMMARY schema=2 "* ]]; then
+        abort "Unsupported scrubexif summary schema; expected schema=2"
+    fi
+    if ! parsed_summary="$(parse_schema_two_summary "${summary_line}")"; then
+        abort "Invalid or inconsistent schema=2 scrubexif summary"
+    fi
+    read -r total scrubbed skipped errors unsupported examined duplicates_handled interrupted <<< "${parsed_summary}"
 
-    total="$(summary_value "${summary_line}" total)"
-    scrubbed="$(summary_value "${summary_line}" scrubbed)"
-    skipped="$(summary_value "${summary_line}" skipped)"
-    errors="$(summary_value "${summary_line}" errors)"
-    duplicates_deleted="$(summary_value "${summary_line}" duplicates_deleted)"
-    duplicates_moved="$(summary_value "${summary_line}" duplicates_moved)"
-    unsupported="$(summary_value "${summary_line}" unsupported)"
-    examined="$(summary_value "${summary_line}" examined)"
-
-    unsupported="${unsupported:-0}"
-    validate_count total "${total}"
-    validate_count scrubbed "${scrubbed}"
-    validate_count skipped "${skipped}"
-    validate_count errors "${errors}"
-    validate_count duplicates_deleted "${duplicates_deleted}"
-    validate_count duplicates_moved "${duplicates_moved}"
-    validate_count unsupported "${unsupported}"
-    examined="${examined:-$((total + unsupported))}"
-    validate_count examined "${examined}"
+    if ((docker_status == 0 && (errors != 0 || interrupted != 0))); then
+        abort "Inconsistent scrubexif exit status and schema=2 summary"
+    fi
+    if ((docker_status == 1 && (errors == 0 || interrupted != 0))); then
+        abort "Inconsistent scrubexif exit status and schema=2 summary"
+    fi
+    if ((docker_status == 130 && interrupted != 1)); then
+        abort "Inconsistent scrubexif interruption status and schema=2 summary"
+    fi
 
     send_summary_notification \
         "${total}" "${scrubbed}" "${skipped}" "${errors}" \
-        "${unsupported}" "${examined}" "${duplicates_deleted}" \
-        "${duplicates_moved}" "${output_dir}"
+        "${unsupported}" "${examined}" "${duplicates_handled}" "${output_dir}"
 
     if ((docker_status != 0)); then
         exit "${docker_status}"

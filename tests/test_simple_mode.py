@@ -275,7 +275,7 @@ def test_simple_scrub_verified_duplicate_skips_and_preserves_original(
     assert (output_dir / photo.name).read_bytes() == SAFE_JPEG_BYTES, \
         "Existing output must not be overwritten"
     assert summary.scrubbed == 0
-    assert summary.skipped == 1
+    assert summary.skipped == 0
     assert summary.report.duplicates_handled == 1
     assert summary.report.duplicates_unchanged == 1
     summary.report.validate()
@@ -478,7 +478,9 @@ def test_simple_scrub_mixed_inputs_counts_unsupported_file(
     assert summary.report.unsupported == 1
     assert summary.report.examined == 2
     summary.report.validate()
-    assert "unsupported=1 examined=2" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "unsupported=1" in output
+    assert "examined=2" in output
 
 
 def test_simple_scrub_unsupported_only_reports_no_jpeg_error(

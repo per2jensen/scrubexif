@@ -759,9 +759,9 @@ def test_container_batch_processes_private_assets_safely(tmp_path: Path) -> None
 
     stdout = result.stdout or ""
     expected_summary = (
-        f"SCRUBEXIF_SUMMARY total={len(source_paths)} "
-        f"scrubbed={len(source_paths)} skipped=0 errors=0 "
-        "duplicates_deleted=0 duplicates_moved=0"
+        f"SCRUBEXIF_SUMMARY schema=2 total={len(source_paths)} "
+        f"jpeg_total={len(source_paths)} scrubbed={len(source_paths)} "
+        "duplicates_handled=0"
     )
     assert expected_summary in stdout, f"Unexpected container summary:\n{stdout}"
 

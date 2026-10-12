@@ -421,9 +421,12 @@ post-processing errors. A failed file, failed preview, same-name content
 collision, unsafe existing output, or unsafe archive/delete operation returns
 `1`; handled skips and verified duplicates do not. With `--quiet`, successful
 runs remain silent, while failure diagnostics and the summary are replayed to
-standard error. The machine-readable summary retains `total` as the number of
-JPEG candidates and adds `unsupported` plus `examined`, where
-`examined = total + unsupported`.
+standard error. The machine-readable line begins with `schema=2`; consumers
+must require that version because 0.8.0 changes counter meanings as well as
+adding fields. `total` remains a JPEG-only alias for `jpeg_total`, while
+`examined` reconciles all terminal outcomes, including unsupported inputs.
+The complete field contract and reconciliation rules are documented in
+[`DETAILS.md`](doc/DETAILS.md#machine-readable-summary-schema-2).
 
 The implementation decisions and acceptance criteria are recorded in the
 [output safety plan](doc/output-safety-plan.md).

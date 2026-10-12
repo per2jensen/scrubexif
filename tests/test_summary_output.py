@@ -5,8 +5,7 @@
 Verifies that:
   * Human-readable summary lines are printed.
   * Machine-readable SCRUBEXIF_SUMMARY line is present.
-  * total/scrubbed/skipped/errors/duplicates_*/unsupported/examined fields
-    reflect reality.
+  * All schema-2 counters reflect reality and reconcile.
 """
 
 from __future__ import annotations
@@ -88,14 +87,31 @@ def test_auto_mode_summary_counters_and_output(tmp_path: Path):
         fields[key] = value
 
     # We created exactly three unique JPEGs, one unsupported PNG, and no duplicates
-    assert fields.get("total") == "3"
-    assert fields.get("scrubbed") == "3"
-    assert fields.get("skipped") == "0"
-    assert fields.get("errors") == "0"
-    assert fields.get("duplicates_deleted", "0") == "0"
-    assert fields.get("duplicates_moved", "0") == "0"
-    assert fields.get("unsupported") == "1"
-    assert fields.get("examined") == "4"
+    expected_counts = {
+        "schema": "2",
+        "total": "3",
+        "jpeg_total": "3",
+        "scrubbed": "3",
+        "duplicates_handled": "0",
+        "unsupported": "1",
+        "planned": "0",
+        "previewed": "0",
+        "skipped": "0",
+        "failed": "0",
+        "errors": "0",
+        "verified_duplicates": "0",
+        "duplicates_deleted": "0",
+        "duplicates_moved": "0",
+        "duplicates_unchanged": "0",
+        "duplicates_missing": "0",
+        "published": "3",
+        "run_errors": "0",
+        "interrupted": "0",
+        "examined": "4",
+    }
+    assert {key: value for key, value in fields.items() if key != "duration"} == (
+        expected_counts
+    )
 
     # Duration is a non-negative float
     assert "duration" in fields

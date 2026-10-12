@@ -329,14 +329,14 @@ def test_scrub_summary_counter_assignment_raises_attribute_error(
     assert summary.report.examined == 0
 
 
-def test_scrub_summary_legacy_projection_preserves_current_cli_meanings() -> None:
-    """Typed planned, previewed, and published-failure facts retain schema 1.
+def test_scrub_summary_properties_use_schema_two_meanings() -> None:
+    """Expose planned, previewed, and published-failure schema-2 meanings.
 
     Returns:
         None.
 
     Raises:
-        AssertionError: If step 4 changes the existing public counters.
+        AssertionError: If the summary properties retain schema-1 projections.
     """
     summary = ScrubSummary()
     summary.record(
@@ -379,6 +379,6 @@ def test_scrub_summary_legacy_projection_preserves_current_cli_meanings() -> Non
     assert summary.report.previewed == 1
     assert summary.report.failed == 1
     assert summary.report.published == 1
-    assert summary.total == 2
-    assert summary.scrubbed == 1
+    assert summary.total == 3
+    assert summary.scrubbed == 0
     assert summary.errors == 1

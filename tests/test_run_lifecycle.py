@@ -7,6 +7,7 @@ import argparse
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import NoReturn
 
@@ -60,6 +61,31 @@ def test_emit_final_summary_invalid_report_emits_only_error_marker(
         "SCRUBEXIF_SUMMARY_ERROR reason=summary_validation_failed\n"
     )
     assert "SCRUBEXIF_SUMMARY " not in captured.out
+    assert "Summary validation failed" in captured.err
+
+
+def test_emit_final_summary_invalid_duration_emits_only_error_marker(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A negative elapsed duration fails before any normal summary output.
+
+    Args:
+        capsys: Pytest output capture fixture.
+
+    Returns:
+        None.
+    """
+    summary = scrub.ScrubSummary()
+    summary.started_at = time.monotonic() + 60.0
+
+    emitted = scrub._emit_final_summary(summary)
+
+    captured = capsys.readouterr()
+    assert emitted is False
+    assert captured.out == (
+        "SCRUBEXIF_SUMMARY_ERROR reason=summary_validation_failed\n"
+    )
+    assert "📊 Summary:" not in captured.out
     assert "Summary validation failed" in captured.err
 
 

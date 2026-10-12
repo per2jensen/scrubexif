@@ -315,7 +315,7 @@ def test_delete_original_failure_reports_scrubbed_output_and_error(
     assert summary.report.failed == 1
     assert summary.report.scrubbed == 0
     assert summary.report.published == 1
-    assert summary.scrubbed == 1
+    assert summary.scrubbed == 0
     assert summary.errors == 1
 
 

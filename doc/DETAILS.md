@@ -147,19 +147,69 @@ VERSION=latest; docker run -it --rm  \
 📊 Summary:
   Total JPEGs found        : 2
   Successfully scrubbed    : 2
-  Skipped (unstable/temp)  : 0
+  Duplicates handled       : 0
+  Dry-run plans            : 0
+  Previews completed       : 0
+  Skipped                  : 0
+  Failed inputs            : 0
+  Run errors               : 0
   Errors                   : 0
   Unsupported files        : 0
+  Outputs published        : 2
+  Verified duplicates      : 0
   Files examined           : 2
   Duration                 : 0.48s
-SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 unsupported=0 examined=2 duration=0.482
+SCRUBEXIF_SUMMARY schema=2 total=2 jpeg_total=2 scrubbed=2 duplicates_handled=0 unsupported=0 planned=0 previewed=0 skipped=0 failed=0 errors=0 verified_duplicates=0 duplicates_deleted=0 duplicates_moved=0 duplicates_unchanged=0 duplicates_missing=0 published=2 run_errors=0 interrupted=0 examined=2 duration=0.482
 ```
 
-`total` remains the number of JPEG candidates for compatibility. Unsupported
-regular files are counted separately, and `examined` reconciles the input as
-`total + unsupported`. Classification follows the filename extension: a `.png`
-is unsupported, while invalid content named `.jpg` or `.jpeg` is a processing
-error.
+### Machine-readable summary schema 2
+
+The final `SCRUBEXIF_SUMMARY` line is a versioned automation contract.
+`schema=2` is always its first field. Schema 2 retains several field names from
+0.7.x but deliberately changes their meanings to follow terminal outcomes. It
+is not semantically backward compatible: consumers must require schema 2 and
+reject schema-1, missing, or unknown versions.
+
+| Field | Meaning |
+| --- | --- |
+| `schema` | Summary contract version; exactly `2`. |
+| `total` | Alias for `jpeg_total` throughout 0.8.x. |
+| `jpeg_total` | Eligible JPEG inputs assigned a terminal outcome. |
+| `scrubbed` | Complete successful scrub operations. |
+| `duplicates_handled` | Verified duplicates whose requested non-failing policy completed. |
+| `unsupported` | Examined regular files outside the supported JPEG scope. |
+| `planned` | Successful dry-run plans; these are not scrubbed files. |
+| `previewed` | Successful disposable scrub-and-audit previews. |
+| `skipped` | Eligible JPEGs deliberately excluded without another terminal outcome. |
+| `failed` | Classified inputs whose requested operation failed. |
+| `errors` | Aggregate of `failed + run_errors`. |
+| `verified_duplicates` | Inputs independently verified byte-identical, including policy failures. |
+| `duplicates_deleted` | Verified duplicate sources observed deleted. |
+| `duplicates_moved` | Verified duplicate sources observed moved. |
+| `duplicates_unchanged` | Verified duplicate sources observed unchanged. |
+| `duplicates_missing` | Verified duplicate sources observed missing. |
+| `published` | New audited outputs published, including outputs followed by later failure. |
+| `run_errors` | Controlled failures not assignable to a classified input. |
+| `interrupted` | `1` when a recorded run failure represents interruption; otherwise `0`. |
+| `examined` | Inputs assigned exactly one terminal outcome. |
+| `duration` | Non-negative elapsed run time in seconds. |
+
+All fields except `duration` are non-negative decimal integers. A valid summary
+obeys these identities:
+
+```text
+total = jpeg_total
+examined = scrubbed + duplicates_handled + unsupported + planned + previewed + skipped + failed
+jpeg_total = scrubbed + duplicates_handled + planned + previewed + skipped + failed
+verified_duplicates = duplicates_deleted + duplicates_moved + duplicates_unchanged + duplicates_missing
+errors = failed + run_errors
+```
+
+`published` and `verified_duplicates` are facts rather than terminal outcomes.
+For example, a successfully published output followed by failed source archival
+has `failed=1` and `published=1`, not `scrubbed=1`. Classification follows the
+filename extension: a `.png` is unsupported, while invalid content named `.jpg`
+or `.jpeg` is a processing failure.
 
 ---
 Scrub named files, they are saved in a specified directory using the `-o` option
@@ -183,12 +233,19 @@ VERSION=latest; docker run -it --rm \
 📊 Summary:
   Total JPEGs found        : 2
   Successfully scrubbed    : 2
-  Skipped (unstable/temp)  : 0
+  Duplicates handled       : 0
+  Dry-run plans            : 0
+  Previews completed       : 0
+  Skipped                  : 0
+  Failed inputs            : 0
+  Run errors               : 0
   Errors                   : 0
   Unsupported files        : 0
+  Outputs published        : 2
+  Verified duplicates      : 0
   Files examined           : 2
   Duration                 : 0.49s
-SCRUBEXIF_SUMMARY total=2 scrubbed=2 skipped=0 errors=0 duplicates_deleted=0 duplicates_moved=0 unsupported=0 examined=2 duration=0.485
+SCRUBEXIF_SUMMARY schema=2 total=2 jpeg_total=2 scrubbed=2 duplicates_handled=0 unsupported=0 planned=0 previewed=0 skipped=0 failed=0 errors=0 verified_duplicates=0 duplicates_deleted=0 duplicates_moved=0 duplicates_unchanged=0 duplicates_missing=0 published=2 run_errors=0 interrupted=0 examined=2 duration=0.485
 ```
 
 ---
@@ -820,7 +877,7 @@ This script:
 - runs scrubexif in **auto mode** (`--from-input`)
 - uses the hardened Docker flags recommended in this document
 - parses the machine-readable `SCRUBEXIF_SUMMARY` line
-- **only triggers PhotoPrism indexing when new files were actually scrubbed**
+- **only triggers PhotoPrism indexing when new audited outputs were published**
 - prevents overlapping runs through a lock file
 - allows users to quickly integrate scrubexif into an existing SOOC → scrubbed → PhotoPrism pipeline
 

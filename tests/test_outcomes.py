@@ -788,7 +788,6 @@ def test_run_report_run_failure_does_not_change_file_totals() -> None:
     assert report.failed == 0
     assert report.run_errors == 1
     assert report.errors == 1
-    assert report.legacy_counts()["errors"] == 1
 
 
 def test_run_report_interrupted_failure_sets_interrupted_fact() -> None:

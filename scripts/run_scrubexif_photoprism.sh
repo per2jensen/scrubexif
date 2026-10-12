@@ -4,12 +4,53 @@
 # Example integration script:
 # - runs scrubexif in auto mode (--from-input)
 # - parses SCRUBEXIF_SUMMARY from stdout
-# - only triggers PhotoPrism index when new files were scrubbed
+# - only triggers PhotoPrism index when new audited outputs were published
 #
 # Place this in scripts/run_scrubexif_photoprism.sh (or similar)
 # and adjust INPUT_DIR / OUTPUT_DIR / PROCESSED_DIR for your setup.
 
 set -euo pipefail
+
+parse_schema_two_summary() {
+  local summary_line="${1:-}"
+
+  [[ "${summary_line}" == "SCRUBEXIF_SUMMARY schema=2 "* ]] || return 2
+  awk '
+    BEGIN {
+      field_names = "schema total jpeg_total scrubbed duplicates_handled unsupported planned previewed skipped failed errors verified_duplicates duplicates_deleted duplicates_moved duplicates_unchanged duplicates_missing published run_errors interrupted examined duration"
+      count_names = "total jpeg_total scrubbed duplicates_handled unsupported planned previewed skipped failed errors verified_duplicates duplicates_deleted duplicates_moved duplicates_unchanged duplicates_missing published run_errors interrupted examined"
+      field_count = split(field_names, fields, " ")
+      count_count = split(count_names, counts, " ")
+      for (i = 1; i <= field_count; i++) required[fields[i]] = 1
+    }
+    {
+      if ($1 != "SCRUBEXIF_SUMMARY" || $2 != "schema=2") exit 1
+      for (i = 2; i <= NF; i++) {
+        if (split($i, pair, "=") != 2) exit 1
+        if (!(pair[1] in required) || seen[pair[1]]++) exit 1
+        value[pair[1]] = pair[2]
+      }
+      for (name in required) if (!(name in seen)) exit 1
+      for (i = 1; i <= count_count; i++) {
+        name = counts[i]
+        if (value[name] !~ /^[0-9][0-9]*$/) exit 1
+      }
+      if (value["duration"] !~ /^[0-9][0-9]*([.][0-9][0-9]*)?$/) exit 1
+      if (value["total"] != value["jpeg_total"]) exit 1
+      terminal = value["scrubbed"] + value["duplicates_handled"] + value["planned"] + value["previewed"] + value["skipped"] + value["failed"]
+      if (value["jpeg_total"] != terminal) exit 1
+      if (value["examined"] != terminal + value["unsupported"]) exit 1
+      duplicate_facts = value["duplicates_deleted"] + value["duplicates_moved"] + value["duplicates_unchanged"] + value["duplicates_missing"]
+      if (value["verified_duplicates"] != duplicate_facts) exit 1
+      if (value["duplicates_handled"] > value["verified_duplicates"]) exit 1
+      if (value["errors"] != value["failed"] + value["run_errors"]) exit 1
+      if (value["published"] > value["scrubbed"] + value["failed"]) exit 1
+      if (value["interrupted"] != 0 && value["interrupted"] != 1) exit 1
+      if (value["interrupted"] == 1 && value["run_errors"] == 0) exit 1
+      print value["published"], value["errors"], value["interrupted"]
+    }
+  ' <<< "${summary_line}"
+}
 
 # ------------------------------------------------------------
 # Config: adjust these for your environment
@@ -65,6 +106,7 @@ touch "$LOCKFILE"
 
 echo "🚀 Running scrubexif in auto mode from '$INPUT_DIR' -> '$OUTPUT_DIR'"
 
+set +e
 scrub_output="$(
   docker run --rm \
     --read-only --security-opt no-new-privileges \
@@ -79,11 +121,12 @@ scrub_output="$(
     2>&1
 )"
 scrub_rc=$?
+set -e
 
 # Always emit scrubexif output into the journal / logs
 echo "$scrub_output"
 
-if [ "$scrub_rc" -ne 0 ]; then
+if [ "$scrub_rc" -ne 0 ] && [ "$scrub_rc" -ne 1 ]; then
   echo "❌ scrubexif container failed with rc=$scrub_rc, skipping PhotoPrism index"
   exit "$scrub_rc"
 fi
@@ -92,71 +135,45 @@ fi
 # Parse SCRUBEXIF_SUMMARY line from stdout
 # ------------------------------------------------------------
 
-summary_line="$(
-  printf '%s\n' "$scrub_output" | awk '
-    /^SCRUBEXIF_SUMMARY / { line=$0 }
-    END { if (length(line) > 0) print line }
-  '
-)"
+mapfile -t summary_lines < <(printf '%s\n' "$scrub_output" | grep '^SCRUBEXIF_SUMMARY ' || true)
+if [ "${#summary_lines[@]}" -ne 1 ]; then
+  echo "❌ Expected exactly one SCRUBEXIF_SUMMARY line, got ${#summary_lines[@]}" >&2
+  exit 1
+fi
+summary_line="${summary_lines[0]}"
+if [[ "$summary_line" != "SCRUBEXIF_SUMMARY schema=2 "* ]]; then
+  echo "❌ Unsupported scrubexif summary schema; expected schema=2" >&2
+  exit 1
+fi
+if ! parsed_summary="$(parse_schema_two_summary "$summary_line")"; then
+  echo "❌ Invalid or inconsistent schema=2 scrubexif summary" >&2
+  exit 1
+fi
+read -r published errors interrupted <<< "$parsed_summary"
 
-if [ -z "$summary_line" ]; then
-  echo "⚠️ SCRUBEXIF_SUMMARY line not found in scrubexif output, skipping PhotoPrism index"
-  exit 0
+if [ "$scrub_rc" -eq 0 ] && { [ "$errors" -ne 0 ] || [ "$interrupted" -ne 0 ]; }; then
+  echo "❌ Inconsistent scrubexif exit status and summary" >&2
+  exit 1
+fi
+if [ "$scrub_rc" -eq 1 ] && { [ "$errors" -eq 0 ] || [ "$interrupted" -ne 0 ]; }; then
+  echo "❌ Inconsistent scrubexif exit status and summary" >&2
+  exit 1
 fi
 
-# Extract scrubbed= and errors= fields
-scrubbed="$(
-  printf '%s\n' "$summary_line" | awk '
-    {
-      for (i = 1; i <= NF; i++) {
-        if ($i ~ /^scrubbed=/) {
-          split($i, a, "="); print a[2]; exit
-        }
-      }
-    }
-  '
-)"
-
-errors="$(
-  printf '%s\n' "$summary_line" | awk '
-    {
-      for (i = 1; i <= NF; i++) {
-        if ($i ~ /^errors=/) {
-          split($i, a, "="); print a[2]; exit
-        }
-      }
-    }
-  '
-)"
-
-# Defensive defaults
-scrubbed="${scrubbed:-0}"
-errors="${errors:-0}"
-
-# Ensure they are numeric
-if ! [[ "$scrubbed" =~ ^[0-9]+$ ]]; then
-  echo "⚠️ Could not parse scrubbed= value ('$scrubbed'), skipping PhotoPrism index"
-  exit 0
+if [ "$published" -eq 0 ]; then
+  echo "ℹ️ No newly published files (published=0), skipping PhotoPrism index"
+  exit "$scrub_rc"
 fi
 
-if ! [[ "$errors" =~ ^[0-9]+$ ]]; then
-  echo "⚠️ Could not parse errors= value ('$errors'), skipping PhotoPrism index"
-  exit 0
-fi
-
-if [ "$scrubbed" -eq 0 ]; then
-  echo "ℹ️ No newly scrubbed files (scrubbed=0), skipping PhotoPrism index"
-  exit 0
-fi
-
-if [ "$scrubbed" -gt 0 ] && [ "$errors" -gt 0 ]; then
-  echo "⚠️ Some files scrubbed ($scrubbed) but also errors ($errors); still running PhotoPrism index"
+if [ "$errors" -gt 0 ]; then
+  echo "⚠️ Published $published files but also encountered $errors errors; still running PhotoPrism index"
 fi
 
 # ------------------------------------------------------------
 # Trigger PhotoPrism import
 # ------------------------------------------------------------
 
-echo "📥 Triggering PhotoPrism import for $scrubbed newly scrubbed files..."
+echo "📥 Triggering PhotoPrism import for $published newly published files..."
 docker exec "$PHOTOPRISM_CONTAINER" photoprism index
+exit "$scrub_rc"
 

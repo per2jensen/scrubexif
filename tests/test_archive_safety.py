@@ -248,7 +248,7 @@ def test_auto_finalization_archive_failure_records_one_published_failure(
     assert summary.report.scrubbed == 0
     assert summary.report.published == 1
     assert summary.total == 1
-    assert summary.scrubbed == 1
+    assert summary.scrubbed == 0
     assert summary.errors == 1
 
 
