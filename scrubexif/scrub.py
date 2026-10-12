@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from types import MappingProxyType
-from typing import Optional
+from typing import NoReturn, Optional
 
 from .__about__ import __license__, __version__
 from .jpeg_audit import audit_jpeg, scrubbed_output_violations
@@ -36,7 +36,9 @@ from .outcomes import (
     InputClassification,
     OutcomeKind,
     ProcessingPhase,
+    RunFailure,
     RunReport,
+    RunReportValidationError,
     SourceDisposition,
     validate_reason_code,
 )
@@ -84,6 +86,59 @@ _SCRUB_RESULT_REASON_KINDS = MappingProxyType({
     "scrub_planned": OutcomeKind.PLANNED,
     "source_deletion_failed": OutcomeKind.FAILED,
 })
+
+
+class ControlledRunExit(SystemExit):
+    """Carry one validated operational failure to the CLI runner.
+
+    Args:
+        failure: Run-level failure that must be recorded before final reporting.
+
+    Raises:
+        ValueError: If failure is not a RunFailure.
+    """
+
+    def __init__(self, failure: RunFailure) -> None:
+        """Initialize a controlled nonzero exit.
+
+        Args:
+            failure: Run-level failure that must be recorded before reporting.
+
+        Raises:
+            ValueError: If failure is not a RunFailure.
+        """
+        if not isinstance(failure, RunFailure):
+            raise ValueError("failure must be a RunFailure")
+        self.failure = failure
+        super().__init__(1)
+
+
+def _abort_run(
+    reason_code: str,
+    phase: ProcessingPhase,
+    diagnostic: str,
+    *,
+    input_path: Path | None = None,
+) -> NoReturn:
+    """Report and raise one controlled operational failure.
+
+    Args:
+        reason_code: Stable machine-readable failure reason.
+        phase: Processing boundary where the failure occurred.
+        diagnostic: Human-readable failure context without an icon prefix.
+        input_path: Related path when one can be identified safely.
+
+    Raises:
+        ControlledRunExit: Always, carrying the validated run failure.
+    """
+    failure = RunFailure(
+        reason_code=reason_code,
+        phase=phase,
+        diagnostic=diagnostic,
+        input_path=input_path,
+    )
+    print(f"❌ {diagnostic}", file=sys.stderr)
+    raise ControlledRunExit(failure)
 
 
 @dataclass(frozen=True, slots=True)
@@ -721,6 +776,18 @@ def _is_forbidden_output_create_path(path: Path) -> bool:
 
 
 def resolve_output_dir(raw: Path) -> Path:
+    """Resolve and validate a requested output directory.
+
+    Args:
+        raw: Absolute output path or path relative to the photos root.
+
+    Returns:
+        Validated absolute or explicitly supplied output path.
+
+    Raises:
+        ControlledRunExit: If the path escapes the allowed root, is unsafe, or
+            conflicts with an existing non-directory entry.
+    """
     if raw.is_absolute():
         candidate = raw
     else:
@@ -728,21 +795,34 @@ def resolve_output_dir(raw: Path) -> Path:
         try:
             candidate.relative_to(PHOTOS_ROOT)
         except ValueError:
-            print(f"❌ Output path escapes allowed root {PHOTOS_ROOT}: {raw}", file=sys.stderr)
-            sys.exit(1)
+            _abort_run(
+                "output_path_escape",
+                ProcessingPhase.PREFLIGHT,
+                f"Output path escapes allowed root {PHOTOS_ROOT}: {raw}",
+                input_path=candidate,
+            )
 
     if candidate.is_symlink():
-        print(f"❌ Output directory is a symlink (not allowed): {candidate}", file=sys.stderr)
-        sys.exit(1)
-    if candidate.exists() and not candidate.is_dir():
-        print(f"❌ Output path is not a directory: {candidate}", file=sys.stderr)
-        sys.exit(1)
-    if not candidate.exists() and _is_forbidden_output_create_path(candidate):
-        print(
-            f"❌ Refusing to create output directory under system path: {candidate}",
-            file=sys.stderr
+        _abort_run(
+            "output_path_symlink",
+            ProcessingPhase.PREFLIGHT,
+            f"Output directory is a symlink (not allowed): {candidate}",
+            input_path=candidate,
         )
-        sys.exit(1)
+    if candidate.exists() and not candidate.is_dir():
+        _abort_run(
+            "output_path_not_directory",
+            ProcessingPhase.PREFLIGHT,
+            f"Output path is not a directory: {candidate}",
+            input_path=candidate,
+        )
+    if not candidate.exists() and _is_forbidden_output_create_path(candidate):
+        _abort_run(
+            "forbidden_output_path",
+            ProcessingPhase.PREFLIGHT,
+            f"Refusing to create output directory under system path: {candidate}",
+            input_path=candidate,
+        )
 
     return candidate
 
@@ -758,18 +838,30 @@ def check_dir_safety(path: Path, label: str) -> None:
         None.
 
     Raises:
-        SystemExit: If the path is missing, unsafe, or not writable.
+        ControlledRunExit: If the path is missing, unsafe, or not writable.
     """
     display_path = _format_path_with_host(path)
     if not path.exists():
-        print(f"❌ {label} directory does not exist: {display_path}")
-        sys.exit(1)
+        _abort_run(
+            "required_directory_missing",
+            ProcessingPhase.PREFLIGHT,
+            f"{label} directory does not exist: {display_path}",
+            input_path=path,
+        )
     if not path.is_dir():
-        print(f"❌ {label} path is not a directory: {display_path}")
-        sys.exit(1)
+        _abort_run(
+            "required_path_not_directory",
+            ProcessingPhase.PREFLIGHT,
+            f"{label} path is not a directory: {display_path}",
+            input_path=path,
+        )
     if path.is_symlink():
-        print(f"❌ {label} is a symbolic link (not allowed): {display_path}")
-        sys.exit(1)
+        _abort_run(
+            "required_directory_symlink",
+            ProcessingPhase.PREFLIGHT,
+            f"{label} is a symbolic link (not allowed): {display_path}",
+            input_path=path,
+        )
     try:
         with tempfile.NamedTemporaryFile(
             mode="w",
@@ -782,8 +874,12 @@ def check_dir_safety(path: Path, label: str) -> None:
             test_file.flush()
     except OSError as exc:
         log.error("Directory write probe failed for %s: %s", path, exc)
-        print(f"❌ {label} directory is not writable: {display_path}")
-        sys.exit(1)
+        _abort_run(
+            "required_directory_not_writable",
+            ProcessingPhase.PREFLIGHT,
+            f"{label} directory is not writable: {display_path}",
+            input_path=path,
+        )
 
 
 def _dirs_same(a: Path, b: Path) -> bool:
@@ -798,7 +894,18 @@ def _dirs_same(a: Path, b: Path) -> bool:
             return False
 
 
-def guard_auto_mode_dirs(on_duplicate: str):
+def guard_auto_mode_dirs(on_duplicate: str) -> None:
+    """Reject auto-mode directories that resolve to the same location.
+
+    Args:
+        on_duplicate: Active duplicate policy.
+
+    Returns:
+        None.
+
+    Raises:
+        ControlledRunExit: If directories required to be distinct overlap.
+    """
     pairs = [
         (INPUT_DIR, "input", OUTPUT_DIR, "output"),
         (INPUT_DIR, "input", PROCESSED_DIR, "processed"),
@@ -815,12 +922,14 @@ def guard_auto_mode_dirs(on_duplicate: str):
         if _dirs_same(left, right):
             left_path = _format_path_with_host(left)
             right_path = _format_path_with_host(right)
-            print(
-                f"❌ Auto mode requires distinct directories; {left_label} and {right_label} "
-                f"resolve to the same path ({left_path} == {right_path}).",
-                file=sys.stderr,
+            _abort_run(
+                "auto_directory_overlap",
+                ProcessingPhase.PREFLIGHT,
+                f"Auto mode requires distinct directories; {left_label} and "
+                f"{right_label} resolve to the same path "
+                f"({left_path} == {right_path}).",
+                input_path=left,
             )
-            sys.exit(1)
 
 
 # ----------------------------
@@ -1097,19 +1206,21 @@ def build_stamp_args(copyright_text: str | None,
 # ----------------------------
 
 def check_jpegtran() -> None:
-    """
-    Verify that jpegtran is available on PATH.
+    """Verify that jpegtran is available on PATH.
 
-    Exits with a clear error message if not found.
-    Install via: apt-get install libjpeg-turbo-progs
+    Returns:
+        None.
+
+    Raises:
+        ControlledRunExit: If jpegtran is unavailable.
     """
     if not shutil.which("jpegtran"):
-        print(
-            "❌ jpegtran not found on PATH. "
-            "Install libjpeg-turbo-progs (Debian/Ubuntu) or equivalent.",
-            file=sys.stderr,
+        _abort_run(
+            "jpegtran_missing",
+            ProcessingPhase.PREFLIGHT,
+            "jpegtran not found on PATH. Install libjpeg-turbo-progs "
+            "(Debian/Ubuntu) or equivalent.",
         )
-        sys.exit(1)
 
 
 def extract_wanted_tags(input_path: Path) -> dict[str, object]:
@@ -2674,7 +2785,7 @@ def _build_rename_plan_or_exit(
         Completed disk-backed rename plan.
 
     Raises:
-        SystemExit: If collision-safe planning cannot complete.
+        ControlledRunExit: If collision-safe planning cannot complete.
     """
     try:
         return build_rename_plan(
@@ -2685,8 +2796,13 @@ def _build_rename_plan_or_exit(
             limits,
         )
     except (OSError, RenamePlanningError, ValueError) as exc:
+        failure = RunFailure(
+            reason_code="rename_planning_failed",
+            phase=ProcessingPhase.PLANNING,
+            diagnostic=str(exc),
+        )
         print(f"❌ {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
+        raise ControlledRunExit(failure) from exc
 
 
 def _finalize_auto_result(
@@ -3143,16 +3259,27 @@ def simple_scrub(
     if not preview:
         if OUTPUT_DIR.exists():
             if not output_explicit:
-                print(f"⚠️ Output directory already exists: {_format_path_with_host(OUTPUT_DIR)}")
-                print("⚠️ Refusing to run in default safe mode. Remove it or use --clean-inline/--from-input.")
-                sys.exit(1)
+                _abort_run(
+                    "unexpected_existing_output_directory",
+                    ProcessingPhase.PREFLIGHT,
+                    "Output directory already exists: "
+                    f"{_format_path_with_host(OUTPUT_DIR)}. Refusing to run in "
+                    "default safe mode; remove it or use "
+                    "--clean-inline/--from-input.",
+                    input_path=OUTPUT_DIR,
+                )
             # output_explicit=True: user passed -o, pre-existing directory is intentional
         else:
             try:
                 OUTPUT_DIR.mkdir(parents=True, exist_ok=False)
-            except Exception as exc:
-                print(f"❌ Failed to create output directory {_format_path_with_host(OUTPUT_DIR)}: {exc}")
-                sys.exit(1)
+            except OSError as exc:
+                _abort_run(
+                    "output_directory_create_failed",
+                    ProcessingPhase.PREFLIGHT,
+                    "Failed to create output directory "
+                    f"{_format_path_with_host(OUTPUT_DIR)}: {exc}",
+                    input_path=OUTPUT_DIR,
+                )
 
         check_dir_safety(OUTPUT_DIR, "Output")
 
@@ -3318,22 +3445,38 @@ def resolve_cli_path(raw: Path) -> Path:
     """
     candidate = raw if raw.is_absolute() else PHOTOS_ROOT / raw
     if candidate.is_symlink():
-        print(f"❌ Symlinks are not allowed: {candidate}", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "input_path_symlink",
+            ProcessingPhase.PREFLIGHT,
+            f"Symlinks are not allowed: {candidate}",
+            input_path=candidate,
+        )
     try:
-        resolved = candidate.resolve()
+        resolved = candidate.resolve(strict=True)
     except FileNotFoundError:
-        print(f"❌ Path does not exist: {candidate}", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "input_path_missing",
+            ProcessingPhase.PREFLIGHT,
+            f"Path does not exist: {candidate}",
+            input_path=candidate,
+        )
     except OSError as e:
-        print(f"❌ Failed to resolve path {raw}: {e}", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "input_path_resolution_failed",
+            ProcessingPhase.PREFLIGHT,
+            f"Failed to resolve path {raw}: {e}",
+            input_path=candidate,
+        )
 
     try:
         resolved.relative_to(PHOTOS_ROOT)
     except ValueError:
-        print(f"❌ Path escapes allowed root {PHOTOS_ROOT}: {raw}", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "input_path_escape",
+            ProcessingPhase.PREFLIGHT,
+            f"Path escapes allowed root {PHOTOS_ROOT}: {raw}",
+            input_path=resolved,
+        )
     return resolved
 
 
@@ -3608,41 +3751,180 @@ def manual_scrub(
 # Root guard
 # ----------------------------
 
-def require_force_for_root():
+def require_force_for_root() -> None:
+    """Reject root execution unless the explicit override is enabled.
+
+    Returns:
+        None.
+
+    Raises:
+        ControlledRunExit: If root execution was not explicitly authorized.
+    """
     if os.geteuid() == 0 and os.environ.get("ALLOW_ROOT") != "1":
-        print("❌ Running as root is not allowed unless ALLOW_ROOT=1 is set.", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "root_execution_not_allowed",
+            ProcessingPhase.PREFLIGHT,
+            "Running as root is not allowed unless ALLOW_ROOT=1 is set.",
+        )
 
 
 # ----------------------------
 # CLI
 # ----------------------------
 
+def _emit_final_summary(summary: ScrubSummary) -> bool:
+    """Validate and emit exactly one final report representation.
+
+    Args:
+        summary: Invocation summary owned by the runner.
+
+    Returns:
+        True when the normal summary was valid and emitted; otherwise False.
+    """
+    if not isinstance(summary, ScrubSummary):
+        raise ValueError("summary must be a ScrubSummary")
+    try:
+        summary.report.validate()
+    except RunReportValidationError as exc:
+        print(f"❌ Summary validation failed: {exc}", file=sys.stderr)
+        print("SCRUBEXIF_SUMMARY_ERROR reason=summary_validation_failed")
+        return False
+    summary.print()
+    return True
+
+
+def _execute_operational_run(
+    args: argparse.Namespace,
+    summary: ScrubSummary,
+) -> int:
+    """Execute one operational invocation and own its final report.
+
+    Args:
+        args: Parsed operational command-line arguments.
+        summary: Fresh invocation summary created by the runner.
+
+    Returns:
+        Zero on complete success, 130 on interruption, and one on any other
+        recorded or summary-validation failure.
+
+    Raises:
+        Exception: Re-raises unexpected defects after recording and reporting
+            the aborted run.
+        ValueError: If an entry argument has the wrong type.
+    """
+    if not isinstance(args, argparse.Namespace):
+        raise ValueError("args must be an argparse.Namespace")
+    if not isinstance(summary, ScrubSummary):
+        raise ValueError("summary must be a ScrubSummary")
+
+    try:
+        _run_inner(args, summary)
+    except ControlledRunExit as exc:
+        summary.report.record_run_failure(exc.failure)
+    except KeyboardInterrupt:
+        diagnostic = "Run interrupted by the user"
+        print(f"❌ {diagnostic}", file=sys.stderr)
+        summary.report.record_run_failure(
+            RunFailure(
+                reason_code="run_interrupted",
+                phase=ProcessingPhase.SCRUB,
+                diagnostic=diagnostic,
+                interrupted=True,
+            )
+        )
+    except SystemExit as exc:
+        status = exc.code if isinstance(exc.code, int) else 1
+        diagnostic = (
+            "Operational component exited without a typed failure "
+            f"(status={status})"
+        )
+        print(f"❌ {diagnostic}", file=sys.stderr)
+        summary.report.record_run_failure(
+            RunFailure(
+                reason_code="untyped_operational_exit",
+                phase=ProcessingPhase.PREFLIGHT,
+                diagnostic=diagnostic,
+            )
+        )
+    except Exception as exc:
+        diagnostic = f"Unexpected {type(exc).__name__}: {exc}"
+        log.exception("Unexpected operational failure: %s", exc)
+        print(f"❌ {diagnostic}", file=sys.stderr)
+        summary.report.record_run_failure(
+            RunFailure(
+                reason_code="unexpected_operational_failure",
+                phase=ProcessingPhase.SCRUB,
+                diagnostic=diagnostic,
+            )
+        )
+        _emit_final_summary(summary)
+        raise
+
+    if not _emit_final_summary(summary):
+        return 1
+    if summary.report.interrupted:
+        return 130
+    return 1 if summary.report.errors else 0
+
+
 def _run(args: argparse.Namespace) -> int:
-    if args.version:
-        return _run_inner(args)
-    if args.quiet:
-        args.log_level = "crit"
-        args.debug = False
-        stdout_buffer = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(stdout_buffer):
-                exit_code = _run_inner(args)
-        except SystemExit as exc:
-            exit_code = exc.code if isinstance(exc.code, int) else 1
-        except Exception:
-            sys.stderr.write(stdout_buffer.getvalue())
-            raise
-        if exit_code != 0:
-            sys.stderr.write(stdout_buffer.getvalue())
-        return exit_code
-    return _run_inner(args)
+    """Run parsed CLI arguments with reporting and quiet-mode guarantees.
 
+    Args:
+        args: Parsed command-line arguments.
 
-def _run_inner(args: argparse.Namespace) -> int:
+    Returns:
+        Process exit status for the invocation.
+
+    Raises:
+        Exception: Re-raises unexpected operational defects after reporting.
+        ValueError: If args is not an argparse.Namespace.
+    """
+    if not isinstance(args, argparse.Namespace):
+        raise ValueError("args must be an argparse.Namespace")
     if args.version:
         show_version()
         return 0
+
+    summary = ScrubSummary()
+    if not args.quiet:
+        return _execute_operational_run(args, summary)
+
+    args.log_level = "crit"
+    args.debug = False
+    output_buffer = io.StringIO()
+    try:
+        with (
+            contextlib.redirect_stdout(output_buffer),
+            contextlib.redirect_stderr(output_buffer),
+        ):
+            exit_code = _execute_operational_run(args, summary)
+    except Exception:
+        sys.stderr.write(output_buffer.getvalue())
+        raise
+    if exit_code != 0:
+        sys.stderr.write(output_buffer.getvalue())
+    return exit_code
+
+
+def _run_inner(args: argparse.Namespace, summary: ScrubSummary) -> None:
+    """Perform one invocation without owning final reporting or exit status.
+
+    Args:
+        args: Parsed operational command-line arguments.
+        summary: Invocation summary owned by the outer runner.
+
+    Returns:
+        None.
+
+    Raises:
+        ControlledRunExit: If a controlled operational failure occurs.
+        ValueError: If an entry argument has the wrong type.
+    """
+    if not isinstance(args, argparse.Namespace):
+        raise ValueError("args must be an argparse.Namespace")
+    if not isinstance(summary, ScrubSummary):
+        raise ValueError("summary must be a ScrubSummary")
 
     require_force_for_root()
     global log
@@ -3694,7 +3976,15 @@ def _run_inner(args: argparse.Namespace) -> int:
     if rename_format is None and args.paranoia:
         rename_format = "%r8"
     if rename_format is not None:
-        validate_rename_format(rename_format)  # raises SystemExit on any violation
+        try:
+            validate_rename_format(rename_format)
+        except SystemExit as exc:
+            failure = RunFailure(
+                reason_code="invalid_rename_format",
+                phase=ProcessingPhase.PREFLIGHT,
+                diagnostic="Rename format validation failed",
+            )
+            raise ControlledRunExit(failure) from exc
     rename_counter: dict[str, int] = {"n": 0}
     rename_plan_limits = RenamePlanLimits(
         max_files=args.rename_plan_max_files,
@@ -3704,26 +3994,38 @@ def _run_inner(args: argparse.Namespace) -> int:
 
     # --paranoia removes all metadata; --copyright and --comment are incompatible.
     if args.paranoia and (args.copyright or args.comment):
-        print(
-            "❌ --paranoia removes all metadata. "
-            "--copyright and --comment cannot be combined with --paranoia.",
-            file=sys.stderr,
+        _abort_run(
+            "invalid_option_combination",
+            ProcessingPhase.PREFLIGHT,
+            "--paranoia removes all metadata. --copyright and --comment "
+            "cannot be combined with --paranoia.",
         )
-        sys.exit(1)
 
     # Mode sanity checks
     if args.clean_inline and args.from_input:
-        print("❌ --clean-inline and --from-input cannot be used together.", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "invalid_option_combination",
+            ProcessingPhase.PREFLIGHT,
+            "--clean-inline and --from-input cannot be used together.",
+        )
     if args.output and args.clean_inline:
-        print("❌ --output cannot be used with --clean-inline.", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "invalid_option_combination",
+            ProcessingPhase.PREFLIGHT,
+            "--output cannot be used with --clean-inline.",
+        )
     if args.output and args.from_input:
-        print("❌ --output cannot be used with --from-input.", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "invalid_option_combination",
+            ProcessingPhase.PREFLIGHT,
+            "--output cannot be used with --from-input.",
+        )
     if args.preview and args.from_input:
-        print("❌ --preview cannot be used with --from-input auto mode.", file=sys.stderr)
-        sys.exit(1)
+        _abort_run(
+            "invalid_option_combination",
+            ProcessingPhase.PREFLIGHT,
+            "--preview cannot be used with --from-input auto mode.",
+        )
 
     if args.output:
         OUTPUT_DIR = resolve_output_dir(args.output)
@@ -3734,8 +4036,6 @@ def _run_inner(args: argparse.Namespace) -> int:
         print("🔎 [INFO] State disabled: using mtime-only stability.")
     else:
         print(f"🔎 [INFO] State path: {STATE_FILE}")
-
-    summary = ScrubSummary()
 
     if args.preview:
         if args.show_tags is None:
@@ -3798,8 +4098,7 @@ def _run_inner(args: argparse.Namespace) -> int:
             explicit_files=resolved_explicit,
         )
 
-    summary.print()
-    return 1 if summary.errors else 0
+    return None
 
 
 def _positive_integer(raw_value: str) -> int:

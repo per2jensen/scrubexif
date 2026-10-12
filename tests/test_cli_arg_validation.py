@@ -2,8 +2,8 @@
 """
 Tests for CLI argument-combination validation in scrub.main().
 
-Each documented constraint has both a negative test (invalid combo → rejected
-with SystemExit and a clear message) and a positive test (valid usage →
+Each documented constraint has both a negative test (invalid combo → nonzero
+status, final summary, and a clear message) and a positive test (valid usage →
 argument validation passes, mode function is reached).
 """
 
@@ -188,13 +188,14 @@ def test_preview_with_auto_mode_is_rejected(
     Returns:
         None.
     """
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main(["--preview", "--from-input"])
+    exit_code = scrub.main(["--preview", "--from-input"])
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code == 1
+    assert exit_code == 1
     assert "--preview cannot be used with --from-input auto mode" in (
-        capsys.readouterr().err
+        captured.err
     )
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -205,11 +206,12 @@ def test_clean_inline_and_from_input_rejected(monkeypatch, capsys):
     """--clean-inline combined with --from-input must exit with an error."""
     monkeypatch.setattr(sys, "argv", ["scrub", "--clean-inline", "--from-input"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "--clean-inline and --from-input cannot be used together" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "--clean-inline and --from-input cannot be used together" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_from_input_without_clean_inline_accepted(tmp_path, monkeypatch):
@@ -241,11 +243,12 @@ def test_output_with_clean_inline_rejected(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv",
                         ["scrub", "--output", str(tmp_path / "out"), "--clean-inline"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "--output cannot be used with --clean-inline" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "--output cannot be used with --clean-inline" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_output_without_clean_inline_accepted(tmp_path, monkeypatch):
@@ -276,11 +279,12 @@ def test_output_with_from_input_rejected(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv",
                         ["scrub", "--output", str(tmp_path / "out"), "--from-input"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "--output cannot be used with --from-input" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "--output cannot be used with --from-input" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_from_input_without_output_accepted(tmp_path, monkeypatch):
@@ -314,11 +318,12 @@ def test_paranoia_with_copyright_rejected(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv",
                         ["scrub", "--clean-inline", "--paranoia", "--copyright", "ACME"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "cannot be combined with --paranoia" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "cannot be combined with --paranoia" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_paranoia_with_comment_rejected(monkeypatch, capsys):
@@ -326,11 +331,12 @@ def test_paranoia_with_comment_rejected(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv",
                         ["scrub", "--clean-inline", "--paranoia", "--comment", "private"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "cannot be combined with --paranoia" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "cannot be combined with --paranoia" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_paranoia_with_copyright_and_comment_rejected(monkeypatch, capsys):
@@ -339,11 +345,12 @@ def test_paranoia_with_copyright_and_comment_rejected(monkeypatch, capsys):
                         ["scrub", "--clean-inline", "--paranoia",
                          "--copyright", "ACME", "--comment", "private"])
 
-    with pytest.raises(SystemExit) as exc_info:
-        scrub.main()
+    exit_code = scrub.main()
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
-    assert "cannot be combined with --paranoia" in capsys.readouterr().err
+    assert exit_code == 1
+    assert "cannot be combined with --paranoia" in captured.err
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_paranoia_alone_accepted_and_forwarded(tmp_path, monkeypatch):

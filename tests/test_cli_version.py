@@ -27,6 +27,7 @@ def test_version_prints_exact_about_values(
     assert exit_code == 0
     assert captured.out == EXPECTED_OUTPUT
     assert captured.err == ""
+    assert "SCRUBEXIF_SUMMARY" not in captured.out
 
 
 def test_version_is_not_suppressed_by_quiet_mode(
@@ -39,6 +40,7 @@ def test_version_is_not_suppressed_by_quiet_mode(
     assert exit_code == 0
     assert captured.out == EXPECTED_OUTPUT
     assert captured.err == ""
+    assert "SCRUBEXIF_SUMMARY" not in captured.out
 
 
 def test_version_ignores_unusable_runtime_state_path(tmp_path: Path) -> None:

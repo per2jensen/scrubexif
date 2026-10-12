@@ -170,7 +170,7 @@ def test_default_mode_warns_and_exits_when_output_exists(tmp_path, monkeypatch, 
 
     assert excinfo.value.code == 1
     captured = capsys.readouterr()
-    assert "Output directory already exists" in captured.out
+    assert "Output directory already exists" in captured.err
 
 
 def test_default_mode_refuses_preexisting_output_when_not_explicit(tmp_path, monkeypatch, capsys):
@@ -183,7 +183,7 @@ def test_default_mode_refuses_preexisting_output_when_not_explicit(tmp_path, mon
         scrub.simple_scrub(summary=summary, output_explicit=False)
 
     assert excinfo.value.code == 1
-    assert "Output directory already exists" in capsys.readouterr().out
+    assert "Output directory already exists" in capsys.readouterr().err
 
 
 def test_explicit_output_accepts_preexisting_directory(tmp_path, monkeypatch):

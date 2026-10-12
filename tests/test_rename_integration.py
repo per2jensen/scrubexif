@@ -265,15 +265,27 @@ def test_explicit_rename_overrides_paranoia_via_cli(tmp_path: Path, monkeypatch)
 
 
 @pytest.mark.integration
-def test_invalid_format_exits_before_scrub(tmp_path: Path, monkeypatch) -> None:
+def test_invalid_format_exits_before_scrub(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Invalid rename syntax reports once without publishing output.
+
+    Args:
+        tmp_path: Isolated filesystem root.
+        monkeypatch: Pytest fixture used to install the isolated root.
+        capsys: Pytest output capture fixture.
+    """
     input_dir, output_dir, _ = _setup_auto_env(tmp_path, monkeypatch)
     shutil.copy(FIXTURE_WITH_EXIF, input_dir / "photo.jpg")
 
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--from-input", "--rename", "%H%M"])
+    exit_code = main(["--from-input", "--rename", "%H%M"])
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code != 0
+    assert exit_code == 1
     assert list(output_dir.iterdir()) == []
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -387,8 +399,15 @@ def test_clean_inline_cli_random_collision_rerolls_without_overwrite(
 def test_clean_inline_cli_unresolved_collision_aborts_before_scrub(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Exhausted random retries leave both source and destination unchanged."""
+    """Exhausted retries report once and leave both paths unchanged.
+
+    Args:
+        tmp_path: Isolated filesystem root.
+        monkeypatch: Pytest fixture used for deterministic entropy failure.
+        capsys: Pytest output capture fixture.
+    """
     src = tmp_path / "photo.jpg"
     shutil.copy(FIXTURE_WITH_EXIF, src)
     source_bytes = src.read_bytes()
@@ -402,20 +421,28 @@ def test_clean_inline_cli_unresolved_collision_aborts_before_scrub(
         lambda _format, _source, _counter: "taken",
     )
 
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--clean-inline", "--rename", "%r5", str(src)])
+    exit_code = main(["--clean-inline", "--rename", "%r5", str(src)])
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code == 1
+    assert exit_code == 1
     assert src.read_bytes() == source_bytes
     assert occupied.read_bytes() == b"do-not-overwrite"
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 @pytest.mark.integration
 def test_clean_inline_cli_batch_collision_aborts_before_any_scrub(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A deterministic batch collision cannot leave a partially renamed batch."""
+    """A batch collision reports once without partially renaming the batch.
+
+    Args:
+        tmp_path: Isolated filesystem root.
+        monkeypatch: Pytest fixture used to install the isolated root.
+        capsys: Pytest output capture fixture.
+    """
     sources = [tmp_path / "one.jpg", tmp_path / "two.jpg"]
     for source in sources:
         shutil.copy(FIXTURE_WITH_EXIF, source)
@@ -423,12 +450,15 @@ def test_clean_inline_cli_batch_collision_aborts_before_any_scrub(
 
     monkeypatch.setattr(scrub, "PHOTOS_ROOT", tmp_path)
 
-    with pytest.raises(SystemExit) as exc_info:
-        main(["--clean-inline", "--rename", "fixed", *map(str, sources)])
+    exit_code = main(
+        ["--clean-inline", "--rename", "fixed", *map(str, sources)]
+    )
+    captured = capsys.readouterr()
 
-    assert exc_info.value.code == 1
+    assert exit_code == 1
     assert {source: source.read_bytes() for source in sources} == original_bytes
     assert not (tmp_path / "fixed.jpg").exists()
+    assert captured.out.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 @pytest.mark.integration

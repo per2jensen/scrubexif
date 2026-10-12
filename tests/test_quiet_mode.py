@@ -49,6 +49,7 @@ def test_quiet_second_run_emits_errors_to_stderr(tmp_path, monkeypatch, capsys):
     assert exit_code != 0
     assert captured.out == ""
     assert "Output directory already exists" in captured.err
+    assert captured.err.count("SCRUBEXIF_SUMMARY ") == 1
 
 
 def test_quiet_scrub_failure_returns_nonzero_and_replays_diagnostics(
@@ -70,6 +71,7 @@ def test_quiet_scrub_failure_returns_nonzero_and_replays_diagnostics(
     assert captured.out == ""
     assert "Failed to scrub" in captured.err
     assert "Errors" in captured.err
+    assert captured.err.count("SCRUBEXIF_SUMMARY ") == 1
     assert corrupt.read_bytes() == b"not-a-jpeg"
 
 

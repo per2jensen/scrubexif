@@ -35,6 +35,7 @@ class InputClassification(str, Enum):
 class ProcessingPhase(str, Enum):
     """Identify the processing boundary at which a result became final."""
 
+    PREFLIGHT = "preflight"
     DISCOVERY = "discovery"
     PLANNING = "planning"
     SCRUB = "scrub"
@@ -471,12 +472,19 @@ class RunReport:
         Args:
             failure: Validated immutable run-level failure.
 
+        Returns:
+            None.
+
         Raises:
             ValueError: If failure is not a RunFailure.
         """
         if not isinstance(failure, RunFailure):
             raise ValueError("failure must be a RunFailure")
         self._run_errors += 1
+        # Schema 1 has no run_errors field. Project the failure into its
+        # existing aggregate so controlled preflight failures cannot print a
+        # misleading successful summary before the schema-2 migration.
+        self._legacy_counts["errors"] += 1
         self._interrupted = self._interrupted or failure.interrupted
 
     @property

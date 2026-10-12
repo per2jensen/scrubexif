@@ -24,6 +24,8 @@
 - Preview now scrubs and audits every in-scope JPEG in disposable storage in
   either default safe or clean-inline mode, honors `--max-files`, reports
   planned destinations, and remains unavailable in auto mode.
+- Final report validation, emission, and exit-status calculation now occur at
+  one runner boundary for successful and controlled failing operational runs.
 
 ## 0.7.28 - 2026-10-10
 
