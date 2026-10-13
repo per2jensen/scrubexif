@@ -38,10 +38,17 @@ It removes most embedded EXIF, IPTC, and XMP data while preserving useful tags l
   - [Quick Start](#quick-start)
     - [Build \& Run Locally](#build--run-locally)
     - [Default safe mode (copy)](#default-safe-mode-copy)
-    - [Clean-inline mode (`--clean-inline`)](#clean-inline-mode---clean-inline)
-    - [Auto mode (`--from-input`)](#auto-mode---from-input)
-      - [Example](#example)
-      - [Duplicate Handling](#duplicate-handling)
+    - [Machine-readable summary schema 2](#machine-readable-summary-schema-2)
+  - [Output scrubbed jpegs to a dir/](#output-scrubbed-jpegs-to-a-dir)
+    - [Repeating a run with `-o`](#repeating-a-run-with--o)
+    - [Recursively scrub nested folders](#recursively-scrub-nested-folders)
+  - [Clean-inline mode (`--clean-inline`)](#clean-inline-mode---clean-inline)
+    - [Manually scrub one or more `.jpg` / `.jpeg` files in-place (**destructive**).](#manually-scrub-one-or-more-jpg--jpeg-files-in-place-destructive)
+    - [Scrub all JPEGs **in-place** (**destructively**) in the current directory (`-v "$PWD:/photos"`).](#scrub-all-jpegs-in-place-destructively-in-the-current-directory--v-pwdphotos)
+    - [Scrub **in-place** (**destructively**) recursively current directory and nested directories:](#scrub-in-place-destructively-recursively-current-directory-and-nested-directories)
+  - [Auto mode (`--from-input`)](#auto-mode---from-input)
+    - [Example](#example)
+    - [Duplicate Handling](#duplicate-handling)
   - [Options](#options)
   - [Exit status](#exit-status)
   - [Environment variables](#environment-variables)
@@ -259,7 +266,7 @@ Example output from a schema-2 image (scrubexif 0.8.0 or newer):
 SCRUBEXIF_SUMMARY schema=2 total=2 jpeg_total=2 scrubbed=2 duplicates_handled=0 unsupported=0 planned=0 previewed=0 skipped=0 failed=0 errors=0 verified_duplicates=0 duplicates_deleted=0 duplicates_moved=0 duplicates_unchanged=0 duplicates_missing=0 published=2 run_errors=0 interrupted=0 examined=2 duration=0.485
 ```
 
----
+## Output scrubbed jpegs to a dir/
 
 Scrub all JPEGs in the current directory and write cleaned copies to `output/`.
 Originals are left untouched. This mode refuses to run if `output/` already exists.
@@ -279,11 +286,11 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION
 ```
 
----
-
 Scrub all JPEGs in the current directory and write cleaned copies to `specific-dir/`.
-Originals are left untouched. Providing `-o specific-dir` will make `scrubexif` create the
-directory and put scrubbed JPEGs there. Existing files will not be overwritten.
+Originals are left untouched. Providing `-o specific-dir` makes `scrubexif` use
+that directory, creating it if necessary. Unlike the implicit `output/`
+directory, an explicitly selected output directory may already exist. Existing
+files are never overwritten.
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -301,9 +308,41 @@ VERSION=0.7.28; docker run -it --rm \
   -o specific-dir
 ```
 
----
+### Repeating a run with `-o`
 
-Recursively scrub nested folders
+When output names are preserved, a later run checks each destination
+independently and continues through the batch:
+
+- If the destination filename is unused, scrubexif publishes the newly scrubbed
+  and audited file.
+- If the destination exists, scrubexif audits it, scrubs and audits the source
+  in temporary storage, and compares the two results by SHA-256. If they are
+  identical, both files remain unchanged, the input is counted as a handled
+  duplicate, and that file succeeds.
+- If the two scrubbed results differ, scrubexif reports a filename collision.
+  The original and existing output remain unchanged, that file fails, and the
+  completed run returns a nonzero status.
+- If the existing destination fails its privacy audit, is a symlink, or cannot
+  otherwise be accepted safely, scrubexif leaves both files unchanged and
+  reports a failure. Atomic no-overwrite publication also protects a
+  destination that appears while the source is being processed.
+
+For example, suppose a first run processes 100 JPEGs from `dir/` into
+`new_dir/`. Ten originals are then modified without changing their filenames.
+Running the same command again handles the 90 unchanged results as verified
+duplicates. If the ten modifications survive scrubbing, those files are
+reported as collisions: none of the 100 existing outputs are replaced, all
+originals remain untouched, and the run returns nonzero. A change only to
+metadata that scrubexif removes may produce an identical scrubbed result; such
+a file is handled as a duplicate instead of a collision.
+
+`--on-duplicate` controls auto mode (`--from-input`); it does not make `-o`
+replace files. There is currently no overwrite or replace-existing option.
+With `--rename` (including the random rename implied by `--paranoia`), repeat
+behavior follows the rename collision rules: random names may produce
+additional outputs, while an occupied deterministic name can abort planning.
+
+### Recursively scrub nested folders
 
 All scrubbed JPEGs, including files discovered in nested directories, are
 flattened into `$PWD/output/`.
@@ -323,9 +362,9 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --recursive
 ```
 
-### Clean-inline mode (`--clean-inline`)
+## Clean-inline mode (`--clean-inline`)
 
-Manually scrub one or more `.jpg` / `.jpeg` files in-place (destructive).
+### Manually scrub one or more `.jpg` / `.jpeg` files in-place (**destructive**).
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -342,9 +381,7 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --clean-inline "file1.jpg" "file2.jpeg"
 ```
 
----
-
-Scrub all JPEGs **in-place** (destructively) in the current directory (`-v "$PWD:/photos"`).
+### Scrub all JPEGs **in-place** (**destructively**) in the current directory (`-v "$PWD:/photos"`).
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -361,9 +398,7 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --clean-inline
 ```
 
----
-
-Scrub **in-place** (destructively) recursively current directory and nested directories:
+### Scrub **in-place** (**destructively**) recursively current directory and nested directories:
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -380,7 +415,7 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --clean-inline --recursive
 ```
 
-### Auto mode (`--from-input`)
+## Auto mode (`--from-input`)
 
 Scrubs everything in a predefined input directory and saves output to another — useful for batch processing.
 
@@ -400,7 +435,7 @@ source removed. If copying, publication, or source removal fails, scrubexif
 reports an error and retains at least the source; a source-removal failure may
 intentionally leave both safe copies.
 
-#### Example
+### Example
 
 ```bash
 RUN_AS_UID=${RUN_AS_UID:-$(id -u)}
@@ -420,7 +455,7 @@ VERSION=0.7.28; docker run -it --rm \
   per2jensen/scrubexif:$VERSION --from-input
 ```
 
-#### Duplicate Handling
+### Duplicate Handling
 
 The filename alone never establishes that an upload is a duplicate. When the
 destination name already exists, scrubexif first audits the existing output,
