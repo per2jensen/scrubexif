@@ -143,7 +143,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -237,7 +237,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -278,7 +278,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -299,7 +299,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -354,7 +354,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -373,7 +373,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -390,7 +390,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -407,7 +407,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -444,7 +444,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -488,7 +488,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --read-only --security-opt no-new-privileges \
+VERSION=0.8.0; docker run --read-only --security-opt no-new-privileges \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --tmpfs /tmp \
   -v "$PWD/input:/photos/input" \
@@ -599,7 +599,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -616,7 +616,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -633,7 +633,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -703,7 +703,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -717,7 +717,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -763,7 +763,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1011,7 +1011,7 @@ non-root UID explicitly. The following command demonstrates the default user
 without starting a photo-processing run:
 
 ```bash
-VERSION=0.7.28; docker run --rm --read-only \
+VERSION=0.8.0; docker run --rm --read-only \
   --security-opt no-new-privileges --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --version
 ```
@@ -1025,7 +1025,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1048,7 +1048,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     exit 1
 fi
 mkdir -p input output processed errors
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1122,7 +1122,7 @@ size; the signed registry attestation still contains the original SPDX JSON.
 Versioned image:
 
 ```bash
-VERSION=0.7.28; docker pull per2jensen/scrubexif:$VERSION
+VERSION=0.8.0; docker pull per2jensen/scrubexif:$VERSION
 ```
 
 Pull the movable `latest` image:
@@ -1145,7 +1145,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run -it --rm \
+VERSION=0.8.0; docker run -it --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1156,10 +1156,10 @@ VERSION=0.7.28; docker run -it --rm \
 🛠️ Show version and help
 
 ```bash
-VERSION=0.7.28; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.8.0; docker run --rm --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --version
-VERSION=0.7.28; docker run --rm --read-only --security-opt no-new-privileges \
+VERSION=0.8.0; docker run --rm --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
   per2jensen/scrubexif:$VERSION --help
 ```
@@ -1184,7 +1184,7 @@ if [ "$RUN_AS_UID" -eq 0 ]; then
     echo "Running as root is not allowed"
     exit 1
 fi
-VERSION=0.7.28; docker run --rm \
+VERSION=0.8.0; docker run --rm \
   --user "$RUN_AS_UID:$RUN_AS_GID" \
   --read-only --security-opt no-new-privileges \
   --tmpfs /tmp \
@@ -1198,13 +1198,13 @@ VERSION=0.7.28; docker run --rm \
 To view embedded labels and metadata:
 
 ```bash
-VERSION=0.7.28; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
+VERSION=0.8.0; docker inspect per2jensen/scrubexif:$VERSION | jq '.[0].Config.Labels'
 ```
 
 You can also check the digest and ID:
 
 ```bash
-VERSION=0.7.28; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
+VERSION=0.8.0; docker image inspect per2jensen/scrubexif:$VERSION --format '{{.RepoDigests}}'
 ```
 
 ## Image Signing and Supply Chain Verification
